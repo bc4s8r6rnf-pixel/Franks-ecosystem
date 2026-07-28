@@ -202,12 +202,16 @@ Default session windows (already set, in **NY time**):
 | `InpStopMode` | 2 | 0 = beyond 1.0 anchor, 1 = beyond 0.79 edge, **2 = behind the M1 confirmation swing (tightest sane)** |
 | `InpPendingExpiryBars` | 4 | Cancel an unfilled OTE limit after N setup bars (also cancels when the killzone closes) |
 | `InpMicroSwingLB` / `InpMicroSwingStr` | 25 / 2 | M1 lookback / fractal strength for the stop swing |
+| `InpMicroEntry` | true | **Sniper:** refine entry+stop to the M1 FVG inside the OTE (tightest) |
+| `InpMicroPad` | 0.0 | Extra pad (pips) around the OTE zone when hunting the M1 FVG |
 
-**How the entry actually fires:** OTE tap → confirmation → a **limit is placed at 0.705**.
-If price gives the pullback you're filled at the sweet spot with a tiny stop; if price is
-already displacing away, it **fills at market instead** so you never miss the runner. The
-stop sits just beyond the **M1 swing that made the confirmation** (+ buffer, + broker/spread
-floor) — small, but on real structure rather than the razor fib edge that gets hunted.
+**How the entry actually fires (tightest execution after confidence):** OTE tap →
+confirmation → the EA drops to **M1 and finds the FVG inside the OTE zone**. The limit
+rests at that **M1 imbalance edge** and the stop sits **just beyond the far edge of that
+M1 FVG** (+ buffer, + broker/spread floor) — the tightest *structural* stop available, a
+few pips on real micro-structure. If no clean M1 FVG is present it falls back to the
+**0.705 limit + M1-swing stop**; if price is already displacing away it **fills at market**
+so you never miss the runner. Set `InpMicroEntry = false` to always use the 0.705 limit.
 
 ### Bank-then-run management
 | Input | Default | Meaning |

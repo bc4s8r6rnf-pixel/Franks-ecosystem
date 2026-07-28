@@ -81,6 +81,8 @@ InpStopMode=2
 InpPendingExpiryBars=4
 InpMicroSwingLB=25
 InpMicroSwingStr=2
+InpMicroEntry=true
+InpMicroPad=1.0
 ; --- Standard-deviation projections ---
 InpUseSDProjection=true
 InpSDMultiples=0.5,1.0,1.5,2.0,2.5,3.0

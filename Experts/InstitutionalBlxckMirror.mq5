@@ -131,6 +131,8 @@ input int      InpStopMode           = 2;           // Stop placement (smallest 
 input int      InpPendingExpiryBars  = 4;           // Cancel unfilled OTE limit after N setup bars
 input int      InpMicroSwingLB        = 25;         // M1 bars scanned for the confirmation swing
 input int      InpMicroSwingStr       = 2;          // M1 fractal strength for the stop swing
+input bool     InpMicroEntry          = true;       // Sniper: refine entry+stop to the M1 FVG inside OTE
+input double   InpMicroPad            = 0.0;        // Extra pad (pips) around the OTE zone for the M1 FVG
 
 input group "=== Standard-deviation projections (Asian range) ==="
 input bool     InpUseSDProjection  = true;          // Project SD levels from the Asian range
@@ -859,6 +861,48 @@ double ComputeStop(int dir, double entry)
    return EnforceMinStop(dir, entry, s);
 }
 
+// Sniper refinement: nearest M1 FVG whose proximal edge sits inside the OTE zone,
+// in the trade direction. Entry = proximal edge; stop = just beyond the far edge.
+// Returns the tightest structural entry/stop available after confirmation.
+bool MicroEntryRefine(int dir, double zLo, double zHi, double &entryOut, double &slOut)
+{
+   MqlRates m[];
+   ArraySetAsSeries(m, true);
+   int cnt = InpMicroFvgScan + 3;
+   if(CopyRates(_Symbol, InpMicroTF, 0, cnt, m) < cnt) return false;
+
+   double pad = InpMicroPad * g_pip;
+   double lo  = zLo - pad, hi = zHi + pad;
+   double ref = (zLo + zHi) / 2.0;
+   double buf = g_pip * InpSlBufferPips;
+
+   bool   got = false;
+   double best = DBL_MAX, e = 0.0, s = 0.0;
+
+   for(int i = 0; i < cnt - 2; i++)
+   {
+      FVG f;
+      if(!FvgAt(m, i, f)) continue;
+
+      if(dir > 0 && f.dir == +1)          // bullish M1 FVG for a long
+      {
+         double prox = f.top;             // first edge price touches on the way down
+         if(prox < lo || prox > hi) continue;
+         double d = MathAbs(prox - ref);
+         if(d < best) { best = d; e = f.top; s = f.bottom - buf; got = true; }
+      }
+      else if(dir < 0 && f.dir == -1)     // bearish M1 FVG for a short
+      {
+         double prox = f.bottom;
+         if(prox < lo || prox > hi) continue;
+         double d = MathAbs(prox - ref);
+         if(d < best) { best = d; e = f.bottom; s = f.top + buf; got = true; }
+      }
+   }
+   if(got) { entryOut = e; slOut = EnforceMinStop(dir, e, s); }
+   return got;
+}
+
 // Cancel a resting OTE limit if it expires or the killzone closes.
 void ManagePendingOrder()
 {
@@ -959,6 +1003,16 @@ void EvaluateOTESetup()
 
    bool   useLimit = (InpEntryExec == 1);
    double desired  = useLimit ? OTEPrice(InpOTEEntryFib) : market;
+
+   // Sniper: after confidence, refine entry+stop to the M1 FVG inside the OTE zone.
+   bool   haveMicro = false;
+   double microEntry = 0.0, microSL = 0.0;
+   if(InpMicroEntry && MicroEntryRefine(dir, zLo, zHi, microEntry, microSL))
+   {
+      haveMicro = true;
+      if(useLimit) desired = microEntry;   // enter at the M1 imbalance edge
+   }
+
    // A limit is only valid on the correct side of the market; otherwise price is
    // already at/through the OTE, so take the (equal-or-better) market fill.
    if(useLimit)
@@ -968,8 +1022,11 @@ void EvaluateOTESetup()
    }
    double entryPrice = useLimit ? desired : market;
 
-   // ---- Tight structural stop + targets ----
-   double sl     = ComputeStop(dir, entryPrice);
+   // ---- Tightest structural stop + targets ----
+   // Micro-FVG stop only when we actually rest the limit at that FVG; a market
+   // fallback (price already through OTE) reverts to the M1-swing stop.
+   double sl     = (haveMicro && useLimit) ? EnforceMinStop(dir, entryPrice, microSL)
+                                           : ComputeStop(dir, entryPrice);
    double risk   = MathAbs(entryPrice - sl);
    if(risk <= 0.0) { ResetSetup(); return; }
 
