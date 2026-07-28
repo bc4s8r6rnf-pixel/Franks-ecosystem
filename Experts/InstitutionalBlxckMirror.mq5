@@ -117,21 +117,23 @@ input bool     InpUseOTEModel      = true;          // Use dynamic OTE model (el
 input double   InpOTELow            = 0.62;         // OTE zone near edge (fib)
 input double   InpOTEHigh           = 0.79;         // OTE zone far edge (fib)
 // Entry trigger: 0 = OTE tap only, 1 = OTE + (displacement OR IFVG), 2 = OTE + IFVG required
-input int      InpConfirmMode        = 1;           // OTE confirmation mode
+input int      InpConfirmMode        = 0;           // OTE confirmation mode (0 = tap IS the entry)
 input double   InpMinDisplaceLeg     = 1.0;         // Min displacement leg vs ATR to arm a setup
-input double   InpTP1_SD             = 2.0;         // TP1 standard-deviation level (partial here)
-input double   InpRunnerSD           = 3.0;         // Runner target standard-deviation level
+input double   InpFirstTP_SD         = 0.27;        // First partial at this SD level (~1:2)
+input string   InpFinalSDs           = "2.0,2.5,3.0"; // Final-target SD candidates (confluence-picked)
+input double   InpTP1_SD             = 2.0;         // Fallback final SD if none has confluence
+input double   InpRunnerSD           = 3.0;         // (reserved) legacy runner SD level
 
 input group "=== Execution & stop precision ==="
 // Entry: 0 = market on confirmation (guaranteed fill), 1 = limit at OTE (best price)
-input int      InpEntryExec         = 1;            // Entry execution style
-input double   InpOTEEntryFib        = 0.705;       // Fib level for the OTE limit (sweet spot)
+input int      InpEntryExec         = 0;            // 0 = market on tap (always filled), 1 = limit at OTE
+input double   InpOTEEntryFib        = 0.705;       // Fib level for the OTE limit (when InpEntryExec=1)
 // Stop: 0 = beyond 1.0 manip anchor (widest), 1 = beyond 0.79 OTE edge, 2 = M1 confirmation swing (tightest)
-input int      InpStopMode           = 2;           // Stop placement (smallest = 2)
+input int      InpStopMode           = 1;           // Stop placement (1 = behind 0.79, room + small risk)
 input int      InpPendingExpiryBars  = 4;           // Cancel unfilled OTE limit after N setup bars
 input int      InpMicroSwingLB        = 25;         // M1 bars scanned for the confirmation swing
 input int      InpMicroSwingStr       = 2;          // M1 fractal strength for the stop swing
-input bool     InpMicroEntry          = true;       // Sniper: refine entry+stop to the M1 FVG inside OTE
+input bool     InpMicroEntry          = false;      // Sniper: refine entry+stop to M1 FVG (for InpConfirmMode>=1)
 input double   InpMicroPad            = 0.0;        // Extra pad (pips) around the OTE zone for the M1 FVG
 
 input group "=== Standard-deviation projections (Asian range) ==="
@@ -221,6 +223,7 @@ enum TARGET_MODE { TGT_LIQUIDITY = 0, TGT_SD = 1, TGT_CONFLUENCE = 2 };
 struct SetupState
 {
    bool     active;
+   bool     tapped;       // has price entered the OTE zone yet?
    int      dir;          // +1 long, -1 short
    double   manipAnchor;  // fib 1.0 = end of manipulation / start of displacement
    double   extreme;      // fib 0.0 = running displacement extreme (dynamic)
@@ -228,6 +231,11 @@ struct SetupState
 };
 SetupState g_setup;
 double   g_runnerTP = 0.0;   // final runner target (SD projection)
+double   g_firstTP  = 0.0;   // first-partial target (-0.27 SD)
+double   g_finalSDs[];       // parsed final-target SD candidates
+int      hAtrMicro  = INVALID_HANDLE;
+datetime g_lastMicroBar = 0;
+double   g_pdHigh = 0.0, g_pdLow = 0.0;   // previous day high/low (DOL)
 
 // Pending (limit) order tracking for OTE execution
 ulong    g_pendingTicket = 0;
@@ -251,10 +259,12 @@ int OnInit()
    trade.SetDeviationInPoints(20);
    trade.SetTypeFillingBySymbol(_Symbol);
 
-   hEmaFast = iMA(_Symbol, InpBiasTF, InpEmaFast, 0, MODE_EMA, PRICE_CLOSE);
-   hEmaSlow = iMA(_Symbol, InpBiasTF, InpEmaSlow, 0, MODE_EMA, PRICE_CLOSE);
-   hATR     = iATR(_Symbol, InpSetupTF, InpAtrPeriod);
-   if(hEmaFast == INVALID_HANDLE || hEmaSlow == INVALID_HANDLE || hATR == INVALID_HANDLE)
+   hEmaFast  = iMA(_Symbol, InpBiasTF, InpEmaFast, 0, MODE_EMA, PRICE_CLOSE);
+   hEmaSlow  = iMA(_Symbol, InpBiasTF, InpEmaSlow, 0, MODE_EMA, PRICE_CLOSE);
+   hATR      = iATR(_Symbol, InpSetupTF, InpAtrPeriod);
+   hAtrMicro = iATR(_Symbol, InpMicroTF, InpAtrPeriod);
+   if(hEmaFast == INVALID_HANDLE || hEmaSlow == INVALID_HANDLE ||
+      hATR == INVALID_HANDLE || hAtrMicro == INVALID_HANDLE)
    {
       Print("Failed to create indicator handles");
       return(INIT_FAILED);
@@ -264,6 +274,7 @@ int OnInit()
    ArrayResize(g_buySide, 0);
    ArrayResize(g_sellSide, 0);
    ParseSDMultiples();
+   ParseFinalSDs();
 
    Print("Institutional Blxck Mirror initialised on ", _Symbol,
          "  pip=", DoubleToString(g_pip, g_digits));
@@ -274,7 +285,8 @@ void OnDeinit(const int reason)
 {
    if(hEmaFast != INVALID_HANDLE) IndicatorRelease(hEmaFast);
    if(hEmaSlow != INVALID_HANDLE) IndicatorRelease(hEmaSlow);
-   if(hATR     != INVALID_HANDLE) IndicatorRelease(hATR);
+   if(hATR      != INVALID_HANDLE) IndicatorRelease(hATR);
+   if(hAtrMicro != INVALID_HANDLE) IndicatorRelease(hAtrMicro);
    ObjectsDeleteAll(0, g_obj_prefix);
    Comment("");
 }
@@ -296,7 +308,7 @@ void OnTick()
    {
       CheckClosedResult();
       g_tp1Done = false; g_firstDone = false; g_beDone = false; g_posDir = 0;
-      g_plannedTP = 0.0; g_initRisk = 0.0; g_runnerTP = 0.0;
+      g_plannedTP = 0.0; g_initRisk = 0.0; g_runnerTP = 0.0; g_firstTP = 0.0;
       g_setup.active = false;
    }
    g_hadPosition = hasPos;
@@ -310,7 +322,19 @@ void OnTick()
       g_dayStartBalance = AccountInfoDouble(ACCOUNT_BALANCE);
    }
 
-   // Only evaluate new setups once per completed setup-TF bar
+   // Fast lane: once a setup is armed, hunt the entry on every new M1 bar so the
+   // shallow 0.62-tap-and-go movers are caught on the M1 IFVG, not 15 min late.
+   if(InpUseOTEModel && g_setup.active)
+   {
+      datetime mb = iTime(_Symbol, InpMicroTF, 0);
+      if(mb != g_lastMicroBar)
+      {
+         g_lastMicroBar = mb;
+         TryEnterArmed();
+      }
+   }
+
+   // Only arm / trail setups once per completed setup-TF bar
    datetime curBar = iTime(_Symbol, InpSetupTF, 0);
    if(curBar == g_lastSetupBarTime)
       return;
@@ -323,7 +347,7 @@ void OnTick()
    if(InpUseSDProjection && InpShowSDLevels) DrawSDLevels();
    if(InpShowDashboard) DrawDashboard();
 
-   // Look for a fresh entry
+   // Arm / trail (OTE) or one-shot entry (legacy)
    EvaluateSetup();
 }
 
@@ -452,8 +476,23 @@ void BuildLiquidityPools()
       AddOrWeightPool(g_sellSide, pLonL, iTime(_Symbol, InpSetupTF, 1), -1, tol);
    }
 
+   // Previous day's high/low (DOL) - the strongest draws on liquidity
+   g_pdHigh = iHigh(_Symbol, PERIOD_D1, 1);
+   g_pdLow  = iLow(_Symbol,  PERIOD_D1, 1);
+   if(g_pdHigh > 0) { AddOrWeightPool(g_buySide,  g_pdHigh, iTime(_Symbol, InpSetupTF, 1), +1, tol);
+                      WeightPool(g_buySide,  g_pdHigh, tol, 2); }
+   if(g_pdLow  > 0) { AddOrWeightPool(g_sellSide, g_pdLow,  iTime(_Symbol, InpSetupTF, 1), -1, tol);
+                      WeightPool(g_sellSide, g_pdLow,  tol, 2); }
+
    TrimPools(g_buySide,  InpMaxLiqPools, true);   // keep the highest buy-side
    TrimPools(g_sellSide, InpMaxLiqPools, false);  // keep the lowest sell-side
+}
+
+// Bump the weight of the pool nearest a price (used to mark DOL levels heavier).
+void WeightPool(LiqPool &arr[], double price, double tol, int addWeight)
+{
+   for(int i = 0; i < ArraySize(arr); i++)
+      if(arr[i].valid && MathAbs(arr[i].price - price) <= tol) { arr[i].touches += addWeight; return; }
 }
 
 void AddOrWeightPool(LiqPool &arr[], double price, datetime t, int side, double tol)
@@ -919,6 +958,83 @@ void ManagePendingOrder()
    }
 }
 
+void ParseFinalSDs()
+{
+   ArrayResize(g_finalSDs, 0);
+   string parts[];
+   int c = StringSplit(InpFinalSDs, ',', parts);
+   for(int i = 0; i < c; i++)
+   {
+      string s = parts[i];
+      StringTrimLeft(s); StringTrimRight(s);
+      double v = StringToDouble(s);
+      if(v > 0.0) { int sz = ArraySize(g_finalSDs); ArrayResize(g_finalSDs, sz + 1); g_finalSDs[sz] = v; }
+   }
+   if(ArraySize(g_finalSDs) == 0) { ArrayResize(g_finalSDs, 1); g_finalSDs[0] = InpTP1_SD; }
+}
+
+double MicroAtrValue()
+{
+   if(hAtrMicro == INVALID_HANDLE) return 0.0;
+   double a[1];
+   if(CopyBuffer(hAtrMicro, 0, 0, 1, a) < 1) return 0.0;
+   return a[0];
+}
+
+// Displacement bar on an arbitrary TF's rates, using that TF's ATR.
+bool DispConfirmTF(const MqlRates &r[], int dir, double atr)
+{
+   double range = r[1].high - r[1].low;
+   if(range <= 0.0) return false;
+   double body = MathAbs(r[1].close - r[1].open);
+   if(body / range * 100.0 < InpMinBodyPct) return false;
+   if(atr > 0.0 && body < InpDisplaceAtrMult * atr) return false;
+   return (dir > 0) ? (r[1].close > r[1].open) : (r[1].close < r[1].open);
+}
+
+// Is an Asian-range SD level near this price? (confluence booster)
+bool AsiaSDNear(int dir, double price, double tol)
+{
+   if(g_asiaRange <= 0.0) return false;
+   for(int i = 0; i < ArraySize(g_sdMult); i++)
+   {
+      double lvl = SDLevel(dir, g_sdMult[i]);
+      if(lvl > 0.0 && MathAbs(lvl - price) <= tol) return true;
+   }
+   return false;
+}
+
+// Is a key liquidity level (session pool or previous-day high/low) near this price?
+bool KeyLevelNear(int dir, double price, double tol)
+{
+   if(LiquidityNear(dir, price, tol)) return true;
+   if(dir > 0 && g_pdHigh > 0.0 && MathAbs(price - g_pdHigh) <= tol) return true;
+   if(dir < 0 && g_pdLow  > 0.0 && MathAbs(price - g_pdLow)  <= tol) return true;
+   return false;
+}
+
+// Choose the final target: the SD candidate with the strongest confluence.
+// Score stacks: base + Asia-range SD alignment + key liquidity (DOL/session) alignment.
+double ChooseFinalTarget(int dir, double entry)
+{
+   double tol = InpSDAlignPips * g_pip;
+   double best = 0.0; int bestScore = -1; double bestDist = DBL_MAX;
+   for(int i = 0; i < ArraySize(g_finalSDs); i++)
+   {
+      double price = OTEPrice(-g_finalSDs[i]);
+      if(price <= 0.0) continue;
+      int score = 1;
+      if(AsiaSDNear(dir, price, tol))  score += 1;   // aligns with Asia-range deviation
+      if(KeyLevelNear(dir, price, tol)) score += 2;  // aligns with DOL / session liquidity (strongest)
+      double dist = MathAbs(price - entry);
+      if(score > bestScore || (score == bestScore && dist < bestDist))
+      { bestScore = score; bestDist = dist; best = price; }
+   }
+   if(best <= 0.0) best = OTEPrice(-InpTP1_SD);
+   return best;
+}
+
+// ---- M15: arm the setup and trail the dynamic OTE leg (no entry here) ----
 void EvaluateOTESetup()
 {
    if(HasOpenPosition()) { ResetSetup(); return; }
@@ -931,7 +1047,6 @@ void EvaluateOTESetup()
 
    bool inKZ = InKillzone();
 
-   // ---- Arm a new setup: manipulation sweep + a real displacement leg ----
    if(!g_setup.active)
    {
       if(!inKZ) return;
@@ -955,66 +1070,99 @@ void EvaluateOTESetup()
       if(atr > 0.0 && MathAbs(ext - manip) < InpMinDisplaceLeg * atr) return; // no real displacement
 
       g_setup.active      = true;
+      g_setup.tapped      = false;
       g_setup.dir         = bias;
       g_setup.manipAnchor = manip;
       g_setup.extreme     = ext;
       g_setup.armedTime   = TimeCurrent();
-      return; // wait for the retracement on following bars
+      return;
    }
 
-   // ---- Manage the armed setup ----
    int dir = g_setup.dir;
-
-   if(!inKZ) { ResetSetup(); return; }                       // left the killzone -> abandon
-   // structure invalidation: a close beyond the manipulation anchor
+   if(!inKZ) { ResetSetup(); return; }
    if(dir > 0 && r[1].close < g_setup.manipAnchor) { ResetSetup(); return; }
    if(dir < 0 && r[1].close > g_setup.manipAnchor) { ResetSetup(); return; }
 
-   // dynamically trail the "0" extreme (this slides the OTE zone with the swing)
-   if(dir > 0) g_setup.extreme = MathMax(g_setup.extreme, r[1].high);
-   else        g_setup.extreme = MathMin(g_setup.extreme, r[1].low);
+   // trail the "0" extreme only until price taps the OTE; after a tap the leg is
+   // locked (we stop re-anchoring and wait for the entry confirmation).
+   if(!g_setup.tapped)
+   {
+      if(dir > 0) g_setup.extreme = MathMax(g_setup.extreme, r[1].high);
+      else        g_setup.extreme = MathMin(g_setup.extreme, r[1].low);
+   }
 
    if(InpShowSDLevels) DrawOTE();
+}
 
-   // OTE zone from the (possibly updated) leg
-   double zA = OTEPrice(InpOTELow);
-   double zB = OTEPrice(InpOTEHigh);
-   double zHi = MathMax(zA, zB), zLo = MathMin(zA, zB);
-
-   bool tapped = (r[1].low <= zHi && r[1].high >= zLo);       // last bar traded into OTE
-   if(!tapped) return;
-
-   // confirmation trigger
-   bool disp = DisplacementConfirms(r, dir);
-   bool ifvg = IFVGConfirms(r, dir);
-   bool confirmed;
-   if(InpConfirmMode <= 0)      confirmed = true;             // OTE tap only
-   else if(InpConfirmMode == 1) confirmed = (disp || ifvg);   // OTE + light confirmation
-   else                         confirmed = ifvg;             // OTE + IFVG required
-   if(!confirmed) return;
-
+// ---- M1: hunt the entry once armed (catches shallow 0.62-tap-and-go movers) ----
+void TryEnterArmed()
+{
+   if(!g_setup.active) return;
+   if(HasOpenPosition() || g_pendingTicket != 0) return;
+   if(!InKillzone()) { ResetSetup(); return; }
+   if(g_tradesToday >= InpMaxTradesPerDay) return;
+   if(DailyGuardBlocked() || InCooldown() || IsNewsTime()) return;
    if(SpreadPips() > InpMaxSpreadPips) return;
 
-   // ---- Decide execution: limit at OTE (best price) with market fallback ----
+   int dir = g_setup.dir;
+   MqlRates m[];
+   ArraySetAsSeries(m, true);
+   int cnt = MathMax(InpMicroFvgScan + 3, InpMicroSwingLB + InpMicroSwingStr * 2 + 3);
+   if(CopyRates(_Symbol, InpMicroTF, 0, cnt, m) < cnt) return;
+
+   // Re-anchor the "0" extreme ONLY until price first taps the OTE. Once tapped,
+   // the leg is locked and we simply wait for the confirmation to enter (a 0.62
+   // tap-and-reject is a valid entry, not a reason to re-anchor).
+   if(!g_setup.tapped)
+   {
+      if(dir > 0) g_setup.extreme = MathMax(g_setup.extreme, m[1].high);
+      else        g_setup.extreme = MathMin(g_setup.extreme, m[1].low);
+   }
+
+   // invalidation on an M1 close beyond the manipulation anchor
+   if(dir > 0 && m[1].close < g_setup.manipAnchor) { ResetSetup(); return; }
+   if(dir < 0 && m[1].close > g_setup.manipAnchor) { ResetSetup(); return; }
+
+   double zA = OTEPrice(InpOTELow), zB = OTEPrice(InpOTEHigh);
+   double zHi = MathMax(zA, zB), zLo = MathMin(zA, zB);
+
+   // register the OTE tap (0.62 edge counts)
+   if(!g_setup.tapped && m[1].low <= zHi && m[1].high >= zLo) g_setup.tapped = true;
+   if(!g_setup.tapped) return;
+
+   // confirmation on M1 (this is the M1 IFVG entry for the shallow-reject movers)
+   double atrM1 = MicroAtrValue();
+   bool disp = DispConfirmTF(m, dir, atrM1);
+   bool ifvg = IFVGConfirms(m, dir);
+   bool confirmed;
+   if(InpConfirmMode <= 0)      confirmed = true;
+   else if(InpConfirmMode == 1) confirmed = (disp || ifvg);
+   else                         confirmed = ifvg;
+   if(!confirmed) return;
+
+   PlaceOTEOrder(dir, zLo, zHi);
+}
+
+// Build and place the OTE trade (limit at OTE / M1-FVG with market fallback).
+void PlaceOTEOrder(int dir, double zLo, double zHi)
+{
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
-   double market  = (dir > 0) ? ask : bid;
-   double minGap  = MinStopDistance();
+   double market = (dir > 0) ? ask : bid;
+   double minGap = MinStopDistance();
 
    bool   useLimit = (InpEntryExec == 1);
    double desired  = useLimit ? OTEPrice(InpOTEEntryFib) : market;
 
-   // Sniper: after confidence, refine entry+stop to the M1 FVG inside the OTE zone.
+   // Sniper: refine entry+stop to the M1 FVG inside the OTE zone.
    bool   haveMicro = false;
    double microEntry = 0.0, microSL = 0.0;
    if(InpMicroEntry && MicroEntryRefine(dir, zLo, zHi, microEntry, microSL))
    {
       haveMicro = true;
-      if(useLimit) desired = microEntry;   // enter at the M1 imbalance edge
+      if(useLimit) desired = microEntry;
    }
 
-   // A limit is only valid on the correct side of the market; otherwise price is
-   // already at/through the OTE, so take the (equal-or-better) market fill.
    if(useLimit)
    {
       if(dir > 0 && !(desired < ask - minGap)) useLimit = false;
@@ -1022,17 +1170,14 @@ void EvaluateOTESetup()
    }
    double entryPrice = useLimit ? desired : market;
 
-   // ---- Tightest structural stop + targets ----
-   // Micro-FVG stop only when we actually rest the limit at that FVG; a market
-   // fallback (price already through OTE) reverts to the M1-swing stop.
-   double sl     = (haveMicro && useLimit) ? EnforceMinStop(dir, entryPrice, microSL)
-                                           : ComputeStop(dir, entryPrice);
-   double risk   = MathAbs(entryPrice - sl);
+   double sl = (haveMicro && useLimit) ? EnforceMinStop(dir, entryPrice, microSL)
+                                       : ComputeStop(dir, entryPrice);
+   double risk = MathAbs(entryPrice - sl);
    if(risk <= 0.0) { ResetSetup(); return; }
 
-   double tpMain = OTEPrice(-InpTP1_SD);       // -2.0 SD (main partial)
-   double runner = OTEPrice(-InpRunnerSD);     // -3.0 SD (runner)
-   double reward = MathAbs(tpMain - entryPrice);
+   double firstTP = OTEPrice(-InpFirstTP_SD);           // -0.27 SD (~1:2)
+   double finalTP = ChooseFinalTarget(dir, entryPrice); // -2/-2.5/-3 SD by confluence
+   double reward  = MathAbs(finalTP - entryPrice);
    if(reward / risk < InpMinRR) { ResetSetup(); return; }
    if(InpMaxStopPips > 0.0 && risk / g_pip > InpMaxStopPips) { ResetSetup(); return; }
 
@@ -1040,7 +1185,7 @@ void EvaluateOTESetup()
    if(lots <= 0.0) { ResetSetup(); return; }
 
    double slN = NormalizeDouble(sl, g_digits);
-   double tpN = NormalizeDouble(tpMain, g_digits);
+   double tpN = NormalizeDouble(finalTP, g_digits);
    bool ok = false;
 
    if(useLimit)
@@ -1064,17 +1209,18 @@ void EvaluateOTESetup()
    if(ok)
    {
       g_tradesToday++;
-      g_tp1Done      = false;
-      g_beDone       = false;
-      g_firstDone    = false;
-      g_plannedTP    = tpMain;
-      g_runnerTP     = runner;
-      g_plannedSL    = sl;
-      g_initRisk     = risk;
-      g_posDir       = dir;
-      PrintFormat("OTE %s %s lots=%.2f @ %.5f sl=%.5f (%.1f pips) tp=%.5f(-%.1fSD) runner=-%.1fSD RR=%.2f",
+      g_tp1Done   = false;
+      g_beDone    = false;
+      g_firstDone = false;
+      g_firstTP   = firstTP;
+      g_plannedTP = finalTP;
+      g_runnerTP  = finalTP;
+      g_plannedSL = sl;
+      g_initRisk  = risk;
+      g_posDir    = dir;
+      PrintFormat("OTE %s %s lots=%.2f @ %.5f sl=%.5f (%.1f pips) first=%.5f final=%.5f RR=%.2f",
                   (useLimit ? "LIMIT" : "MARKET"), (dir > 0 ? "BUY" : "SELL"),
-                  lots, entryPrice, sl, risk / g_pip, tpMain, InpTP1_SD, InpRunnerSD, reward / risk);
+                  lots, entryPrice, sl, risk / g_pip, firstTP, finalTP, reward / risk);
    }
    else
       PrintFormat("OTE order failed: %d %s", trade.ResultRetcode(), trade.ResultRetcodeDescription());
@@ -1088,6 +1234,7 @@ void DrawOTE()
    ObjectsDeleteAll(0, g_obj_prefix + "OTE_");
    if(!g_setup.active) return;
 
+   int dir = g_setup.dir;
    datetime t1 = g_setup.armedTime;
    datetime t2 = iTime(_Symbol, InpSetupTF, 0) + PeriodSeconds(InpSetupTF) * 6;
 
@@ -1105,8 +1252,20 @@ void DrawOTE()
    DrawOTELine("OTE_EXT",    g_setup.extreme,     t1, t2, clrGray,   "extreme (0.0)");
    DrawOTELine("OTE_ENTRY",  OTEPrice(InpOTEEntryFib), t1, t2, clrDeepSkyBlue,
                StringFormat("entry limit (%.3f)", InpOTEEntryFib));
-   DrawOTELine("OTE_TP1",    OTEPrice(-InpTP1_SD),   t1, t2, clrLime, StringFormat("TP -%.1f SD", InpTP1_SD));
-   DrawOTELine("OTE_RUN",    OTEPrice(-InpRunnerSD), t1, t2, clrGreen,StringFormat("runner -%.1f SD", InpRunnerSD));
+   DrawOTELine("OTE_FIRST",  OTEPrice(-InpFirstTP_SD), t1, t2, clrOrange,
+               StringFormat("first partial -%.2f SD", InpFirstTP_SD));
+   // final-target candidates; the confluence pick is highlighted
+   double tol = InpSDAlignPips * g_pip;
+   for(int i = 0; i < ArraySize(g_finalSDs); i++)
+   {
+      double lvl = OTEPrice(-g_finalSDs[i]);
+      bool key = KeyLevelNear(dir, lvl, tol);
+      bool asd = AsiaSDNear(dir, lvl, tol);
+      color c  = key ? clrGold : (asd ? clrYellow : clrGreen);
+      DrawOTELine("OTE_FIN" + DoubleToString(g_finalSDs[i], 1), lvl, t1, t2, c,
+                  StringFormat("final -%.1f SD%s%s", g_finalSDs[i],
+                               key ? "  +DOL/liquidity" : "", asd ? "  +Asia-SD" : ""));
+   }
 }
 
 void DrawOTELine(string tag, double price, datetime t1, datetime t2, color c, string tip)
@@ -1525,10 +1684,11 @@ void ManageOpenPosition()
       }
    }
 
-   // --- First partial at 1:R -> bank profit and move to break-even (risk-free runner) ---
-   if(!g_firstDone && InpTP1_RR > 0.0 && g_initRisk > 0.0)
+   // --- First partial (-0.27 SD, ~1:2) -> bank profit and move to break-even ---
+   double firstTgt = (g_firstTP > 0.0) ? g_firstTP
+                    : ((InpTP1_RR > 0.0 && g_initRisk > 0.0) ? openp + dir * g_initRisk * InpTP1_RR : 0.0);
+   if(!g_firstDone && firstTgt > 0.0 && g_initRisk > 0.0)
    {
-      double firstTgt = openp + dir * g_initRisk * InpTP1_RR;
       bool hitFirst = (dir > 0) ? (px >= firstTgt) : (px <= firstTgt);
       if(hitFirst)
       {
@@ -1536,8 +1696,8 @@ void ManageOpenPosition()
          if(closeVol > 0.0 && closeVol < volume)
          {
             if(trade.PositionClosePartial(_Symbol, closeVol))
-               PrintFormat("First partial (%.1fR): closed %.2f lots (%.0f%%)",
-                           InpTP1_RR, closeVol, InpFirstPartialPct);
+               PrintFormat("First partial: closed %.2f lots (%.0f%%) at %.5f -> break-even",
+                           closeVol, InpFirstPartialPct, firstTgt);
          }
          double be = openp + dir * g_pip * InpBreakEvenBufferPips;
          if((dir > 0 && be > curSL) || (dir < 0 && (curSL == 0 || be < curSL)))
@@ -1562,8 +1722,10 @@ void ManageOpenPosition()
       }
    }
 
-   // --- TP1: take partial, move stop behind nearest M1 FVG to TP ---
-   if(!g_tp1Done && tpLevel > 0.0)
+   // --- (Legacy model only) TP1: take partial, move stop behind nearest M1 FVG ---
+   // OTE mode lets the remainder ride to the confluence final target (the order TP)
+   // with M1-FVG trailing, so this intermediate 70% partial is skipped there.
+   if(!InpUseOTEModel && !g_tp1Done && tpLevel > 0.0)
    {
       bool hitTP1 = (dir > 0) ? (px >= tpLevel) : (px <= tpLevel);
       if(hitTP1)
@@ -1601,8 +1763,10 @@ void ManageOpenPosition()
       }
    }
 
-   // --- Trail the runner behind M1 FVGs after TP1 ---
-   if(g_tp1Done && InpTrailMicroFvg)
+   // --- Trail the runner behind M1 FVGs (OTE: after first partial; legacy: after TP1) ---
+   bool trailOn = InpTrailMicroFvg &&
+                  ((InpUseOTEModel && g_firstDone) || (!InpUseOTEModel && g_tp1Done));
+   if(trailOn)
    {
       FVG mf;
       if(NearestMicroFvg(dir, px, mf))
@@ -1714,7 +1878,8 @@ void DrawDashboard()
       "BOS " + EnumToString(InpBiasTF) + " : " + BiasStr(StructureBias(InpBiasTF)) + "\n" +
       "BOS " + EnumToString(InpHTFTrend) + " : " + BiasStr(StructureBias(InpHTFTrend)) + "\n" +
       "Killzone    : " + (InKillzone() ? "OPEN" : "closed") + "\n" +
-      "OTE setup   : " + (g_setup.active ? (g_setup.dir > 0 ? "ARMED long (await retrace)" : "ARMED short (await retrace)") : "none") + "\n" +
+      "OTE setup   : " + (g_setup.active ? (g_setup.dir > 0 ? "ARMED long" : "ARMED short") +
+                          (g_setup.tapped ? " [tapped-await M1 conf]" : " [await retrace]") : "none") + "\n" +
       "OTE limit   : " + (g_pendingTicket != 0 ? "RESTING (await fill)" : "none") + "\n" +
       "Blocked by  : " + block + "\n" +
       "Spread(pips): " + DoubleToString(SpreadPips(), 1) + "\n" +
