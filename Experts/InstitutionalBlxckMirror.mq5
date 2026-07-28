@@ -110,6 +110,14 @@ input double   InpDailyMaxLossPct    = 3.0;         // Stop for the day after th
 input double   InpDailyTargetPct     = 0.0;         // Stop for the day after this % equity gain (0=off)
 input int      InpCooldownMin        = 30;          // Minutes to pause after a losing trade
 
+input group "=== Standard-deviation projections (Asian range) ==="
+input bool     InpUseSDProjection  = true;          // Project SD levels from the Asian range
+input string   InpSDMultiples      = "0.5,1.0,1.5,2.0,2.5,3.0"; // Range multiples to project
+input double   InpSDAlignPips       = 8.0;          // Snap SD level to liquidity within this (pips)
+// Target selection: 0=liquidity only, 1=SD projection, 2=confluence (SD aligned to liquidity)
+input int      InpTargetMode        = 2;            // TP mode (0 liq, 1 SD, 2 confluence)
+input bool     InpShowSDLevels      = true;         // Draw SD projection lines + Asia box
+
 input group "=== Visuals ==="
 input bool     InpShowHeatmap      = true;          // Draw liquidity heatmap
 input bool     InpShowDashboard    = true;          // Draw info dashboard
@@ -175,6 +183,14 @@ struct LiqPool
 LiqPool  g_buySide[];
 LiqPool  g_sellSide[];
 
+// Standard-deviation projection state (from the Asian range)
+double   g_sdMult[];        // parsed multiples
+double   g_asiaHigh = 0.0;
+double   g_asiaLow  = 0.0;
+double   g_asiaRange = 0.0;
+
+enum TARGET_MODE { TGT_LIQUIDITY = 0, TGT_SD = 1, TGT_CONFLUENCE = 2 };
+
 //==================================================================//
 //  INIT / DEINIT                                                   //
 //==================================================================//
@@ -204,6 +220,7 @@ int OnInit()
    g_dayStartBalance = AccountInfoDouble(ACCOUNT_BALANCE);
    ArrayResize(g_buySide, 0);
    ArrayResize(g_sellSide, 0);
+   ParseSDMultiples();
 
    Print("Institutional Blxck Mirror initialised on ", _Symbol,
          "  pip=", DoubleToString(g_pip, g_digits));
@@ -254,7 +271,9 @@ void OnTick()
 
    // Refresh structural view
    BuildLiquidityPools();
+   BuildSDProjections();
    if(InpShowHeatmap)   DrawHeatmap();
+   if(InpUseSDProjection && InpShowSDLevels) DrawSDLevels();
    if(InpShowDashboard) DrawDashboard();
 
    // Look for a fresh entry
@@ -749,19 +768,21 @@ void EvaluateSetup()
       sl = sweepExtreme - slBuf;
       // ATR fallback: never risk a stop tighter than ATR * mult from entry
       if(InpUseAtrStop && atr > 0.0) sl = MathMin(sl, entry - atr * InpAtrMultSL);
-      tp = OpposingLiquidity(+1, entry);       // nearest buy-side pool above
    }
    else
    {
       sl = sweepExtreme + slBuf;
       if(InpUseAtrStop && atr > 0.0) sl = MathMax(sl, entry + atr * InpAtrMultSL);
-      tp = OpposingLiquidity(-1, entry);       // nearest sell-side pool below
    }
+
+   double risk = MathAbs(entry - sl);
+   if(risk <= 0.0) return;
+
+   // Target: liquidity, Asian-range SD projection, or their confluence
+   tp = ChooseTarget(bias, entry, risk);
    if(tp <= 0.0) return;
 
-   double risk   = MathAbs(entry - sl);
    double reward = MathAbs(tp - entry);
-   if(risk <= 0.0) return;
    if(reward / risk < InpMinRR) return;
    if(InpMaxStopPips > 0.0 && risk / g_pip > InpMaxStopPips) return;
 
@@ -932,6 +953,136 @@ double OpposingLiquidity(int dir, double entry)
       }
    }
    return best;
+}
+
+//==================================================================//
+//  STANDARD-DEVIATION PROJECTIONS (Asian range)                    //
+//==================================================================//
+void ParseSDMultiples()
+{
+   ArrayResize(g_sdMult, 0);
+   string parts[];
+   int c = StringSplit(InpSDMultiples, ',', parts);
+   for(int i = 0; i < c; i++)
+   {
+      string s = parts[i];
+      StringTrimLeft(s); StringTrimRight(s);
+      double v = StringToDouble(s);
+      if(v > 0.0)
+      {
+         int sz = ArraySize(g_sdMult);
+         ArrayResize(g_sdMult, sz + 1);
+         g_sdMult[sz] = v;
+      }
+   }
+}
+
+// Capture the most recent completed Asian session range (the projection origin).
+void BuildSDProjections()
+{
+   double ah, al;
+   if(!InpUseSDProjection || !PreviousSessionRange(InpAsiaStart, InpAsiaEnd, ah, al))
+   {
+      g_asiaRange = 0.0;
+      return;
+   }
+   g_asiaHigh  = ah;
+   g_asiaLow   = al;
+   g_asiaRange = ah - al;
+}
+
+// SD projection price for a given multiple and direction (dir>0 up, dir<0 down).
+// 1.0 = one Asian range beyond the range boundary, as on the RXWLES-style tool.
+double SDLevel(int dir, double m)
+{
+   if(g_asiaRange <= 0.0) return 0.0;
+   return (dir > 0) ? (g_asiaHigh + m * g_asiaRange)
+                    : (g_asiaLow  - m * g_asiaRange);
+}
+
+// Is there a liquidity pool within tolPrice of the given price on the trade side?
+bool LiquidityNear(int dir, double price, double tolPrice)
+{
+   if(dir > 0)
+   {
+      for(int i = 0; i < ArraySize(g_buySide); i++)
+         if(g_buySide[i].valid && MathAbs(g_buySide[i].price - price) <= tolPrice) return true;
+   }
+   else
+   {
+      for(int i = 0; i < ArraySize(g_sellSide); i++)
+         if(g_sellSide[i].valid && MathAbs(g_sellSide[i].price - price) <= tolPrice) return true;
+   }
+   return false;
+}
+
+// Master target chooser. minTP enforces the RR floor up-front.
+double ChooseTarget(int dir, double entry, double risk)
+{
+   double liq   = OpposingLiquidity(dir, entry);
+   if(InpTargetMode == TGT_LIQUIDITY || !InpUseSDProjection || g_asiaRange <= 0.0)
+      return liq;
+
+   double minTP = entry + dir * risk * InpMinRR;
+   double tol   = InpSDAlignPips * g_pip;
+
+   double nearest = 0.0, nearestDist = DBL_MAX;
+   double aligned = 0.0, alignedDist = DBL_MAX;
+
+   for(int i = 0; i < ArraySize(g_sdMult); i++)
+   {
+      double lvl = SDLevel(dir, g_sdMult[i]);
+      if(lvl <= 0.0) continue;
+      bool beyond = (dir > 0) ? (lvl >= minTP) : (lvl <= minTP);
+      if(!beyond) continue;
+      double d = MathAbs(lvl - entry);
+      if(d < nearestDist) { nearestDist = d; nearest = lvl; }
+      if(LiquidityNear(dir, lvl, tol) && d < alignedDist) { alignedDist = d; aligned = lvl; }
+   }
+
+   if(InpTargetMode == TGT_SD)
+      return (nearest > 0.0 ? nearest : liq);
+
+   // TGT_CONFLUENCE: prefer an SD level that lines up with a key liquidity level
+   if(aligned > 0.0) return aligned;
+   if(nearest > 0.0) return nearest;
+   return liq;
+}
+
+void DrawSDLevels()
+{
+   ObjectsDeleteAll(0, g_obj_prefix + "SD_");
+   if(g_asiaRange <= 0.0) return;
+
+   datetime t1 = iTime(_Symbol, InpSetupTF, 0) - PeriodSeconds(InpSetupTF) * 40;
+   datetime t2 = iTime(_Symbol, InpSetupTF, 0) + PeriodSeconds(InpSetupTF) * 8;
+
+   // Asian range box
+   string box = g_obj_prefix + "SD_BOX";
+   ObjectCreate(0, box, OBJ_RECTANGLE, 0, t1, g_asiaHigh, t2, g_asiaLow);
+   ObjectSetInteger(0, box, OBJPROP_COLOR, clrSlateGray);
+   ObjectSetInteger(0, box, OBJPROP_BACK, true);
+   ObjectSetInteger(0, box, OBJPROP_FILL, false);
+   ObjectSetInteger(0, box, OBJPROP_STYLE, STYLE_DOT);
+   ObjectSetString(0, box, OBJPROP_TOOLTIP, "Asian range (SD origin)");
+
+   for(int dir = -1; dir <= 1; dir += 2)
+      for(int i = 0; i < ArraySize(g_sdMult); i++)
+      {
+         double lvl = SDLevel(dir, g_sdMult[i]);
+         if(lvl <= 0.0) continue;
+         string nm = g_obj_prefix + "SD_" + (dir > 0 ? "U" : "D") + DoubleToString(g_sdMult[i], 1);
+         ObjectCreate(0, nm, OBJ_TREND, 0, t1, lvl, t2, lvl);
+         color c = LiquidityNear(dir, lvl, InpSDAlignPips * g_pip) ? clrGold : clrDimGray;
+         ObjectSetInteger(0, nm, OBJPROP_COLOR, c);
+         ObjectSetInteger(0, nm, OBJPROP_STYLE, STYLE_DASH);
+         ObjectSetInteger(0, nm, OBJPROP_WIDTH, 1);
+         ObjectSetInteger(0, nm, OBJPROP_RAY_RIGHT, false);
+         ObjectSetInteger(0, nm, OBJPROP_BACK, true);
+         ObjectSetString(0, nm, OBJPROP_TOOLTIP,
+            StringFormat("%.1f SD %s%s", g_sdMult[i], (dir > 0 ? "up" : "down"),
+                         LiquidityNear(dir, lvl, InpSDAlignPips * g_pip) ? "  (confluence)" : ""));
+      }
 }
 
 //==================================================================//

@@ -51,9 +51,13 @@ The EA maps engineered liquidity and weights it:
 3. **Entry** on the confirming close beyond the IFVG.
 
 ### 4. Targets & trade management
-- **Take profit = opposing liquidity** — the next big pool on the other side
-  (for a long, the nearest buy-side pool above; for a short, the nearest sell-side
-  pool below).
+- **Take profit = opposing liquidity, snapped to a standard-deviation projection.**
+  The EA projects **SD levels from the Asian range** (0.5×, 1×, 1.5×, 2×, 2.5×, 3×
+  the range, both directions — the classic "London sweeps Asia then runs to the SD
+  extension" move). In the default **confluence mode** it targets the SD level that
+  **aligns with a key liquidity pool** (drawn gold on the chart), which is exactly the
+  "targets that align with key levels" approach. You can switch to pure liquidity or
+  pure SD via `InpTargetMode`.
 - On **TP1 the EA closes 70%** of the position (configurable).
 - It then **moves the stop to just behind the nearest M1 FVG to the TP**, and
   **extends the target to the next pool**, giving the runner room to ride the
@@ -74,13 +78,23 @@ Strong alternates: **GBP/USD** (bigger range, slightly lower win rate) and
 
 ---
 
+## Repo contents
+
+| Path | What |
+|------|------|
+| `Experts/InstitutionalBlxckMirror.mq5` | The EA |
+| `presets/EURUSD.set` · `presets/GBPUSD.set` | Tuned input presets (load via Inputs → Load) |
+| `docs/OPTIMIZATION.md` | Strategy Tester & optimization walkthrough |
+
 ## Install
 
 1. In MetaTrader 5: **File → Open Data Folder**.
-2. Copy `Experts/InstitutionalBlxckMirror.mq5` into `MQL5/Experts/`.
+2. Copy `Experts/InstitutionalBlxckMirror.mq5` into `MQL5/Experts/` (and the
+   `presets/*.set` files into `MQL5/Presets/` if you want them in the Load dialog).
 3. Open **MetaEditor**, open the file, press **F7** to compile.
 4. Attach the EA to a **EUR/USD M15** chart. Enable **Algo Trading**.
 5. Make sure the chart symbol has D1, H4 and M1 history downloaded.
+6. Load a preset from the EA **Inputs → Load** button, then set `InpServerToNYOffset`.
 
 ### ⚠️ Timezone setup — do this first (most important step)
 
@@ -140,6 +154,15 @@ Default session windows (already set, in **NY time**):
 > The calendar needs to be enabled in the terminal and is **not available in the
 > Strategy Tester** — there the filter simply allows trading (fails open).
 
+### Standard-deviation projections (Asian range)
+| Input | Default | Meaning |
+|-------|---------|---------|
+| `InpUseSDProjection` | true | Project SD levels from the Asian range for targets |
+| `InpSDMultiples` | 0.5,1.0,1.5,2.0,2.5,3.0 | Range multiples to project up & down |
+| `InpTargetMode` | 2 | 0 = liquidity, 1 = SD projection, 2 = confluence (SD snapped to liquidity) |
+| `InpSDAlignPips` | 8 | Snap distance for calling an SD level "aligned" with liquidity |
+| `InpShowSDLevels` | true | Draw the Asian-range box + SD lines (gold = confluence) |
+
 ### Win-rate boosters (all toggleable)
 | Input | Default | Meaning |
 |-------|---------|---------|
@@ -164,9 +187,9 @@ The biggest levers, in order of impact:
    cause most losers — fewer trades, but far cleaner ones.
 4. **Raise `InpMinRR`** (e.g. 2.5–3.0) to lift profit factor; lower it (1.5–2.0) if you
    want more frequent trades and are willing to trade some win-rate for frequency.
-5. **Optimise per pair** in the Strategy Tester: `InpSwingStrength`, `InpSweepMinPips`,
-   `InpMinFvgPips`, `InpAtrMultSL`, and the killzone hours. What's optimal on EUR/USD
-   is not optimal on NAS100.
+5. **Optimise per pair** in the Strategy Tester — follow **[`docs/OPTIMIZATION.md`](docs/OPTIMIZATION.md)**
+   (optimise in groups, rank by profit factor, validate out-of-sample). What's optimal
+   on EUR/USD is not optimal on NAS100.
 6. Use **`InpDailyTargetPct`** to *bank* good days and **`InpDailyMaxLossPct` +
    `InpCooldownMin`** to cap bad ones — that's what turns a positive edge into
    *consistent* equity growth.

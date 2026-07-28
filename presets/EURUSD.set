@@ -1,0 +1,72 @@
+; Institutional Blxck Mirror - EURUSD preset (tuned defaults)
+; Load via Strategy Tester / EA Inputs tab -> Load.
+; IMPORTANT: verify InpServerToNYOffset against YOUR broker's server clock first.
+InpMagic=20260728
+; --- Timeframes (enum ids: M1=1, M15=15, H4=16388, D1=16408) ---
+InpBiasTF=16388
+InpHTFTrend=16408
+InpSetupTF=15
+InpMicroTF=1
+; --- Bias engine ---
+InpEmaFast=50
+InpEmaSlow=200
+InpStructLookback=60
+InpSwingStrength=2
+InpRequireEmaAndBOS=true
+; --- Sessions (NEW YORK time) ---
+InpServerToNYOffset=-7
+InpAsiaStart=19
+InpAsiaEnd=0
+InpLondonStart=1
+InpLondonEnd=5
+InpNYStart=7
+InpNYEnd=11
+InpTradeLondon=true
+InpTradeNewYork=true
+; --- Liquidity & setup ---
+InpSetupLookback=120
+InpSweepMaxBars=8
+InpSweepMinPips=0.5
+InpLiqSwingStrength=2
+InpMaxLiqPools=12
+; --- FVG / IFVG ---
+InpMinFvgPips=0.5
+InpMicroFvgScan=40
+; --- Risk & management ---
+InpRiskPercent=0.75
+InpFixedLots=0.0
+InpSlBufferPips=1.5
+InpMinRR=2.0
+InpPartialPercent=70.0
+InpMoveSlBehindFvg=true
+InpTrailMicroFvg=true
+InpMaxSpreadPips=2
+InpMaxTradesPerDay=3
+InpMaxStopPips=0.0
+; --- ATR stop fallback ---
+InpUseAtrStop=true
+InpAtrPeriod=14
+InpAtrMultSL=1.2
+; --- News filter ---
+InpUseNewsFilter=true
+InpNewsImportance=2
+InpNewsMinsBefore=15
+InpNewsMinsAfter=15
+; --- Win-rate boosters ---
+InpUseDisplacement=true
+InpMinBodyPct=55.0
+InpDisplaceAtrMult=0.6
+InpUseOTE=true
+InpUseBreakEven=true
+InpBreakEvenAtR=1.0
+InpBreakEvenBufferPips=1.0
+InpCloseAtSessionEnd=true
+InpDailyMaxLossPct=3.0
+InpDailyTargetPct=0.0
+InpCooldownMin=30
+; --- Standard-deviation projections ---
+InpUseSDProjection=true
+InpSDMultiples=0.5,1.0,1.5,2.0,2.5,3.0
+InpSDAlignPips=8.0
+InpTargetMode=2
+InpShowSDLevels=true
