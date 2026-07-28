@@ -50,13 +50,16 @@ input int      InpStructLookback   = 60;            // Bars to scan for HTF mark
 input int      InpSwingStrength    = 2;             // Fractal strength (bars each side)
 input bool     InpRequireEmaAndBOS = true;          // Require EMA + BOS to agree
 
-input group "=== Sessions (broker/server time, 24h) ==="
-input int      InpAsiaStart        = 0;             // Asia session start hour
-input int      InpAsiaEnd          = 6;             // Asia session end hour
-input int      InpLondonStart      = 7;             // London session start hour
-input int      InpLondonEnd        = 12;            // London session end hour
-input int      InpNYStart          = 13;            // New York session start hour
-input int      InpNYEnd            = 20;            // New York session end hour
+input group "=== Sessions (defined in NEW YORK time, 24h) ==="
+// Session hours below are in NEW YORK time. The EA converts server->NY using
+// the offset. Example: broker GMT+3, NY EDT = GMT-4  =>  NY = server - 7  =>  offset = -7.
+input int      InpServerToNYOffset = -7;            // Hours to add to SERVER time to get NY time
+input int      InpAsiaStart        = 19;            // Asia session start hour (NY)
+input int      InpAsiaEnd          = 0;             // Asia session end hour (NY, 0 = midnight)
+input int      InpLondonStart      = 1;             // London session start hour (NY)
+input int      InpLondonEnd        = 5;             // London session end hour (NY)
+input int      InpNYStart          = 7;             // New York session start hour (NY)
+input int      InpNYEnd            = 11;            // New York session end hour (NY)
 input bool     InpTradeLondon      = true;          // Allow entries in London killzone
 input bool     InpTradeNewYork     = true;          // Allow entries in New York killzone
 
@@ -81,6 +84,31 @@ input bool     InpMoveSlBehindFvg  = true;          // After TP1, SL -> behind n
 input bool     InpTrailMicroFvg    = true;          // Trail runner behind M1 FVGs
 input int      InpMaxSpreadPips    = 3;             // Skip entries if spread wider than this
 input int      InpMaxTradesPerDay  = 3;             // Cap trades per day
+input double   InpMaxStopPips       = 0.0;          // Reject if stop distance > this (0 = off)
+
+input group "=== ATR stop fallback ==="
+input bool     InpUseAtrStop       = true;          // Enforce a minimum ATR-based stop distance
+input int      InpAtrPeriod        = 14;            // ATR period (setup TF)
+input double   InpAtrMultSL        = 1.2;           // ATR multiple for the fallback stop
+
+input group "=== News filter (MT5 economic calendar) ==="
+input bool     InpUseNewsFilter    = true;          // Block entries around high-impact news
+input int      InpNewsImportance   = 2;             // 1 = moderate+, 2 = high only
+input int      InpNewsMinsBefore    = 15;           // Block this many minutes BEFORE an event
+input int      InpNewsMinsAfter     = 15;           // Block this many minutes AFTER an event
+
+input group "=== Win-rate boosters ==="
+input bool     InpUseDisplacement  = true;          // Require a strong displacement entry candle
+input double   InpMinBodyPct        = 55.0;         // Min body/range % of the entry candle
+input double   InpDisplaceAtrMult   = 0.6;          // Min entry-candle body vs ATR
+input bool     InpUseOTE            = true;          // Premium/discount (only buy discount, sell premium)
+input bool     InpUseBreakEven      = true;         // Move SL to break-even after InpBreakEvenAtR
+input double   InpBreakEvenAtR       = 1.0;         // Move to BE once price is this many R in profit
+input double   InpBreakEvenBufferPips= 1.0;         // Buffer beyond entry for break-even
+input bool     InpCloseAtSessionEnd  = true;        // Close any open trade at NY session end
+input double   InpDailyMaxLossPct    = 3.0;         // Stop for the day after this % equity loss (0=off)
+input double   InpDailyTargetPct     = 0.0;         // Stop for the day after this % equity gain (0=off)
+input int      InpCooldownMin        = 30;          // Minutes to pause after a losing trade
 
 input group "=== Visuals ==="
 input bool     InpShowHeatmap      = true;          // Draw liquidity heatmap
@@ -100,6 +128,7 @@ CSymbolInfo    syminfo;
 
 int      hEmaFast = INVALID_HANDLE;
 int      hEmaSlow = INVALID_HANDLE;
+int      hATR     = INVALID_HANDLE;
 
 double   g_point;
 double   g_pip;          // 1 pip in price terms
@@ -109,11 +138,16 @@ string   g_obj_prefix = "IBM_";
 datetime g_lastSetupBarTime = 0;
 datetime g_lastDay          = 0;
 int      g_tradesToday      = 0;
+double   g_dayStartBalance  = 0.0;
+datetime g_lastLossTime     = 0;
+bool     g_hadPosition      = false;
 
 // Trade lifecycle state (for the single managed position)
 bool     g_tp1Done          = false;
+bool     g_beDone           = false;
 double   g_plannedTP        = 0.0;
 double   g_plannedSL        = 0.0;
+double   g_initRisk         = 0.0;   // initial stop distance (price terms)
 int      g_posDir           = 0;   // +1 long, -1 short, 0 flat
 
 //------------------------------------------------------------------//
@@ -160,12 +194,14 @@ int OnInit()
 
    hEmaFast = iMA(_Symbol, InpBiasTF, InpEmaFast, 0, MODE_EMA, PRICE_CLOSE);
    hEmaSlow = iMA(_Symbol, InpBiasTF, InpEmaSlow, 0, MODE_EMA, PRICE_CLOSE);
-   if(hEmaFast == INVALID_HANDLE || hEmaSlow == INVALID_HANDLE)
+   hATR     = iATR(_Symbol, InpSetupTF, InpAtrPeriod);
+   if(hEmaFast == INVALID_HANDLE || hEmaSlow == INVALID_HANDLE || hATR == INVALID_HANDLE)
    {
-      Print("Failed to create EMA handles");
+      Print("Failed to create indicator handles");
       return(INIT_FAILED);
    }
 
+   g_dayStartBalance = AccountInfoDouble(ACCOUNT_BALANCE);
    ArrayResize(g_buySide, 0);
    ArrayResize(g_sellSide, 0);
 
@@ -178,6 +214,7 @@ void OnDeinit(const int reason)
 {
    if(hEmaFast != INVALID_HANDLE) IndicatorRelease(hEmaFast);
    if(hEmaSlow != INVALID_HANDLE) IndicatorRelease(hEmaSlow);
+   if(hATR     != INVALID_HANDLE) IndicatorRelease(hATR);
    ObjectsDeleteAll(0, g_obj_prefix);
    Comment("");
 }
@@ -190,12 +227,23 @@ void OnTick()
    // Manage any open position on every tick
    ManageOpenPosition();
 
-   // Reset daily trade counter
+   // Detect a just-closed position (for the loss cooldown)
+   bool hasPos = HasOpenPosition();
+   if(g_hadPosition && !hasPos)
+   {
+      CheckClosedResult();
+      g_tp1Done = false; g_beDone = false; g_posDir = 0;
+      g_plannedTP = 0.0; g_initRisk = 0.0;
+   }
+   g_hadPosition = hasPos;
+
+   // Reset daily counters at the start of a new day
    datetime today = TodayStart();
    if(today != g_lastDay)
    {
-      g_lastDay       = today;
-      g_tradesToday   = 0;
+      g_lastDay         = today;
+      g_tradesToday     = 0;
+      g_dayStartBalance = AccountInfoDouble(ACCOUNT_BALANCE);
    }
 
    // Only evaluate new setups once per completed setup-TF bar
@@ -424,22 +472,40 @@ datetime TodayStart()
    return StructToTime(dt);
 }
 
-int CurrentHour()
+// Convert a server timestamp to a NEW YORK hour (0..23)
+int ToNYHour(datetime t)
 {
    MqlDateTime dt;
-   TimeToStruct(TimeCurrent(), dt);
-   return dt.hour;
+   TimeToStruct(t, dt);
+   int h = dt.hour + InpServerToNYOffset;
+   h = ((h % 24) + 24) % 24;
+   return h;
+}
+
+int CurrentNYHour()
+{
+   return ToNYHour(TimeCurrent());
+}
+
+// Session membership in NY time, with wrap-around past midnight support.
+// end == start => empty; end <= start => the window wraps midnight.
+bool InSessionNY(int h, int startH, int endH)
+{
+   if(startH == endH) return false;
+   if(startH < endH)  return (h >= startH && h < endH);
+   return (h >= startH || h < endH); // wraps midnight
 }
 
 bool InKillzone()
 {
-   int h = CurrentHour();
-   if(InpTradeLondon  && h >= InpLondonStart && h < InpLondonEnd) return true;
-   if(InpTradeNewYork && h >= InpNYStart     && h < InpNYEnd)     return true;
+   int h = CurrentNYHour();
+   if(InpTradeLondon  && InSessionNY(h, InpLondonStart, InpLondonEnd)) return true;
+   if(InpTradeNewYork && InSessionNY(h, InpNYStart,     InpNYEnd))     return true;
    return false;
 }
 
-// Range of the most recent COMPLETED occurrence of a session (previous session)
+// Range of the most recent COMPLETED occurrence of a session (previous session),
+// evaluated in NY time. Walks back to the first in-session block and captures it.
 bool PreviousSessionRange(int startH, int endH, double &hi, double &lo)
 {
    hi = -DBL_MAX; lo = DBL_MAX;
@@ -447,24 +513,21 @@ bool PreviousSessionRange(int startH, int endH, double &hi, double &lo)
    scan = MathMax(scan, 30);
    bool found = false;
 
-   // Walk back to the previous fully-formed session block
-   int hoursSeen = 0;
-   for(int i = 1; i < scan * 2; i++)
+   for(int i = 1; i < scan * 3; i++)
    {
       datetime t = iTime(_Symbol, InpSetupTF, i);
       if(t == 0) break;
-      MqlDateTime dt; TimeToStruct(t, dt);
-      bool inSess = (dt.hour >= startH && dt.hour < endH);
+      bool inSess = InSessionNY(ToNYHour(t), startH, endH);
       if(inSess)
       {
-         // Only capture the FIRST (most recent) completed session block we encounter
+         // Capture the FIRST (most recent) completed session block we encounter
          hi = MathMax(hi, iHigh(_Symbol, InpSetupTF, i));
          lo = MathMin(lo, iLow(_Symbol, InpSetupTF, i));
          found = true;
       }
       else if(found)
       {
-         break; // we've stepped out of the most recent session block -> done
+         break; // stepped out of the most recent session block -> done
       }
    }
    return (found && hi > -DBL_MAX && lo < DBL_MAX);
@@ -598,11 +661,12 @@ bool DetectLiquiditySweep(const MqlRates &r[], int bias, double &liqLevel, int &
    double lonH, lonL;
    bool haveLondon = PreviousSessionRange(InpLondonStart, InpLondonEnd, lonH, lonL);
 
-   int h = CurrentHour();
+   int h = CurrentNYHour();
+   bool inNY = InSessionNY(h, InpNYStart, InpNYEnd);
    double targetHigh, targetLow;
-   if(h >= InpNYStart && haveLondon) { targetHigh = lonH; targetLow = lonL; }
-   else if(haveAsia)                 { targetHigh = sessH; targetLow = sessL; }
-   else if(haveLondon)               { targetHigh = lonH; targetLow = lonL; }
+   if(inNY && haveLondon)  { targetHigh = lonH; targetLow = lonL; }   // NY killzone -> sweep London
+   else if(haveAsia)       { targetHigh = sessH; targetLow = sessL; } // London killzone -> sweep Asia
+   else if(haveLondon)     { targetHigh = lonH; targetLow = lonL; }
    else return false;
 
    int scan = MathMin(InpSweepMaxBars + 3, ArraySize(r) - 1);
@@ -638,10 +702,12 @@ bool DetectLiquiditySweep(const MqlRates &r[], int bias, double &liqLevel, int &
 void EvaluateSetup()
 {
    if(HasOpenPosition()) return;
-   if(InpOnePositionAtATime && HasOpenPosition()) return;
    if(!InKillzone()) return;
    if(g_tradesToday >= InpMaxTradesPerDay) return;
    if(SpreadPips() > InpMaxSpreadPips) return;
+   if(DailyGuardBlocked()) return;
+   if(InCooldown()) return;
+   if(IsNewsTime()) return;
 
    int bias = InstitutionalBias();
    if(bias == BIAS_NONE) return;
@@ -664,21 +730,31 @@ void EvaluateSetup()
    if(bias == BIAS_BULL && lastClose <= ifvg.top)    return;
    if(bias == BIAS_BEAR && lastClose >= ifvg.bottom) return;
 
+   // 3b) displacement filter: the confirmation candle must be a strong, intentional move
+   if(InpUseDisplacement && !IsDisplacement(r, 1)) return;
+
+   // 3c) premium/discount (OTE): only buy from discount, only sell from premium
+   if(InpUseOTE && !PassesOTE(r, bias)) return;
+
    // 4) build the trade
    double entry = SymbolInfoDouble(_Symbol, (bias == BIAS_BULL) ? SYMBOL_ASK : SYMBOL_BID);
    double sl, tp;
 
    double sweepExtreme = (bias == BIAS_BULL) ? r[sweepIdx].low : r[sweepIdx].high;
    double slBuf = g_pip * InpSlBufferPips;
+   double atr   = AtrValue();
 
    if(bias == BIAS_BULL)
    {
       sl = sweepExtreme - slBuf;
+      // ATR fallback: never risk a stop tighter than ATR * mult from entry
+      if(InpUseAtrStop && atr > 0.0) sl = MathMin(sl, entry - atr * InpAtrMultSL);
       tp = OpposingLiquidity(+1, entry);       // nearest buy-side pool above
    }
    else
    {
       sl = sweepExtreme + slBuf;
+      if(InpUseAtrStop && atr > 0.0) sl = MathMax(sl, entry + atr * InpAtrMultSL);
       tp = OpposingLiquidity(-1, entry);       // nearest sell-side pool below
    }
    if(tp <= 0.0) return;
@@ -687,6 +763,7 @@ void EvaluateSetup()
    double reward = MathAbs(tp - entry);
    if(risk <= 0.0) return;
    if(reward / risk < InpMinRR) return;
+   if(InpMaxStopPips > 0.0 && risk / g_pip > InpMaxStopPips) return;
 
    double lots = CalcLots(risk);
    if(lots <= 0.0) return;
@@ -703,14 +780,131 @@ void EvaluateSetup()
    {
       g_tradesToday++;
       g_tp1Done   = false;
+      g_beDone    = false;
       g_plannedTP = tp;
       g_plannedSL = sl;
+      g_initRisk  = risk;
       g_posDir    = bias;
       PrintFormat("ENTRY %s lots=%.2f entry=%.5f sl=%.5f tp=%.5f RR=%.2f",
                   (bias == BIAS_BULL ? "BUY" : "SELL"), lots, entry, sl, tp, reward / risk);
    }
    else
       PrintFormat("Order failed: %d %s", trade.ResultRetcode(), trade.ResultRetcodeDescription());
+}
+
+//==================================================================//
+//  FILTERS: ATR, displacement, OTE, news, cooldown, daily guard    //
+//==================================================================//
+double AtrValue()
+{
+   if(hATR == INVALID_HANDLE) return 0.0;
+   double a[1];
+   if(CopyBuffer(hATR, 0, 0, 1, a) < 1) return 0.0;
+   return a[0];
+}
+
+// Strong-body candle at series index idx (a displacement / intent candle)
+bool IsDisplacement(const MqlRates &r[], int idx)
+{
+   double range = r[idx].high - r[idx].low;
+   if(range <= 0.0) return false;
+   double body = MathAbs(r[idx].close - r[idx].open);
+   if(body / range * 100.0 < InpMinBodyPct) return false;
+   double atr = AtrValue();
+   if(atr > 0.0 && body < atr * InpDisplaceAtrMult) return false;
+   return true;
+}
+
+// Premium/discount filter using the recent dealing range on the setup TF.
+bool PassesOTE(const MqlRates &r[], int bias)
+{
+   int look = MathMin(ArraySize(r) - 1, InpSetupLookback);
+   double hh = -DBL_MAX, ll = DBL_MAX;
+   for(int i = 1; i <= look; i++)
+   {
+      hh = MathMax(hh, r[i].high);
+      ll = MathMin(ll, r[i].low);
+   }
+   if(hh <= ll) return true;
+   double eq = (hh + ll) / 2.0;               // equilibrium (50%)
+   double price = r[1].close;
+   if(bias == BIAS_BULL) return (price <= eq); // buy only in discount
+   return (price >= eq);                       // sell only in premium
+}
+
+bool InCooldown()
+{
+   if(InpCooldownMin <= 0 || g_lastLossTime == 0) return false;
+   return (TimeCurrent() - g_lastLossTime < (long)InpCooldownMin * 60);
+}
+
+bool DailyGuardBlocked()
+{
+   if(g_dayStartBalance <= 0.0) return false;
+   double eq  = AccountInfoDouble(ACCOUNT_EQUITY);
+   double pct = (eq - g_dayStartBalance) / g_dayStartBalance * 100.0;
+   if(InpDailyMaxLossPct > 0.0 && pct <= -InpDailyMaxLossPct) return true;
+   if(InpDailyTargetPct  > 0.0 && pct >=  InpDailyTargetPct)  return true;
+   return false;
+}
+
+// Record the time of a losing close so the cooldown can kick in.
+void CheckClosedResult()
+{
+   if(!HistorySelect(TimeCurrent() - 6 * 3600, TimeCurrent() + 60)) return;
+   int deals = HistoryDealsTotal();
+   for(int i = deals - 1; i >= 0; i--)
+   {
+      ulong ticket = HistoryDealGetTicket(i);
+      if(ticket == 0) continue;
+      if((ulong)HistoryDealGetInteger(ticket, DEAL_MAGIC) != InpMagic) continue;
+      if(HistoryDealGetString(ticket, DEAL_SYMBOL) != _Symbol) continue;
+      if(HistoryDealGetInteger(ticket, DEAL_ENTRY) != DEAL_ENTRY_OUT) continue;
+      double profit = HistoryDealGetDouble(ticket, DEAL_PROFIT)
+                    + HistoryDealGetDouble(ticket, DEAL_SWAP)
+                    + HistoryDealGetDouble(ticket, DEAL_COMMISSION);
+      if(profit < 0.0) g_lastLossTime = TimeCurrent();
+      break; // most recent close-out deal only
+   }
+}
+
+// High-impact news filter via the MT5 economic calendar.
+// Gracefully allows trading when the calendar is unavailable (e.g. Strategy Tester).
+bool IsNewsTime()
+{
+   if(!InpUseNewsFilter) return false;
+   string base = SymbolInfoString(_Symbol, SYMBOL_CURRENCY_BASE);
+   string prof = SymbolInfoString(_Symbol, SYMBOL_CURRENCY_PROFIT);
+   if(NewsForCurrency(base)) return true;
+   if(prof != base && NewsForCurrency(prof)) return true;
+   return false;
+}
+
+bool NewsForCurrency(string currency)
+{
+   if(currency == "") return false;
+   datetime now  = TimeCurrent();
+   datetime from = now - (long)PeriodSeconds(PERIOD_D1);
+   datetime to   = now + (long)PeriodSeconds(PERIOD_D1);
+
+   MqlCalendarValue values[];
+   int count = CalendarValueHistory(values, from, to, NULL, currency);
+   if(count <= 0) return false;
+
+   ENUM_CALENDAR_EVENT_IMPORTANCE threshold =
+      (InpNewsImportance >= 2) ? CALENDAR_IMPORTANCE_HIGH : CALENDAR_IMPORTANCE_MODERATE;
+
+   for(int i = 0; i < count; i++)
+   {
+      if(values[i].time == 0) continue;
+      MqlCalendarEvent ev;
+      if(!CalendarEventById(values[i].event_id, ev)) continue;
+      if(ev.importance < threshold) continue;
+      datetime et = values[i].time;
+      if(et >= now - (long)InpNewsMinsAfter * 60 && et <= now + (long)InpNewsMinsBefore * 60)
+         return true;
+   }
+   return false;
 }
 
 // Opposing liquidity pool for TP: for a long, nearest buy-side pool above entry.
@@ -761,6 +955,33 @@ void ManageOpenPosition()
    double px  = (dir > 0) ? bid : ask;
 
    double tpLevel = (g_plannedTP > 0 ? g_plannedTP : curTP);
+
+   // --- Session-end close: don't carry the trade past the NY session ---
+   if(InpCloseAtSessionEnd)
+   {
+      int h = CurrentNYHour();
+      if(h >= InpNYEnd && h < InpNYEnd + 3)
+      {
+         if(trade.PositionClose(_Symbol))
+            Print("Closed at NY session end");
+         return;
+      }
+   }
+
+   // --- Break-even: after price runs InpBreakEvenAtR in our favour, protect the trade ---
+   if(InpUseBreakEven && !g_beDone && !g_tp1Done && g_initRisk > 0.0)
+   {
+      double moved = (dir > 0) ? (px - openp) : (openp - px);
+      if(moved >= InpBreakEvenAtR * g_initRisk)
+      {
+         double be = openp + dir * g_pip * InpBreakEvenBufferPips;
+         if((dir > 0 && be > curSL) || (dir < 0 && (curSL == 0 || be < curSL)))
+         {
+            ModifySL(be);
+            g_beDone = true;
+         }
+      }
+   }
 
    // --- TP1: take partial, move stop behind nearest M1 FVG to TP ---
    if(!g_tp1Done && tpLevel > 0.0)
@@ -898,15 +1119,25 @@ void DrawDashboard()
 {
    int bias = InstitutionalBias();
    string sBias = (bias == BIAS_BULL) ? "BULLISH" : (bias == BIAS_BEAR ? "BEARISH" : "NONE");
+   double eq  = AccountInfoDouble(ACCOUNT_EQUITY);
+   double pct = (g_dayStartBalance > 0 ? (eq - g_dayStartBalance) / g_dayStartBalance * 100.0 : 0.0);
+   string block = "-";
+   if(IsNewsTime())            block = "NEWS";
+   else if(InCooldown())       block = "COOLDOWN";
+   else if(DailyGuardBlocked())block = "DAILY GUARD";
+
    string txt =
       "INSTITUTIONAL BLXCK MIRROR\n" +
       "Symbol      : " + _Symbol + "\n" +
+      "NY hour     : " + IntegerToString(CurrentNYHour()) + ":00\n" +
       "Bias (" + EnumToString(InpBiasTF) + "): " + sBias + "\n" +
       "EMA bias    : " + BiasStr(EmaBias()) + "\n" +
       "BOS " + EnumToString(InpBiasTF) + " : " + BiasStr(StructureBias(InpBiasTF)) + "\n" +
       "BOS " + EnumToString(InpHTFTrend) + " : " + BiasStr(StructureBias(InpHTFTrend)) + "\n" +
       "Killzone    : " + (InKillzone() ? "OPEN" : "closed") + "\n" +
+      "Blocked by  : " + block + "\n" +
       "Spread(pips): " + DoubleToString(SpreadPips(), 1) + "\n" +
+      "Day P/L     : " + DoubleToString(pct, 2) + "%\n" +
       "Trades today: " + IntegerToString(g_tradesToday) + "/" + IntegerToString(InpMaxTradesPerDay) + "\n" +
       "Position    : " + (HasOpenPosition() ? (g_posDir > 0 ? "LONG" : "SHORT") : "flat") +
                          (g_tp1Done ? "  [runner]" : "");

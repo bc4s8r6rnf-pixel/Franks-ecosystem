@@ -82,10 +82,27 @@ Strong alternates: **GBP/USD** (bigger range, slightly lower win rate) and
 4. Attach the EA to a **EUR/USD M15** chart. Enable **Algo Trading**.
 5. Make sure the chart symbol has D1, H4 and M1 history downloaded.
 
-> Set the **session hours to your broker/server time** (`InpAsiaStart` … `InpNYEnd`).
-> Server time is usually not your local time — check the market watch clock. The
-> ICT London killzone (~07:00–10:00) and NY killzone (~12:00–15:00) *broker time*
-> are the sweet spots.
+### ⚠️ Timezone setup — do this first (most important step)
+
+Session windows are defined in **New York time** (the reference clock institutions
+use for killzones), but MetaTrader runs on your **broker's server time**. The EA
+converts between them with **one input**:
+
+> **`InpServerToNYOffset`** = hours to add to server time to get NY time.
+
+To find it: look at the clock in MT5's **Market Watch** (server time) vs the current
+NY time, and set the difference. Example: broker on **GMT+3**, New York on **GMT‑4**
+(EDT) → NY = server − 7 → **`InpServerToNYOffset = -7`** (the default). During US
+winter (EST, GMT‑5) it becomes **‑8**. Get this right and everything else — sessions,
+sweeps, killzones — lines up automatically.
+
+Default session windows (already set, in **NY time**):
+
+| Session | NY time | Role |
+|---------|---------|------|
+| Asia | 19:00–00:00 | Liquidity built here is swept during London |
+| London | 01:00–05:00 | Killzone — sweeps Asia, then continues |
+| New York | 07:00–11:00 | Killzone — sweeps London, then continues |
 
 ---
 
@@ -105,7 +122,63 @@ Strong alternates: **GBP/USD** (bigger range, slightly lower win rate) and
 | `InpMaxSpreadPips` | 3 | Skip entries in wide spread |
 | `InpShowHeatmap` / `InpShowFvg` / `InpShowDashboard` | true | Visuals |
 
+### ATR stop fallback
+| Input | Default | Meaning |
+|-------|---------|---------|
+| `InpUseAtrStop` | true | Enforce a minimum ATR-based stop so noise can't stop you out too tight |
+| `InpAtrPeriod` | 14 | ATR period (setup TF) |
+| `InpAtrMultSL` | 1.2 | Stop is widened to at least `ATR × this` from entry |
+| `InpMaxStopPips` | 0 | Reject a setup whose stop is wider than this (0 = off) |
+
+### News filter (MT5 economic calendar)
+| Input | Default | Meaning |
+|-------|---------|---------|
+| `InpUseNewsFilter` | true | Block entries around high-impact news for the pair's currencies |
+| `InpNewsImportance` | 2 | 1 = moderate+, 2 = high only |
+| `InpNewsMinsBefore` / `InpNewsMinsAfter` | 15 / 15 | Blackout window around each event |
+
+> The calendar needs to be enabled in the terminal and is **not available in the
+> Strategy Tester** — there the filter simply allows trading (fails open).
+
+### Win-rate boosters (all toggleable)
+| Input | Default | Meaning |
+|-------|---------|---------|
+| `InpUseDisplacement` | true | Entry candle must be a strong displacement (body ≥ `InpMinBodyPct`% and ≥ `InpDisplaceAtrMult × ATR`) |
+| `InpUseOTE` | true | Premium/discount filter — only buy in discount, only sell in premium |
+| `InpUseBreakEven` | true | Move SL to break-even once price runs `InpBreakEvenAtR` R in profit |
+| `InpCloseAtSessionEnd` | true | Flatten any open trade at NY session end (no overnight risk) |
+| `InpDailyMaxLossPct` | 3.0 | Stop trading for the day after this % equity loss |
+| `InpDailyTargetPct` | 0 | Stop for the day after this % gain (0 = off) — bank consistent days |
+| `InpCooldownMin` | 30 | Pause this many minutes after a losing trade (kills tilt/chop) |
+
 ---
+
+## Pushing win rate & profit factor higher
+
+The biggest levers, in order of impact:
+
+1. **Get `InpServerToNYOffset` exactly right.** Everything keys off session timing.
+2. **Keep `InpRequireEmaAndBOS = true`.** Trading only with full trend confluence is
+   the single largest win-rate driver.
+3. **Keep the displacement + OTE filters on.** They throw away the weak IFVGs that
+   cause most losers — fewer trades, but far cleaner ones.
+4. **Raise `InpMinRR`** (e.g. 2.5–3.0) to lift profit factor; lower it (1.5–2.0) if you
+   want more frequent trades and are willing to trade some win-rate for frequency.
+5. **Optimise per pair** in the Strategy Tester: `InpSwingStrength`, `InpSweepMinPips`,
+   `InpMinFvgPips`, `InpAtrMultSL`, and the killzone hours. What's optimal on EUR/USD
+   is not optimal on NAS100.
+6. Use **`InpDailyTargetPct`** to *bank* good days and **`InpDailyMaxLossPct` +
+   `InpCooldownMin`** to cap bad ones — that's what turns a positive edge into
+   *consistent* equity growth.
+
+### An honest word on "consistent daily pips"
+
+No automated strategy wins every day — a real institutional-style edge shows up as a
+**positive expectancy over many trades**, with losing days mixed in. This EA is built
+to be *selective*: on many days the filters will (correctly) find **no valid setup**,
+and forcing trades on those days is exactly what destroys win rate. Target a strong
+**profit factor and controlled drawdown over weeks**, not a green candle every session.
+That is how the institutions you're modelling actually compound.
 
 ## Important notes & honest caveats
 
