@@ -10,6 +10,18 @@ institutions (and this EA) see continuation. That mirror is the edge.
 
 ---
 
+## The playbook (start to finish)
+
+1. **Bias** — H4 Break of Structure aligned with D1 **and** EMA 50/200 order-flow agree. No confluence → no trade.
+2. **Liquidity map** — mark prior-session highs/lows + swing pools (manipulation targets *and* profit targets).
+3. **Setup** — in the killzone, wait for a **sweep of the previous session's liquidity against bias** (the stop-run). Sweep extreme = fib **1.0**; the displacement leg extreme = fib **0.0** (dynamic).
+4. **Entry** — price retraces into **OTE 0.62–0.79**, confirmed by a displacement candle or inversion FVG. A **limit rests at 0.705** (market fallback if price runs), stop just beyond the **M1 confirmation swing**.
+5. **Risk** — fixed 0.5–0.75% sized to the tight stop; skip on low RR, wide spread, news, daily-loss, or cooldown.
+6. **Manage** — first partial at **1:2 → break-even**, then **−2.0 SD** partial, runner trailed to **−3.0 SD** behind M1 FVGs. Flat by session end.
+7. **Guards** — max trades/day, daily max-loss, post-loss cooldown, optional daily target.
+
+---
+
 ## The strategy structure (my recommended institutional model)
 
 You asked me to pick the structure that gives the highest probability, biggest
@@ -175,12 +187,37 @@ Default session windows (already set, in **NY time**):
 | `InpOTELow` / `InpOTEHigh` | 0.62 / 0.79 | OTE retracement zone (fib) |
 | `InpConfirmMode` | 1 | 0 = OTE tap, 1 = OTE + (displacement **or** IFVG), 2 = OTE + IFVG required |
 | `InpMinDisplaceLeg` | 1.0 | Min displacement leg (× ATR) needed to arm a setup |
-| `InpTP1_SD` | 2.0 | TP1 standard-deviation level — 70% banked here |
+| `InpTP1_SD` | 2.0 | Main SD target — partial banked here |
 | `InpRunnerSD` | 3.0 | Runner target SD level (stop trails behind M1 FVGs toward it) |
 
-> TP1/runner are projected from the **manipulation leg** (fib `-2.0`, `-3.0`), exactly
-> like the SD tool in your charts. The live OTE zone + target ladder are drawn on the
-> chart while a setup is armed.
+> TP levels are projected from the **manipulation leg** (fib `-2.0`, `-3.0`), exactly
+> like the SD tool in your charts. The live OTE zone + entry/target ladder are drawn on
+> the chart while a setup is armed.
+
+### Execution & stop precision (the "best execution" layer)
+| Input | Default | Meaning |
+|-------|---------|---------|
+| `InpEntryExec` | 1 | 0 = market on confirmation (never miss), 1 = **limit at OTE** with automatic market fallback |
+| `InpOTEEntryFib` | 0.705 | Fib level the limit rests at (the sweet spot) |
+| `InpStopMode` | 2 | 0 = beyond 1.0 anchor, 1 = beyond 0.79 edge, **2 = behind the M1 confirmation swing (tightest sane)** |
+| `InpPendingExpiryBars` | 4 | Cancel an unfilled OTE limit after N setup bars (also cancels when the killzone closes) |
+| `InpMicroSwingLB` / `InpMicroSwingStr` | 25 / 2 | M1 lookback / fractal strength for the stop swing |
+
+**How the entry actually fires:** OTE tap → confirmation → a **limit is placed at 0.705**.
+If price gives the pullback you're filled at the sweet spot with a tiny stop; if price is
+already displacing away, it **fills at market instead** so you never miss the runner. The
+stop sits just beyond the **M1 swing that made the confirmation** (+ buffer, + broker/spread
+floor) — small, but on real structure rather than the razor fib edge that gets hunted.
+
+### Bank-then-run management
+| Input | Default | Meaning |
+|-------|---------|---------|
+| `InpTP1_RR` | 2.0 | First partial at this reward:risk, then stop → break-even (0 = off) |
+| `InpFirstPartialPct` | 50 | % closed at the 1:R first partial |
+| `InpPartialPercent` | 70 | % of the **remaining** closed at the −2.0 SD target |
+
+First partial at **1:2** makes the trade risk-free early (keeps the green rate high even
+with a tight stop); the −2.0 SD partial then banks more and the runner trails to −3.0.
 
 ### Standard-deviation projections (Asian range)
 | Input | Default | Meaning |

@@ -79,7 +79,9 @@ input double   InpRiskPercent      = 0.75;          // Risk per trade (% of bala
 input double   InpFixedLots        = 0.0;           // Fixed lots (0 = use risk %)
 input double   InpSlBufferPips     = 1.5;           // Stop buffer beyond sweep (pips)
 input double   InpMinRR            = 2.0;           // Minimum reward:risk to accept trade
-input double   InpPartialPercent   = 70.0;          // % of position closed at TP1
+input double   InpTP1_RR            = 2.0;          // First partial at this reward:risk (0 = off)
+input double   InpFirstPartialPct   = 50.0;         // % of position closed at the 1:R first partial
+input double   InpPartialPercent   = 70.0;          // % of REMAINING closed at the -2.0 SD target
 input bool     InpMoveSlBehindFvg  = true;          // After TP1, SL -> behind nearest M1 FVG to TP
 input bool     InpTrailMicroFvg    = true;          // Trail runner behind M1 FVGs
 input int      InpMaxSpreadPips    = 3;             // Skip entries if spread wider than this
@@ -172,6 +174,7 @@ bool     g_hadPosition      = false;
 
 // Trade lifecycle state (for the single managed position)
 bool     g_tp1Done          = false;
+bool     g_firstDone        = false;   // first (1:R) partial taken?
 bool     g_beDone           = false;
 double   g_plannedTP        = 0.0;
 double   g_plannedSL        = 0.0;
@@ -290,7 +293,7 @@ void OnTick()
    if(g_hadPosition && !hasPos)
    {
       CheckClosedResult();
-      g_tp1Done = false; g_beDone = false; g_posDir = 0;
+      g_tp1Done = false; g_firstDone = false; g_beDone = false; g_posDir = 0;
       g_plannedTP = 0.0; g_initRisk = 0.0; g_runnerTP = 0.0;
       g_setup.active = false;
    }
@@ -875,6 +878,7 @@ void ManagePendingOrder()
 void EvaluateOTESetup()
 {
    if(HasOpenPosition()) { ResetSetup(); return; }
+   if(g_pendingTicket != 0) return;   // an OTE limit is already resting
 
    int n = InpSetupLookback + 5;
    MqlRates r[];
@@ -947,41 +951,73 @@ void EvaluateOTESetup()
 
    if(SpreadPips() > InpMaxSpreadPips) return;
 
-   // ---- Build & place the trade ----
-   double entry = SymbolInfoDouble(_Symbol, (dir > 0) ? SYMBOL_ASK : SYMBOL_BID);
-   double buf   = g_pip * InpSlBufferPips;
-   double sl    = (dir > 0) ? (g_setup.manipAnchor - buf) : (g_setup.manipAnchor + buf);
-   double atr   = AtrValue();
-   if(InpUseAtrStop && atr > 0.0)
-      sl = (dir > 0) ? MathMin(sl, entry - atr * InpAtrMultSL)
-                     : MathMax(sl, entry + atr * InpAtrMultSL);
+   // ---- Decide execution: limit at OTE (best price) with market fallback ----
+   double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   double market  = (dir > 0) ? ask : bid;
+   double minGap  = MinStopDistance();
 
-   double risk = MathAbs(entry - sl);
+   bool   useLimit = (InpEntryExec == 1);
+   double desired  = useLimit ? OTEPrice(InpOTEEntryFib) : market;
+   // A limit is only valid on the correct side of the market; otherwise price is
+   // already at/through the OTE, so take the (equal-or-better) market fill.
+   if(useLimit)
+   {
+      if(dir > 0 && !(desired < ask - minGap)) useLimit = false;
+      if(dir < 0 && !(desired > bid + minGap)) useLimit = false;
+   }
+   double entryPrice = useLimit ? desired : market;
+
+   // ---- Tight structural stop + targets ----
+   double sl     = ComputeStop(dir, entryPrice);
+   double risk   = MathAbs(entryPrice - sl);
    if(risk <= 0.0) { ResetSetup(); return; }
 
-   double tp1    = OTEPrice(-InpTP1_SD);       // e.g. -2.0 SD
-   double runner = OTEPrice(-InpRunnerSD);     // e.g. -3.0 SD
-   double reward = MathAbs(tp1 - entry);
+   double tpMain = OTEPrice(-InpTP1_SD);       // -2.0 SD (main partial)
+   double runner = OTEPrice(-InpRunnerSD);     // -3.0 SD (runner)
+   double reward = MathAbs(tpMain - entryPrice);
    if(reward / risk < InpMinRR) { ResetSetup(); return; }
    if(InpMaxStopPips > 0.0 && risk / g_pip > InpMaxStopPips) { ResetSetup(); return; }
 
    double lots = CalcLots(risk);
    if(lots <= 0.0) { ResetSetup(); return; }
 
-   bool ok = (dir > 0) ? trade.Buy(lots, _Symbol, 0.0, sl, tp1, InpTradeComment)
-                       : trade.Sell(lots, _Symbol, 0.0, sl, tp1, InpTradeComment);
+   double slN = NormalizeDouble(sl, g_digits);
+   double tpN = NormalizeDouble(tpMain, g_digits);
+   bool ok = false;
+
+   if(useLimit)
+   {
+      double pxN = NormalizeDouble(entryPrice, g_digits);
+      ok = (dir > 0) ? trade.BuyLimit(lots, pxN, _Symbol, slN, tpN, ORDER_TIME_GTC, 0, InpTradeComment)
+                     : trade.SellLimit(lots, pxN, _Symbol, slN, tpN, ORDER_TIME_GTC, 0, InpTradeComment);
+      if(ok)
+      {
+         g_pendingTicket = trade.ResultOrder();
+         g_pendingExpiry = TimeCurrent() + (long)InpPendingExpiryBars * PeriodSeconds(InpSetupTF);
+         g_pendingDir    = dir;
+      }
+   }
+   else
+   {
+      ok = (dir > 0) ? trade.Buy(lots, _Symbol, 0.0, slN, tpN, InpTradeComment)
+                     : trade.Sell(lots, _Symbol, 0.0, slN, tpN, InpTradeComment);
+   }
+
    if(ok)
    {
       g_tradesToday++;
-      g_tp1Done   = false;
-      g_beDone    = false;
-      g_plannedTP = tp1;
-      g_runnerTP  = runner;
-      g_plannedSL = sl;
-      g_initRisk  = risk;
-      g_posDir    = dir;
-      PrintFormat("OTE ENTRY %s lots=%.2f entry=%.5f sl=%.5f tp1=%.5f(-%.1fSD) runner=%.5f(-%.1fSD) RR=%.2f",
-                  (dir > 0 ? "BUY" : "SELL"), lots, entry, sl, tp1, InpTP1_SD, runner, InpRunnerSD, reward / risk);
+      g_tp1Done      = false;
+      g_beDone       = false;
+      g_firstDone    = false;
+      g_plannedTP    = tpMain;
+      g_runnerTP     = runner;
+      g_plannedSL    = sl;
+      g_initRisk     = risk;
+      g_posDir       = dir;
+      PrintFormat("OTE %s %s lots=%.2f @ %.5f sl=%.5f (%.1f pips) tp=%.5f(-%.1fSD) runner=-%.1fSD RR=%.2f",
+                  (useLimit ? "LIMIT" : "MARKET"), (dir > 0 ? "BUY" : "SELL"),
+                  lots, entryPrice, sl, risk / g_pip, tpMain, InpTP1_SD, InpRunnerSD, reward / risk);
    }
    else
       PrintFormat("OTE order failed: %d %s", trade.ResultRetcode(), trade.ResultRetcodeDescription());
@@ -1007,10 +1043,12 @@ void DrawOTE()
    ObjectSetInteger(0, zone, OBJPROP_BACK, true);
    ObjectSetString(0, zone, OBJPROP_TOOLTIP, "OTE 0.62-0.79 entry zone");
 
-   // key levels: manip anchor (1), extreme (0), TP1, runner
+   // key levels: manip anchor (1), extreme (0), entry, TP, runner
    DrawOTELine("OTE_ANCHOR", g_setup.manipAnchor, t1, t2, clrGray,   "manipulation (1.0)");
    DrawOTELine("OTE_EXT",    g_setup.extreme,     t1, t2, clrGray,   "extreme (0.0)");
-   DrawOTELine("OTE_TP1",    OTEPrice(-InpTP1_SD),   t1, t2, clrLime, StringFormat("TP1 -%.1f SD", InpTP1_SD));
+   DrawOTELine("OTE_ENTRY",  OTEPrice(InpOTEEntryFib), t1, t2, clrDeepSkyBlue,
+               StringFormat("entry limit (%.3f)", InpOTEEntryFib));
+   DrawOTELine("OTE_TP1",    OTEPrice(-InpTP1_SD),   t1, t2, clrLime, StringFormat("TP -%.1f SD", InpTP1_SD));
    DrawOTELine("OTE_RUN",    OTEPrice(-InpRunnerSD), t1, t2, clrGreen,StringFormat("runner -%.1f SD", InpRunnerSD));
 }
 
@@ -1430,6 +1468,28 @@ void ManageOpenPosition()
       }
    }
 
+   // --- First partial at 1:R -> bank profit and move to break-even (risk-free runner) ---
+   if(!g_firstDone && InpTP1_RR > 0.0 && g_initRisk > 0.0)
+   {
+      double firstTgt = openp + dir * g_initRisk * InpTP1_RR;
+      bool hitFirst = (dir > 0) ? (px >= firstTgt) : (px <= firstTgt);
+      if(hitFirst)
+      {
+         double closeVol = NormalizeVolume(volume * InpFirstPartialPct / 100.0);
+         if(closeVol > 0.0 && closeVol < volume)
+         {
+            if(trade.PositionClosePartial(_Symbol, closeVol))
+               PrintFormat("First partial (%.1fR): closed %.2f lots (%.0f%%)",
+                           InpTP1_RR, closeVol, InpFirstPartialPct);
+         }
+         double be = openp + dir * g_pip * InpBreakEvenBufferPips;
+         if((dir > 0 && be > curSL) || (dir < 0 && (curSL == 0 || be < curSL)))
+            ModifySL(be);
+         g_firstDone = true;
+         g_beDone    = true;
+      }
+   }
+
    // --- Break-even: after price runs InpBreakEvenAtR in our favour, protect the trade ---
    if(InpUseBreakEven && !g_beDone && !g_tp1Done && g_initRisk > 0.0)
    {
@@ -1598,6 +1658,7 @@ void DrawDashboard()
       "BOS " + EnumToString(InpHTFTrend) + " : " + BiasStr(StructureBias(InpHTFTrend)) + "\n" +
       "Killzone    : " + (InKillzone() ? "OPEN" : "closed") + "\n" +
       "OTE setup   : " + (g_setup.active ? (g_setup.dir > 0 ? "ARMED long (await retrace)" : "ARMED short (await retrace)") : "none") + "\n" +
+      "OTE limit   : " + (g_pendingTicket != 0 ? "RESTING (await fill)" : "none") + "\n" +
       "Blocked by  : " + block + "\n" +
       "Spread(pips): " + DoubleToString(SpreadPips(), 1) + "\n" +
       "Day P/L     : " + DoubleToString(pct, 2) + "%\n" +
