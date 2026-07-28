@@ -64,6 +64,14 @@ InpCloseAtSessionEnd=true
 InpDailyMaxLossPct=3.0
 InpDailyTargetPct=0.0
 InpCooldownMin=30
+; --- OTE entry model (dynamic) ---
+InpUseOTEModel=true
+InpOTELow=0.62
+InpOTEHigh=0.79
+InpConfirmMode=1
+InpMinDisplaceLeg=1.0
+InpTP1_SD=2.0
+InpRunnerSD=3.0
 ; --- Standard-deviation projections ---
 InpUseSDProjection=true
 InpSDMultiples=0.5,1.0,1.5,2.0,2.5,3.0

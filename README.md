@@ -40,15 +40,29 @@ The EA maps engineered liquidity and weights it:
   stops = a bigger magnet for price.
 - Previous **Asia** and **London** session highs/lows are added as premium pools.
 
-### 3. The setup — sweep → inversion FVG → continuation
+### 3. The setup — sweep → dynamic OTE → confirmation (primary model)
 1. **Liquidity sweep** of the *previous session's* pool **against** the trend
    (bullish bias → sweep the prior-session low; bearish → sweep the prior-session
-   high), with a close back inside. This is the stop-run that fuels the move.
-2. The sweep candle prints a **fair value gap**. When price then **closes through
-   that FVG in the trend direction, it becomes an Inversion FVG (IFVG)** — the
-   highest-probability continuation entry. The EA prioritises the IFVG tied to the
-   sweep candle, exactly as you asked.
-3. **Entry** on the confirming close beyond the IFVG.
+   high). This is the manipulation that fuels the move. The sweep extreme becomes
+   fib **`1.0`** (end of manipulation / start of the displacement leg).
+2. A real **displacement leg** must follow (≥ `InpMinDisplaceLeg × ATR`). Its running
+   extreme is fib **`0.0`** — and it is **dynamic**: as long as price keeps extending,
+   the `0` anchor (and therefore the whole **OTE 0.62–0.79 zone**) slides with it. The
+   setup stays "armed, awaiting retracement".
+3. **Entry** when price finally retraces into the **OTE 0.62–0.79 zone**, with a
+   **confirmation trigger** (`InpConfirmMode`): a displacement candle back in trend
+   and/or an **inversion FVG**. If a pullback doesn't reach OTE and price makes a new
+   extreme, the zone re-anchors and waits again — **unless price leaves the killzone**,
+   in which case the setup is abandoned. A close beyond the `1.0` anchor invalidates it.
+
+> **Legacy mode:** set `InpUseOTEModel = false` to use the simpler one-shot
+> sweep→IFVG entry instead. The OTE model is the recommended default.
+
+**Why OTE + light confirmation (not OTE alone, not strict IFVG):** OTE is the
+*location* (discount/premium after a liquidity grab — what institutions fill into);
+the confirmation is the *proof order flow shifted* there. Requiring a strict IFVG on
+top misses clean V-reversals; pure OTE taps eat fakeouts. `InpConfirmMode = 1`
+(OTE + displacement **or** IFVG) is the balance — backtest 0/1/2 on your data.
 
 ### 4. Targets & trade management
 - **Take profit = opposing liquidity, snapped to a standard-deviation projection.**
@@ -153,6 +167,20 @@ Default session windows (already set, in **NY time**):
 
 > The calendar needs to be enabled in the terminal and is **not available in the
 > Strategy Tester** — there the filter simply allows trading (fails open).
+
+### OTE entry model (dynamic)
+| Input | Default | Meaning |
+|-------|---------|---------|
+| `InpUseOTEModel` | true | Use the dynamic OTE model (false = legacy sweep→IFVG entry) |
+| `InpOTELow` / `InpOTEHigh` | 0.62 / 0.79 | OTE retracement zone (fib) |
+| `InpConfirmMode` | 1 | 0 = OTE tap, 1 = OTE + (displacement **or** IFVG), 2 = OTE + IFVG required |
+| `InpMinDisplaceLeg` | 1.0 | Min displacement leg (× ATR) needed to arm a setup |
+| `InpTP1_SD` | 2.0 | TP1 standard-deviation level — 70% banked here |
+| `InpRunnerSD` | 3.0 | Runner target SD level (stop trails behind M1 FVGs toward it) |
+
+> TP1/runner are projected from the **manipulation leg** (fib `-2.0`, `-3.0`), exactly
+> like the SD tool in your charts. The live OTE zone + target ladder are drawn on the
+> chart while a setup is armed.
 
 ### Standard-deviation projections (Asian range)
 | Input | Default | Meaning |

@@ -110,6 +110,16 @@ input double   InpDailyMaxLossPct    = 3.0;         // Stop for the day after th
 input double   InpDailyTargetPct     = 0.0;         // Stop for the day after this % equity gain (0=off)
 input int      InpCooldownMin        = 30;          // Minutes to pause after a losing trade
 
+input group "=== OTE entry model (dynamic) ==="
+input bool     InpUseOTEModel      = true;          // Use dynamic OTE model (else legacy IFVG entry)
+input double   InpOTELow            = 0.62;         // OTE zone near edge (fib)
+input double   InpOTEHigh           = 0.79;         // OTE zone far edge (fib)
+// Entry trigger: 0 = OTE tap only, 1 = OTE + (displacement OR IFVG), 2 = OTE + IFVG required
+input int      InpConfirmMode        = 1;           // OTE confirmation mode
+input double   InpMinDisplaceLeg     = 1.0;         // Min displacement leg vs ATR to arm a setup
+input double   InpTP1_SD             = 2.0;         // TP1 standard-deviation level (partial here)
+input double   InpRunnerSD           = 3.0;         // Runner target standard-deviation level
+
 input group "=== Standard-deviation projections (Asian range) ==="
 input bool     InpUseSDProjection  = true;          // Project SD levels from the Asian range
 input string   InpSDMultiples      = "0.5,1.0,1.5,2.0,2.5,3.0"; // Range multiples to project
@@ -191,6 +201,19 @@ double   g_asiaRange = 0.0;
 
 enum TARGET_MODE { TGT_LIQUIDITY = 0, TGT_SD = 1, TGT_CONFLUENCE = 2 };
 
+// Dynamic OTE setup tracker. manipAnchor (the "1") is fixed once armed; the
+// "0" extreme trails the displacement until price retraces into the OTE zone.
+struct SetupState
+{
+   bool     active;
+   int      dir;          // +1 long, -1 short
+   double   manipAnchor;  // fib 1.0 = end of manipulation / start of displacement
+   double   extreme;      // fib 0.0 = running displacement extreme (dynamic)
+   datetime armedTime;
+};
+SetupState g_setup;
+double   g_runnerTP = 0.0;   // final runner target (SD projection)
+
 //==================================================================//
 //  INIT / DEINIT                                                   //
 //==================================================================//
@@ -250,7 +273,8 @@ void OnTick()
    {
       CheckClosedResult();
       g_tp1Done = false; g_beDone = false; g_posDir = 0;
-      g_plannedTP = 0.0; g_initRisk = 0.0;
+      g_plannedTP = 0.0; g_initRisk = 0.0; g_runnerTP = 0.0;
+      g_setup.active = false;
    }
    g_hadPosition = hasPos;
 
@@ -716,10 +740,204 @@ bool DetectLiquiditySweep(const MqlRates &r[], int bias, double &liqLevel, int &
 }
 
 //==================================================================//
-//  SETUP EVALUATION + ENTRY                                        //
+//  DYNAMIC OTE ENTRY MODEL                                         //
+//==================================================================//
+// Price at a fib level of the manipulation leg. level 1 = manipAnchor,
+// level 0 = extreme, negatives = SD projections beyond the extreme.
+double OTEPrice(double level)
+{
+   return g_setup.extreme + level * (g_setup.manipAnchor - g_setup.extreme);
+}
+
+// Displacement candle closing back in the trend direction.
+bool DisplacementConfirms(const MqlRates &r[], int dir)
+{
+   if(!IsDisplacement(r, 1)) return false;
+   return (dir > 0) ? (r[1].close > r[1].open) : (r[1].close < r[1].open);
+}
+
+// Is there an inversion FVG (order-flow shift) in the trend direction recently?
+bool IFVGConfirms(const MqlRates &r[], int dir)
+{
+   int scan = MathMin(InpSweepMaxBars + 2, ArraySize(r) - 3);
+   for(int i = 1; i <= scan; i++)
+   {
+      FVG f;
+      if(!FvgAt(r, i, f)) continue;
+      if(dir > 0 && f.dir == -1)
+         for(int j = i - 1; j >= 0; j--) if(r[j].close > f.top) return true;
+      if(dir < 0 && f.dir == +1)
+         for(int j = i - 1; j >= 0; j--) if(r[j].close < f.bottom) return true;
+   }
+   return false;
+}
+
+void ResetSetup()
+{
+   g_setup.active = false;
+   g_setup.dir    = 0;
+   ObjectsDeleteAll(0, g_obj_prefix + "OTE_");
+}
+
+void EvaluateOTESetup()
+{
+   if(HasOpenPosition()) { ResetSetup(); return; }
+
+   int n = InpSetupLookback + 5;
+   MqlRates r[];
+   ArraySetAsSeries(r, true);
+   if(CopyRates(_Symbol, InpSetupTF, 0, n, r) < n) return;
+
+   bool inKZ = InKillzone();
+
+   // ---- Arm a new setup: manipulation sweep + a real displacement leg ----
+   if(!g_setup.active)
+   {
+      if(!inKZ) return;
+      if(g_tradesToday >= InpMaxTradesPerDay) return;
+      if(DailyGuardBlocked() || InCooldown() || IsNewsTime()) return;
+
+      int bias = InstitutionalBias();
+      if(bias == BIAS_NONE) return;
+
+      double liq; int sweepIdx;
+      if(!DetectLiquiditySweep(r, bias, liq, sweepIdx)) return;
+
+      double manip = (bias == BIAS_BULL) ? r[sweepIdx].low : r[sweepIdx].high;
+      double ext   = manip;
+      for(int i = 1; i <= sweepIdx; i++)
+      {
+         if(bias == BIAS_BULL) ext = MathMax(ext, r[i].high);
+         else                  ext = MathMin(ext, r[i].low);
+      }
+      double atr = AtrValue();
+      if(atr > 0.0 && MathAbs(ext - manip) < InpMinDisplaceLeg * atr) return; // no real displacement
+
+      g_setup.active      = true;
+      g_setup.dir         = bias;
+      g_setup.manipAnchor = manip;
+      g_setup.extreme     = ext;
+      g_setup.armedTime   = TimeCurrent();
+      return; // wait for the retracement on following bars
+   }
+
+   // ---- Manage the armed setup ----
+   int dir = g_setup.dir;
+
+   if(!inKZ) { ResetSetup(); return; }                       // left the killzone -> abandon
+   // structure invalidation: a close beyond the manipulation anchor
+   if(dir > 0 && r[1].close < g_setup.manipAnchor) { ResetSetup(); return; }
+   if(dir < 0 && r[1].close > g_setup.manipAnchor) { ResetSetup(); return; }
+
+   // dynamically trail the "0" extreme (this slides the OTE zone with the swing)
+   if(dir > 0) g_setup.extreme = MathMax(g_setup.extreme, r[1].high);
+   else        g_setup.extreme = MathMin(g_setup.extreme, r[1].low);
+
+   if(InpShowSDLevels) DrawOTE();
+
+   // OTE zone from the (possibly updated) leg
+   double zA = OTEPrice(InpOTELow);
+   double zB = OTEPrice(InpOTEHigh);
+   double zHi = MathMax(zA, zB), zLo = MathMin(zA, zB);
+
+   bool tapped = (r[1].low <= zHi && r[1].high >= zLo);       // last bar traded into OTE
+   if(!tapped) return;
+
+   // confirmation trigger
+   bool disp = DisplacementConfirms(r, dir);
+   bool ifvg = IFVGConfirms(r, dir);
+   bool confirmed;
+   if(InpConfirmMode <= 0)      confirmed = true;             // OTE tap only
+   else if(InpConfirmMode == 1) confirmed = (disp || ifvg);   // OTE + light confirmation
+   else                         confirmed = ifvg;             // OTE + IFVG required
+   if(!confirmed) return;
+
+   if(SpreadPips() > InpMaxSpreadPips) return;
+
+   // ---- Build & place the trade ----
+   double entry = SymbolInfoDouble(_Symbol, (dir > 0) ? SYMBOL_ASK : SYMBOL_BID);
+   double buf   = g_pip * InpSlBufferPips;
+   double sl    = (dir > 0) ? (g_setup.manipAnchor - buf) : (g_setup.manipAnchor + buf);
+   double atr   = AtrValue();
+   if(InpUseAtrStop && atr > 0.0)
+      sl = (dir > 0) ? MathMin(sl, entry - atr * InpAtrMultSL)
+                     : MathMax(sl, entry + atr * InpAtrMultSL);
+
+   double risk = MathAbs(entry - sl);
+   if(risk <= 0.0) { ResetSetup(); return; }
+
+   double tp1    = OTEPrice(-InpTP1_SD);       // e.g. -2.0 SD
+   double runner = OTEPrice(-InpRunnerSD);     // e.g. -3.0 SD
+   double reward = MathAbs(tp1 - entry);
+   if(reward / risk < InpMinRR) { ResetSetup(); return; }
+   if(InpMaxStopPips > 0.0 && risk / g_pip > InpMaxStopPips) { ResetSetup(); return; }
+
+   double lots = CalcLots(risk);
+   if(lots <= 0.0) { ResetSetup(); return; }
+
+   bool ok = (dir > 0) ? trade.Buy(lots, _Symbol, 0.0, sl, tp1, InpTradeComment)
+                       : trade.Sell(lots, _Symbol, 0.0, sl, tp1, InpTradeComment);
+   if(ok)
+   {
+      g_tradesToday++;
+      g_tp1Done   = false;
+      g_beDone    = false;
+      g_plannedTP = tp1;
+      g_runnerTP  = runner;
+      g_plannedSL = sl;
+      g_initRisk  = risk;
+      g_posDir    = dir;
+      PrintFormat("OTE ENTRY %s lots=%.2f entry=%.5f sl=%.5f tp1=%.5f(-%.1fSD) runner=%.5f(-%.1fSD) RR=%.2f",
+                  (dir > 0 ? "BUY" : "SELL"), lots, entry, sl, tp1, InpTP1_SD, runner, InpRunnerSD, reward / risk);
+   }
+   else
+      PrintFormat("OTE order failed: %d %s", trade.ResultRetcode(), trade.ResultRetcodeDescription());
+
+   ResetSetup();
+}
+
+// Draw the live OTE zone + SD target ladder for the armed setup.
+void DrawOTE()
+{
+   ObjectsDeleteAll(0, g_obj_prefix + "OTE_");
+   if(!g_setup.active) return;
+
+   datetime t1 = g_setup.armedTime;
+   datetime t2 = iTime(_Symbol, InpSetupTF, 0) + PeriodSeconds(InpSetupTF) * 6;
+
+   // OTE zone box
+   double zA = OTEPrice(InpOTELow), zB = OTEPrice(InpOTEHigh);
+   string zone = g_obj_prefix + "OTE_ZONE";
+   ObjectCreate(0, zone, OBJ_RECTANGLE, 0, t1, zA, t2, zB);
+   ObjectSetInteger(0, zone, OBJPROP_COLOR, clrMediumPurple);
+   ObjectSetInteger(0, zone, OBJPROP_FILL, true);
+   ObjectSetInteger(0, zone, OBJPROP_BACK, true);
+   ObjectSetString(0, zone, OBJPROP_TOOLTIP, "OTE 0.62-0.79 entry zone");
+
+   // key levels: manip anchor (1), extreme (0), TP1, runner
+   DrawOTELine("OTE_ANCHOR", g_setup.manipAnchor, t1, t2, clrGray,   "manipulation (1.0)");
+   DrawOTELine("OTE_EXT",    g_setup.extreme,     t1, t2, clrGray,   "extreme (0.0)");
+   DrawOTELine("OTE_TP1",    OTEPrice(-InpTP1_SD),   t1, t2, clrLime, StringFormat("TP1 -%.1f SD", InpTP1_SD));
+   DrawOTELine("OTE_RUN",    OTEPrice(-InpRunnerSD), t1, t2, clrGreen,StringFormat("runner -%.1f SD", InpRunnerSD));
+}
+
+void DrawOTELine(string tag, double price, datetime t1, datetime t2, color c, string tip)
+{
+   string nm = g_obj_prefix + tag;
+   ObjectCreate(0, nm, OBJ_TREND, 0, t1, price, t2, price);
+   ObjectSetInteger(0, nm, OBJPROP_COLOR, c);
+   ObjectSetInteger(0, nm, OBJPROP_STYLE, STYLE_DOT);
+   ObjectSetInteger(0, nm, OBJPROP_RAY_RIGHT, false);
+   ObjectSetInteger(0, nm, OBJPROP_BACK, true);
+   ObjectSetString(0, nm, OBJPROP_TOOLTIP, tip);
+}
+
+//==================================================================//
+//  SETUP EVALUATION + ENTRY (legacy IFVG model)                    //
 //==================================================================//
 void EvaluateSetup()
 {
+   if(InpUseOTEModel) { EvaluateOTESetup(); return; }
    if(HasOpenPosition()) return;
    if(!InKillzone()) return;
    if(g_tradesToday >= InpMaxTradesPerDay) return;
@@ -1162,8 +1380,8 @@ void ManageOpenPosition()
             if((dir > 0 && newSL > curSL) || (dir < 0 && (curSL == 0 || newSL < curSL)))
                ModifySL(newSL);
 
-            // let the runner target the next pool beyond current TP
-            double extTP = OpposingLiquidity(dir, tpLevel);
+            // extend the runner: SD runner target (OTE model) or next liquidity pool
+            double extTP = (g_runnerTP > 0.0) ? g_runnerTP : OpposingLiquidity(dir, tpLevel);
             if(extTP > 0.0 && ((dir > 0 && extTP > tpLevel) || (dir < 0 && extTP < tpLevel)))
             {
                g_plannedTP = extTP;
@@ -1286,6 +1504,7 @@ void DrawDashboard()
       "BOS " + EnumToString(InpBiasTF) + " : " + BiasStr(StructureBias(InpBiasTF)) + "\n" +
       "BOS " + EnumToString(InpHTFTrend) + " : " + BiasStr(StructureBias(InpHTFTrend)) + "\n" +
       "Killzone    : " + (InKillzone() ? "OPEN" : "closed") + "\n" +
+      "OTE setup   : " + (g_setup.active ? (g_setup.dir > 0 ? "ARMED long (await retrace)" : "ARMED short (await retrace)") : "none") + "\n" +
       "Blocked by  : " + block + "\n" +
       "Spread(pips): " + DoubleToString(SpreadPips(), 1) + "\n" +
       "Day P/L     : " + DoubleToString(pct, 2) + "%\n" +
