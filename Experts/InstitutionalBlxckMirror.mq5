@@ -120,6 +120,16 @@ input double   InpMinDisplaceLeg     = 1.0;         // Min displacement leg vs A
 input double   InpTP1_SD             = 2.0;         // TP1 standard-deviation level (partial here)
 input double   InpRunnerSD           = 3.0;         // Runner target standard-deviation level
 
+input group "=== Execution & stop precision ==="
+// Entry: 0 = market on confirmation (guaranteed fill), 1 = limit at OTE (best price)
+input int      InpEntryExec         = 1;            // Entry execution style
+input double   InpOTEEntryFib        = 0.705;       // Fib level for the OTE limit (sweet spot)
+// Stop: 0 = beyond 1.0 manip anchor (widest), 1 = beyond 0.79 OTE edge, 2 = M1 confirmation swing (tightest)
+input int      InpStopMode           = 2;           // Stop placement (smallest = 2)
+input int      InpPendingExpiryBars  = 4;           // Cancel unfilled OTE limit after N setup bars
+input int      InpMicroSwingLB        = 25;         // M1 bars scanned for the confirmation swing
+input int      InpMicroSwingStr       = 2;          // M1 fractal strength for the stop swing
+
 input group "=== Standard-deviation projections (Asian range) ==="
 input bool     InpUseSDProjection  = true;          // Project SD levels from the Asian range
 input string   InpSDMultiples      = "0.5,1.0,1.5,2.0,2.5,3.0"; // Range multiples to project
@@ -214,6 +224,11 @@ struct SetupState
 SetupState g_setup;
 double   g_runnerTP = 0.0;   // final runner target (SD projection)
 
+// Pending (limit) order tracking for OTE execution
+ulong    g_pendingTicket = 0;
+datetime g_pendingExpiry = 0;
+int      g_pendingDir    = 0;
+
 //==================================================================//
 //  INIT / DEINIT                                                   //
 //==================================================================//
@@ -266,6 +281,9 @@ void OnTick()
 {
    // Manage any open position on every tick
    ManageOpenPosition();
+
+   // Manage any resting OTE limit order (expiry / killzone cancel)
+   ManagePendingOrder();
 
    // Detect a just-closed position (for the loss cooldown)
    bool hasPos = HasOpenPosition();
@@ -777,6 +795,81 @@ void ResetSetup()
    g_setup.active = false;
    g_setup.dir    = 0;
    ObjectsDeleteAll(0, g_obj_prefix + "OTE_");
+}
+
+// Minimum valid stop distance (broker stops level + spread + small cushion).
+double MinStopDistance()
+{
+   long lvl = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL);
+   double d = (lvl > 0 ? lvl * g_point : 0.0);
+   double spread = SymbolInfoDouble(_Symbol, SYMBOL_ASK) - SymbolInfoDouble(_Symbol, SYMBOL_BID);
+   return d + spread + g_pip * 0.5;
+}
+
+double EnforceMinStop(int dir, double entry, double sl)
+{
+   double m = MinStopDistance();
+   if(dir > 0 && (entry - sl) < m) sl = entry - m;
+   if(dir < 0 && (sl - entry) < m) sl = entry + m;
+   return sl;
+}
+
+// Most recent M1 swing extreme on the correct side of the entry (tight structural stop).
+double MicroSwingStop(int dir, double entry)
+{
+   MqlRates m[];
+   ArraySetAsSeries(m, true);
+   int n = InpMicroSwingLB + InpMicroSwingStr * 2 + 2;
+   if(CopyRates(_Symbol, InpMicroTF, 0, n, m) < n) return 0.0;
+   for(int i = InpMicroSwingStr; i < n - InpMicroSwingStr; i++)
+   {
+      if(dir > 0 && IsSwingLow(m, i, InpMicroSwingStr)  && m[i].low  < entry) return m[i].low;
+      if(dir < 0 && IsSwingHigh(m, i, InpMicroSwingStr) && m[i].high > entry) return m[i].high;
+   }
+   return 0.0;
+}
+
+// Structural stop per InpStopMode. ATR floor only applies to the widest mode.
+double ComputeStop(int dir, double entry)
+{
+   double buf = g_pip * InpSlBufferPips;
+   double s;
+   if(InpStopMode == 2)
+   {
+      double sw = MicroSwingStop(dir, entry);
+      if(sw > 0.0) s = (dir > 0) ? (sw - buf) : (sw + buf);
+      else         s = (dir > 0) ? (g_setup.manipAnchor - buf) : (g_setup.manipAnchor + buf);
+   }
+   else if(InpStopMode == 1)
+   {
+      double edge = OTEPrice(InpOTEHigh);
+      s = (dir > 0) ? (edge - buf) : (edge + buf);
+   }
+   else
+   {
+      s = (dir > 0) ? (g_setup.manipAnchor - buf) : (g_setup.manipAnchor + buf);
+      double atr = AtrValue();
+      if(InpUseAtrStop && atr > 0.0)
+         s = (dir > 0) ? MathMin(s, entry - atr * InpAtrMultSL)
+                       : MathMax(s, entry + atr * InpAtrMultSL);
+   }
+   return EnforceMinStop(dir, entry, s);
+}
+
+// Cancel a resting OTE limit if it expires or the killzone closes.
+void ManagePendingOrder()
+{
+   if(g_pendingTicket == 0) return;
+   if(!OrderSelect(g_pendingTicket)) { g_pendingTicket = 0; return; } // filled or already gone
+
+   bool cancel = (!InKillzone()) || (TimeCurrent() >= g_pendingExpiry);
+   if(cancel)
+   {
+      trade.OrderDelete(g_pendingTicket);
+      g_pendingTicket = 0;
+      g_plannedTP = 0.0; g_runnerTP = 0.0; g_initRisk = 0.0;
+      ObjectsDeleteAll(0, g_obj_prefix + "OTE_");
+   }
 }
 
 void EvaluateOTESetup()
