@@ -84,6 +84,53 @@ bug this time, a math mismatch between two independent stop-management rules:
   current balance and computed stop distance every trade; this just raises the target
   risk per trade.
 
+### Round 3: round 2 overcorrected — a real backtest proved it, so it's fixed
+
+A 12-month GBPUSD backtest with all the round-2 changes came back **net negative**
+(PF 0.997, 88 trades, win rate down to 40.9%, average loss *bigger* than average win).
+Trade-by-trade, the pattern was unambiguous: **almost every loser was a single-leg
+trade that ran straight to the full stop with zero relief** — because the fixed
+"break-even at 6R" trigger from round 2 doesn't fire until 6R, and most failed setups
+never get anywhere near that before reversing. At the same time, loosening the bias
+gate to majority-vote (plus lower RR/displacement thresholds) nearly tripled trade
+count (42→88) at a real cost to quality. Two real, data-driven corrections:
+
+- **Break-even redesigned from a fixed R-multiple to a % of progress toward the real
+  first-partial target.** A fixed R number is fundamentally the wrong shape for this:
+  too low (1R, the original design) clamps every trade to scratch before the real move
+  starts; too high (6R, the round-2 "fix") removes the early save entirely and lets
+  every failed setup run to the full stop — both measured directly in backtests.
+  **`InpBreakEvenAtR` replaced with `InpBreakEvenProgressPct = 35`** — the stop locks
+  once price has covered 35% of the distance to the −0.27 SD target. This scales
+  automatically with each setup's own measured size instead of guessing a generic
+  multiple that's decoupled from it.
+- **Bias mode reverted `1 → 0` (strict)**, `InpMinRR` back `2.0 → 2.5` (GBPUSD),
+  `InpMinDisplaceLeg` back `0.8 → 1.0`, and **continuation now also requires light
+  confirmation** (`InpConfirmModeBOS 0 → 1`) rather than a bare tap. The wider prime
+  windows and other round-2 changes are kept — the evidence pointed at the bias/RR/
+  displacement combination and the break-even math, not the window width.
+
+The high-frequency presets keep their own deliberately looser bias/RR/displacement
+tuning (that's their stated purpose) but pick up the break-even redesign too, since
+that fix applies regardless of trade frequency.
+
+### Was it the wrong side of the market, or bad entry timing?
+
+Cross-checked directly: across 88 trades, direction only flipped 9 times (never
+same-day), and there is not one case of a loss immediately followed by a winning
+trade in the opposite direction near the same price. That's strong evidence the bias
+engine is holding the *correct* side for long stretches (one stretch was 26 sells in
+a row) — losses are much more about individual entry timing within an otherwise-valid
+trend than about a wrong directional read. A stable, rarely-flipping bias (the strict
+mode reverted to above) is exactly what keeps that true.
+
+To make this checkable directly from any future report **without needing raw price
+bars or a Journal export**, every order's comment is now self-documenting:
+`BuildTradeComment()` tags it with the pattern and the three bias sub-votes at entry,
+e.g. `BOSB-UUN` = continuation buy, EMA/H4-BOS/D1-BOS all reading up; `CHCS-DDN` =
+reversal sell, EMA and H4 down, D1 neutral. Any future loss can be checked directly
+against its own comment for whether the sub-signals actually agreed.
+
 ---
 
 ## The playbook (start to finish)
@@ -94,9 +141,9 @@ bug this time, a math mismatch between two independent stop-management rules:
    - **Continuation (BOS):** trend already established, a clean close breaks the last same-direction swing point, retrace to the OTE of that leg.
    - **Reversal (CHoC):** a swing pivot gets swept (manipulation), then price closes through the *opposing* structural point (change of character), retrace to the OTE of the new leg.
    Fib **1.0** = the real swing anchor either way; fib **0.0** = the dynamic running extreme.
-4. **Entry** — price retraces into **OTE 0.62–0.79**. Continuation just needs the tap (`InpConfirmModeBOS=0`); reversal needs real confirmation — a displacement candle or inversion FVG (`InpConfirmModeCHoC=1`), since it's fighting recent momentum. Market-on-tap by default (never misses a shallow tap-and-reject); stop sits behind the **real swing/manipulation anchor**, not an arbitrary fib edge.
+4. **Entry** — price retraces into **OTE 0.62–0.79**, confirmed by a displacement candle or inversion FVG for both continuation and reversal (`InpConfirmModeBOS=1` / `InpConfirmModeCHoC=1`). Market-on-tap by default (never misses a shallow tap-and-reject); stop sits behind the **real swing/manipulation anchor**, not an arbitrary fib edge.
 5. **Risk** — 1% sized adaptively to the stop distance every trade; skip on low RR, wide spread, news, daily-loss, cooldown, or a swing that just failed nearby (anchor cooldown).
-6. **Manage** — first partial at **−0.27 SD** → stop tightens to just behind the candle that broke it (better than flat break-even); remainder rides toward the liquidity/SD-confluence target. Independent break-even is a deep safety net only (`InpBreakEvenAtR=6`), not a runner-choking 1R clamp. Flat by session end.
+6. **Manage** — first partial at **−0.27 SD** → stop tightens to just behind the candle that broke it (better than flat break-even); remainder rides toward the liquidity/SD-confluence target. Independent break-even scales with the setup (`InpBreakEvenProgressPct=35`, i.e. 35% of the way to the first partial) rather than a fixed R-multiple that's decoupled from it. Flat by session end.
 7. **Guards** — max trades/day, daily max-loss, post-loss cooldown, optional daily target.
 
 ---
@@ -260,14 +307,17 @@ The EA maps engineered liquidity and weights it:
 > **Legacy mode:** set `InpUseOTEModel = false` to use the simpler one-shot
 > sweep→IFVG entry instead. The OTE model is the recommended default.
 
-**Why continuation and reversal need different confirmation:** OTE is the *location*
-(discount/premium after a liquidity grab); confirmation is the *proof order flow
-shifted* there. A **continuation (BOS)** trade is just rejoining a trend that's
-already established — the tap alone is enough (`InpConfirmModeBOS = 0`). A
-**reversal (CHoC)** trade fights the immediately-prior momentum, so it needs real
-proof before entering (`InpConfirmModeCHoC = 1`, OTE + displacement **or** IFVG).
-Requiring strict IFVG on either misses clean V-reversals; pure taps on CHoC eat
-fakeouts — that's why the two are split rather than sharing one dial.
+**Why continuation and reversal have separate confirmation dials:** OTE is the
+*location* (discount/premium after a liquidity grab); confirmation is the *proof
+order flow shifted* there. In principle a **continuation (BOS)** trade is just
+rejoining a trend that's already established, so a bare tap (`InpConfirmModeBOS = 0`)
+is philosophically enough — but a real backtest with both modes set to 0 let in too
+much noise (win rate fell hard once the bias/RR gates were also loosened), so the
+default is now `1` for both patterns (OTE + displacement **or** IFVG). A **reversal
+(CHoC)** in particular is fighting the immediately-prior momentum and should not go
+looser than this. Requiring strict IFVG on either misses clean V-reversals. The two
+dials stay split so you can loosen continuation back to `0` independently if your
+own testing supports it.
 
 ### 4. Targets & trade management
 - **Take profit = opposing liquidity, snapped to a standard-deviation projection.**

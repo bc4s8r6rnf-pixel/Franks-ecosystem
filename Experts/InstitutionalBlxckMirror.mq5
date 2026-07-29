@@ -51,7 +51,7 @@ input int      InpStructLookback   = 60;            // Bars to scan for HTF mark
 input int      InpSwingStrength    = 2;             // Fractal strength (bars each side)
 // Bias strictness: 0 = strict (EMA+BOS+D1 must all agree, fewest signals),
 // 1 = majority (2 of 3 agree), 2 = lean (any net agreement - most signals)
-input int      InpBiasMode          = 1;            // Bias mode (0 strict / 1 majority / 2 lean)
+input int      InpBiasMode          = 0;            // Bias mode (0 strict / 1 majority / 2 lean)
 
 input group "=== Sessions (defined in NEW YORK time, 24h) ==="
 // Session hours below are in NEW YORK time. The EA converts server->NY using
@@ -98,7 +98,7 @@ input group "=== Risk & management ==="
 input double   InpRiskPercent      = 1.0;           // Risk per trade (% of balance) - CalcLots() sizes adaptively off current balance + stop distance every trade
 input double   InpFixedLots        = 0.0;           // Fixed lots (0 = use risk %)
 input double   InpSlBufferPips     = 2.5;           // Stop buffer beyond sweep (pips)
-input double   InpMinRR            = 2.0;           // Minimum reward:risk to accept trade
+input double   InpMinRR            = 2.5;           // Minimum reward:risk to accept trade
 input double   InpTP1_RR            = 2.0;          // First partial at this reward:risk (0 = off)
 input double   InpFirstPartialPct   = 50.0;         // % of position closed at the 1:R first partial
 input double   InpPartialPercent   = 70.0;          // % of REMAINING closed at the -2.0 SD target
@@ -124,14 +124,16 @@ input bool     InpUseDisplacement  = true;          // Require a strong displace
 input double   InpMinBodyPct        = 55.0;         // Min body/range % of the entry candle
 input double   InpDisplaceAtrMult   = 0.6;          // Min entry-candle body vs ATR
 input bool     InpUseOTE            = true;          // Premium/discount (only buy discount, sell premium)
-// NOTE: the -0.27 SD first partial (below) is the PRIMARY protective step and
-// typically sits ~9-10R from entry on a normal OTE setup (tight stop, far SD
-// target). This independent break-even is only a deep safety net for a trade
-// that stalls well short of that - keep InpBreakEvenAtR comfortably BELOW the
-// first-partial's typical R multiple, or it fires first on every trade and
-// clamps the runner to scratch before the real move even starts.
-input bool     InpUseBreakEven      = true;         // Move SL to break-even after InpBreakEvenAtR
-input double   InpBreakEvenAtR       = 6.0;         // Move to BE once price is this many R in profit (deep safety net only)
+// Break-even triggers once price has covered this % of the distance to the REAL
+// first-partial target (-0.27 SD) - NOT a fixed R-multiple. A fixed R trigger is
+// decoupled from the setup's actual scale: too low (e.g. 1R) clamps every trade
+// to scratch long before the real move starts (measured: this cratered win rate
+// vs. loss size); too high (e.g. 6R) removes the early save entirely and lets
+// every failed setup run to the full stop (measured: this made every loser as
+// big as a full stop-loss with zero relief). Scaling it to THIS setup's own
+// measured distance avoids both failure modes.
+input bool     InpUseBreakEven      = true;         // Move SL to break-even after this much progress to the first partial
+input double   InpBreakEvenProgressPct = 35.0;      // % of the way to the -0.27 SD target before locking break-even
 input double   InpBreakEvenBufferPips= 1.5;         // Buffer beyond entry for break-even
 input bool     InpCloseAtSessionEnd  = true;        // Close any open trade at NY session end
 input double   InpDailyMaxLossPct    = 3.0;         // Stop for the day after this % equity loss (0=off)
@@ -146,9 +148,9 @@ input double   InpOTEHigh           = 0.79;         // OTE zone far edge (fib)
 // Continuation (BOS) is just a pullback re-entry into an already-established trend -
 // the tap itself is enough. Reversal (CHoC) is fighting the immediately-prior
 // momentum, so it needs real proof order flow shifted before entering.
-input int      InpConfirmModeBOS     = 0;           // Confirmation for continuation/BOS setups
+input int      InpConfirmModeBOS     = 1;           // Confirmation for continuation/BOS setups
 input int      InpConfirmModeCHoC    = 1;           // Confirmation for reversal/CHoC setups (needs solid proof)
-input double   InpMinDisplaceLeg     = 0.8;         // Min displacement leg vs ATR to arm a setup
+input double   InpMinDisplaceLeg     = 1.0;         // Min displacement leg vs ATR to arm a setup
 // Real swing/CHoC detection - the manipulation (1.0) and CHoC structure point are
 // genuine swing pivots, not an artificial fixed-bar sweep window. This is what lets
 // the EA see the same swings a trader draws fibs from, however many bars they span.
@@ -1534,12 +1536,13 @@ void PlaceOTEOrder(int dir, double zLo, double zHi)
    double slN = NormalizeDouble(sl, g_digits);
    double tpN = NormalizeDouble(finalTP, g_digits);
    bool ok = false;
+   string cmt = BuildTradeComment(dir);
 
    if(useLimit)
    {
       double pxN = NormalizeDouble(entryPrice, g_digits);
-      ok = (dir > 0) ? trade.BuyLimit(lots, pxN, _Symbol, slN, tpN, ORDER_TIME_GTC, 0, InpTradeComment)
-                     : trade.SellLimit(lots, pxN, _Symbol, slN, tpN, ORDER_TIME_GTC, 0, InpTradeComment);
+      ok = (dir > 0) ? trade.BuyLimit(lots, pxN, _Symbol, slN, tpN, ORDER_TIME_GTC, 0, cmt)
+                     : trade.SellLimit(lots, pxN, _Symbol, slN, tpN, ORDER_TIME_GTC, 0, cmt);
       if(ok)
       {
          g_pendingTicket = trade.ResultOrder();
@@ -1549,8 +1552,8 @@ void PlaceOTEOrder(int dir, double zLo, double zHi)
    }
    else
    {
-      ok = (dir > 0) ? trade.Buy(lots, _Symbol, 0.0, slN, tpN, InpTradeComment)
-                     : trade.Sell(lots, _Symbol, 0.0, slN, tpN, InpTradeComment);
+      ok = (dir > 0) ? trade.Buy(lots, _Symbol, 0.0, slN, tpN, cmt)
+                     : trade.Sell(lots, _Symbol, 0.0, slN, tpN, cmt);
    }
 
    if(ok)
@@ -2091,11 +2094,19 @@ void ManageOpenPosition()
       }
    }
 
-   // --- Break-even: after price runs InpBreakEvenAtR in our favour, protect the trade ---
+   // --- Break-even: safety net once price has covered InpBreakEvenProgressPct% of
+   // the distance to the REAL first-partial target - this scales with the actual
+   // measured swing instead of a generic R-multiple that's decoupled from it (a
+   // fixed R trigger either fires on every trade before the real move starts, or
+   // -if raised too far- removes the early save entirely and lets every failed
+   // setup run to full stop; tying it to the setup's own scale avoids both).
    if(InpUseBreakEven && !g_beDone && !g_tp1Done && g_initRisk > 0.0)
    {
       double moved = (dir > 0) ? (px - openp) : (openp - px);
-      if(moved >= InpBreakEvenAtR * g_initRisk)
+      double beTrigger = (g_firstTP > 0.0)
+                       ? MathAbs(g_firstTP - openp) * (InpBreakEvenProgressPct / 100.0)
+                       : 1.5 * g_initRisk; // legacy (non-OTE) model fallback
+      if(moved >= beTrigger)
       {
          double be = openp + dir * g_pip * InpBreakEvenBufferPips;
          if((dir > 0 && be > curSL) || (dir < 0 && (curSL == 0 || be < curSL)))
@@ -2281,5 +2292,25 @@ string BiasStr(int b)
    if(b == BIAS_BULL) return "bull";
    if(b == BIAS_BEAR) return "bear";
    return "-";
+}
+
+// Single-letter bias code for compact trade-comment tagging (U/D/N).
+string BiasLetter(int b)
+{
+   if(b > 0) return "U";
+   if(b < 0) return "D";
+   return "N";
+}
+
+// Self-documenting order comment: pattern + direction + the three bias
+// sub-votes (EMA / H4 BOS / D1 BOS) at the moment of entry, e.g. "BOSB-UUN".
+// Lets a future backtest report be cross-analysed for "was bias actually
+// wrong" without needing raw price bars or extra log exports.
+string BuildTradeComment(int dir)
+{
+   string patTag = (g_setup.pattern == PATTERN_BOS) ? "BOS" : "CHC";
+   string dirTag = (dir > 0) ? "B" : "S";
+   string biasTag = BiasLetter(EmaBias()) + BiasLetter(StructureBias(InpBiasTF)) + BiasLetter(StructureBias(InpHTFTrend));
+   return patTag + dirTag + "-" + biasTag;
 }
 //+------------------------------------------------------------------+
