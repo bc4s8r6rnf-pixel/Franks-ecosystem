@@ -16,6 +16,38 @@ average range).
 
 ---
 
+## Backtest findings & fixes (Blxck Mirror 2.0)
+
+A real 15-month GBPUSD backtest (42 trades, 54.8% win rate, PF 1.64, 6.64% max DD) was
+reviewed trade-by-trade against live-chart examples. Two honest findings and the fixes
+that came out of them:
+
+- **Profit was dangerously concentrated in one trade.** One Dec-23 trade produced 96%
+  of the total net profit; without it the period was roughly breakeven. This isn't a
+  code bug, it's a reminder that a single backtest run (especially one including a
+  thin pre-holiday session) can flatter a result — always sanity-check with the outlier
+  removed, and prefer multiple test windows over one.
+- **Root-cause bug found and fixed: stale prime-window fires.** 31% of trades entered
+  at the *exact* literal instant the London/NY prime window opened. `InPrimeWindow()`
+  only gated order placement — a setup that tapped and confirmed *before* the window
+  opened would sit waiting and then fire blind on whatever price existed the moment the
+  clock crossed in, often already run away from the real OTE reaction. This explained
+  several of the fastest, cleanest stop-outs (one closed in 2m35s) and a few wildly
+  oversized positions (a freak-tight stop from a stale entry inflates lot size for the
+  same % risk). **Fixed:** a tap/confirmation outside the prime window is no longer
+  carried into it — `TryEnterArmed()` now clears `tapped` whenever we're outside the
+  window, so entries only fire on a fresh, live reaction inside it.
+- **Added `InpMinStopPips`** — rejects a setup if the computed stop is suspiciously
+  tight, guarding against the oversized-lot failure mode directly.
+- **Added anchor-failure cooldown** (`InpAnchorCooldownMin` / `InpAnchorCooldownPips`)
+  — a swing anchor that just stopped a trade out can't be re-armed or re-entered near
+  the same price for a while, preventing the "lost, re-took the identical broken level
+  43 minutes later, lost again" pattern seen in the data.
+- **`InpChocLookback` raised 100 → 300** — several of the example swings sent for
+  review spanned multi-day structure well beyond the old 100-bar cap.
+
+---
+
 ## The playbook (start to finish)
 
 1. **Bias** — H4 Break of Structure aligned with D1 **and** EMA 50/200 order-flow agree. No confluence → no trade.
@@ -45,8 +77,13 @@ now replaced with **genuine swing-pivot detection**:
   swing a trader would draw a fib on.
 
 Tune via `InpChocSwingStrength` (fractal strength — higher = fewer, more significant
-swings), `InpChocLookback` (bars scanned), and `InpChocMinRangeATR` (minimum swing
-size to count as real structure, filters noise).
+swings), `InpChocLookback` (bars scanned — default 300, covers multi-day swings), and
+`InpChocMinRangeATR` (minimum swing size to count as real structure, filters noise).
+
+Two more guards live here: `InpMinStopPips` rejects a setup whose computed stop is
+suspiciously tight (guards against oversized lot sizing off a degenerate stop), and
+`InpAnchorCooldownMin` / `InpAnchorCooldownPips` stop the EA re-arming or re-entering
+the identical swing anchor for a while right after it just failed.
 
 ---
 

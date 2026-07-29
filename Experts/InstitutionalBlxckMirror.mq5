@@ -139,8 +139,11 @@ input double   InpMinDisplaceLeg     = 1.0;         // Min displacement leg vs A
 // genuine swing pivots, not an artificial fixed-bar sweep window. This is what lets
 // the EA see the same swings a trader draws fibs from, however many bars they span.
 input int      InpChocSwingStrength  = 3;           // Fractal strength for CHoC swings (bigger = fewer, more real)
-input int      InpChocLookback       = 100;         // Bars scanned on setup TF for the CHoC swing pair
+input int      InpChocLookback       = 300;         // Bars scanned on setup TF for the CHoC swing pair (covers multi-day swings)
 input double   InpChocMinRangeATR    = 1.5;         // Min swing-high-to-swing-low range (x ATR) to count as real structure
+input double   InpMinStopPips        = 8.0;         // Reject if computed stop distance is below this (guards against oversized lots)
+input double   InpAnchorCooldownMin  = 240;          // Don't re-arm the same failed swing anchor for this many minutes
+input double   InpAnchorCooldownPips = 15.0;        // "Same anchor" tolerance (pips)
 input double   InpFirstTP_SD         = 0.27;        // First partial at this SD level (~1:2)
 input string   InpFinalSDs           = "2.0,2.5,3.0"; // Final-target SD candidates (confluence-picked)
 input double   InpTP1_SD             = 2.0;         // Fallback final SD if none has confluence
@@ -197,6 +200,14 @@ int      g_tradesToday      = 0;
 double   g_dayStartBalance  = 0.0;
 datetime g_lastLossTime     = 0;
 bool     g_hadPosition      = false;
+
+// Anchor-failure memory: don't re-fight the identical swing anchor right after
+// it just stopped us out (e.g. re-taking the same broken level 40 min later).
+double   g_activeAnchor     = 0.0;   // anchor the currently-open trade came from
+int      g_activeDir        = 0;
+double   g_lastFailedAnchor = 0.0;
+int      g_lastFailedDir    = 0;
+datetime g_lastFailedTime   = 0;
 
 // Trade lifecycle state (for the single managed position)
 bool     g_tp1Done          = false;
@@ -1360,6 +1371,7 @@ void EvaluateOTESetup()
       // real structure of any length (not a fixed-bar window).
       double manip, ext; int evIdx; int pattern;
       if(!FindSwingLeg(r, bias, manip, ext, evIdx, pattern)) return;
+      if(AnchorRecentlyFailed(bias, manip)) return; // don't re-arm a swing that just failed
 
       double atr = AtrValue();
       if(atr > 0.0 && MathAbs(ext - manip) < InpMinDisplaceLeg * atr) return; // no real displacement
@@ -1408,7 +1420,9 @@ void TryEnterArmed()
 
    // Re-anchor the "0" extreme ONLY until price first taps the OTE. Once tapped,
    // the leg is locked and we simply wait for the confirmation to enter (a 0.62
-   // tap-and-reject is a valid entry, not a reason to re-anchor).
+   // tap-and-reject is a valid entry, not a reason to re-anchor). This trailing
+   // happens regardless of the prime window - the underlying swing can keep
+   // developing all session.
    if(!g_setup.tapped)
    {
       if(dir > 0) g_setup.extreme = MathMax(g_setup.extreme, m[1].high);
@@ -1419,10 +1433,24 @@ void TryEnterArmed()
    if(dir > 0 && m[1].close < g_setup.manipAnchor) { ResetSetup(); return; }
    if(dir < 0 && m[1].close > g_setup.manipAnchor) { ResetSetup(); return; }
 
+   // The tap+confirmation that fires a trade only counts INSIDE the prime window
+   // - not just the order placement. Without this, a setup that tapped+confirmed
+   // hours earlier (waiting for the window) fires blind the instant the window
+   // opens, on a price that may have already run well away from the real OTE
+   // reaction. Backtest evidence: 31% of trades fired at the exact literal
+   // window-open tick, and several of the fastest, cleanest stop-outs were
+   // exactly these stale fires. So a tap outside the window is never allowed to
+   // persist into it - it must tap+confirm again, live, once we're inside.
+   if(!InPrimeWindow())
+   {
+      g_setup.tapped = false;
+      return;
+   }
+
    double zA = OTEPrice(InpOTELow), zB = OTEPrice(InpOTEHigh);
    double zHi = MathMax(zA, zB), zLo = MathMin(zA, zB);
 
-   // register the OTE tap (0.62 edge counts)
+   // register the OTE tap (0.62 edge counts) - only meaningful once inside the window
    if(!g_setup.tapped && m[1].low <= zHi && m[1].high >= zLo) g_setup.tapped = true;
    if(!g_setup.tapped) return;
 
@@ -1436,10 +1464,8 @@ void TryEnterArmed()
    else                         confirmed = ifvg;
    if(!confirmed) return;
 
-   // Tap+confirmation can happen any time in the killzone; the actual entry only
-   // fires inside the tighter prime window each session's OTE tap clusters in.
-   // The setup stays armed/tapped and simply waits if we're outside it.
-   if(!InPrimeWindow()) return;
+   // Don't re-fight the same swing anchor that just failed (see AnchorRecentlyFailed)
+   if(AnchorRecentlyFailed(dir, g_setup.manipAnchor)) { ResetSetup(); return; }
 
    PlaceOTEOrder(dir, zLo, zHi);
 }
@@ -1475,6 +1501,10 @@ void PlaceOTEOrder(int dir, double zLo, double zHi)
                                        : ComputeStop(dir, entryPrice);
    double risk = MathAbs(entryPrice - sl);
    if(risk <= 0.0) { ResetSetup(); return; }
+   // Guard against a degenerate/stale setup producing a suspiciously tiny stop,
+   // which forces an oversized position for the same % risk (seen in backtest:
+   // several trades sized 3-8x normal off a freak-tight stop distance).
+   if(risk / g_pip < InpMinStopPips) { ResetSetup(); return; }
 
    double firstTP = OTEPrice(-InpFirstTP_SD);           // -0.27 SD (~1:2)
    double finalTP = ChooseFinalTarget(dir, entryPrice); // -2/-2.5/-3 SD by confluence
@@ -1519,6 +1549,8 @@ void PlaceOTEOrder(int dir, double zLo, double zHi)
       g_plannedSL = sl;
       g_initRisk  = risk;
       g_posDir    = dir;
+      g_activeAnchor = g_setup.manipAnchor;
+      g_activeDir    = dir;
       PrintFormat("OTE [%s] %s %s lots=%.2f @ %.5f sl=%.5f (%.1f pips) first=%.5f final=%.5f RR=%.2f",
                   (g_setup.pattern == PATTERN_BOS ? "BOS" : "CHoC"),
                   (useLimit ? "LIMIT" : "MARKET"), (dir > 0 ? "BUY" : "SELL"),
@@ -1751,9 +1783,28 @@ void CheckClosedResult()
       double profit = HistoryDealGetDouble(ticket, DEAL_PROFIT)
                     + HistoryDealGetDouble(ticket, DEAL_SWAP)
                     + HistoryDealGetDouble(ticket, DEAL_COMMISSION);
-      if(profit < 0.0) g_lastLossTime = TimeCurrent();
+      if(profit < 0.0)
+      {
+         g_lastLossTime = TimeCurrent();
+         if(g_activeAnchor > 0.0)
+         {
+            g_lastFailedAnchor = g_activeAnchor;
+            g_lastFailedDir    = g_activeDir;
+            g_lastFailedTime   = TimeCurrent();
+         }
+      }
       break; // most recent close-out deal only
    }
+}
+
+// Don't re-arm/re-enter the identical swing anchor that just failed - e.g.
+// re-taking the same broken level 40 minutes later on a fresh cooldown timer.
+bool AnchorRecentlyFailed(int dir, double anchor)
+{
+   if(g_lastFailedTime == 0 || InpAnchorCooldownMin <= 0) return false;
+   if(dir != g_lastFailedDir) return false;
+   if(TimeCurrent() - g_lastFailedTime >= (long)InpAnchorCooldownMin * 60) return false;
+   return (MathAbs(anchor - g_lastFailedAnchor) <= InpAnchorCooldownPips * g_pip);
 }
 
 // High-impact news filter via the MT5 economic calendar.
