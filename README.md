@@ -203,6 +203,46 @@ banks after; the `g_beDone` flag covers both paths.
 **This still needs a backtest to confirm.** The geometry is now provably sane, which is
 a precondition for the strategy working — not proof that it does.
 
+### Round 6: rejection confirmation — blocking the "stormed straight through" losses
+
+The remaining loss profile was moves that tap the OTE and keep going straight to the
+stop. `DispConfirmTF()` could never filter those, because it looks for a **displacement**
+candle (body ≥ `InpMinBodyPct`% of range) — a rejection wick has a *small* body and a
+long tail, so it failed that test. A textbook rejection inside the zone did not confirm
+an entry; only a momentum body or an IFVG did. That gap is now closed.
+
+`RejectionConfirms()` is defined **structurally, not as a candle pattern** — on M1, noise
+throws off pin-bar shapes constantly, so what matters is what price *did*, not what the
+bar looks like. For a long (mirrored for a short), all of these must hold:
+
+0. the bar actually traded **inside the 0.62–0.79 zone** (a late bar far above the level
+   can't confirm an entry price that already ran away)
+1. lower wick ≥ `InpRejWickPct`% (default 50) of the bar's whole range — a real refusal
+2. close in the favourable half of the bar — it recovered, not just dipped
+3. with `InpRejNeedSweep` (default on): the wick took out the **prior bar's low** and
+   closed back above it — a micro liquidity sweep. This is the same sweep→reversal logic
+   the strategy already uses at the macro level, applied inside the zone, and it's much
+   stronger than a naked pin bar.
+
+Two new confirm modes, so this is A/B testable against the old behaviour:
+
+| mode | meaning |
+|---|---|
+| 0 | tap only |
+| 1 | displacement **or** IFVG (previous default) |
+| 2 | IFVG required |
+| **3** | **rejection required** — new default. Strictest filter against storm-throughs |
+| 4 | rejection **or** displacement **or** IFVG — widest, used by the HF presets |
+
+**The 3-vs-4 distinction is the important one.** Adding rejection as another `OR` branch
+(mode 4) *loosens* the gate and lets **more** trades in — the opposite of the intent. To
+actually cut the storm-through losses, rejection has to **replace** the momentum proof,
+which is mode 3. Quality presets default to 3; the high-frequency presets use 4, which
+fits their stated "more trades" purpose.
+
+A doji is deliberately **not** accepted — a doji is indecision, not rejection. The signal
+with real meaning is a wick that pierces the zone and closes back out of it.
+
 ### Getting a real optimization pass, not more manual guessing
 
 Single backtests get me *diagnosis*. To actually find optimal values (not just "better

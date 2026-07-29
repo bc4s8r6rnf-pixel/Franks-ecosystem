@@ -149,13 +149,24 @@ input group "=== OTE entry model (dynamic) ==="
 input bool     InpUseOTEModel      = true;          // Use dynamic OTE model (else legacy IFVG entry)
 input double   InpOTELow            = 0.62;         // OTE zone near edge (fib)
 input double   InpOTEHigh           = 0.79;         // OTE zone far edge (fib)
-// Entry trigger: 0 = OTE tap only, 1 = OTE + (displacement OR IFVG), 2 = OTE + IFVG required
+// Entry trigger, evaluated on InpMicroTF (M1) once price has tapped the OTE zone:
+//   0 = tap only
+//   1 = displacement OR IFVG                (momentum-shift proof)
+//   2 = IFVG required
+//   3 = REJECTION required                  (price refused at the level - strictest
+//       filter against a move storming straight through the zone to the stop)
+//   4 = rejection OR displacement OR IFVG   (widest - MORE trades, not fewer)
+// NOTE on 3 vs 4: adding rejection as an extra OR branch (mode 4) LOOSENS the gate
+// and lets more trades in. To actually cut the "stormed through the fib" losses you
+// want mode 3, where rejection REPLACES the momentum proof rather than joining it.
 // In principle a continuation (BOS) is just a pullback re-entry into an already
 // established trend, so the bare tap (0) should be enough - but with both modes at 0
-// a measured backtest let in far too much noise, so both default to 1. A reversal
-// (CHoC) fights the immediately-prior momentum and should never go looser than 1.
-input int      InpConfirmModeBOS     = 1;           // Confirmation for continuation/BOS setups
-input int      InpConfirmModeCHoC    = 1;           // Confirmation for reversal/CHoC setups (needs solid proof)
+// a measured backtest let in far too much noise. A reversal (CHoC) fights the
+// immediately-prior momentum and should never go looser than 1.
+input int      InpConfirmModeBOS     = 3;           // Confirmation for continuation/BOS setups
+input int      InpConfirmModeCHoC    = 3;           // Confirmation for reversal/CHoC setups (needs solid proof)
+input double   InpRejWickPct         = 50.0;        // Rejection: wick against the trade as % of the bar's range
+input bool     InpRejNeedSweep       = true;        // Rejection: also require the wick to sweep the prior bar's extreme and close back
 // Min displacement leg, in ATR. This is NOT just a noise filter - it sets the whole
 // trade's geometry. The -0.27 SD first partial sits ~0.89 x leg from entry, while
 // risk is floored near InpAtrMultSL x ATR, so a leg under ~1.46 x ATR puts the first
@@ -1302,6 +1313,49 @@ bool DispConfirmTF(const MqlRates &r[], int dir, double atr)
    return (dir > 0) ? (r[1].close > r[1].open) : (r[1].close < r[1].open);
 }
 
+// Rejection confirmation: price probed INTO the zone and got pushed back out.
+// This is a fundamentally different signal from DispConfirmTF() - displacement
+// confirms momentum has ALREADY shifted (big body), whereas rejection catches the
+// moment price is refused at the level (small body, long wick against us). It's
+// specifically the filter that blocks a move storming straight through the OTE:
+// a candle that runs clean through leaves no rejection wick, so it never confirms.
+//
+// Defined structurally rather than as a candle "pattern", because on M1 noise
+// throws off pin-bar shapes constantly. Requirements for a long (mirrored short):
+//   1. lower wick >= InpRejWickPct% of the bar's whole range (a real refusal)
+//   2. close in the favourable half of the bar (it actually recovered, not just dipped)
+//   3. optionally (InpRejNeedSweep): the wick took out the PRIOR bar's low and closed
+//      back above it - a micro liquidity sweep, the same logic this strategy uses at
+//      the macro level, applied inside the zone. Much stronger than a naked pin bar.
+bool RejectionConfirms(const MqlRates &r[], int dir, double zLo, double zHi)
+{
+   if(ArraySize(r) < 3) return false;
+   double hi = r[1].high, lo = r[1].low, op = r[1].open, cl = r[1].close;
+   double range = hi - lo;
+   if(range <= 0.0) return false;
+
+   // 0. the rejection must happen IN the zone, not somewhere above/below it - the
+   //    bar has to have actually traded into 0.62-0.79, otherwise a late bar far
+   //    from the level could "confirm" an entry price that already ran away.
+   if(!(lo <= zHi && hi >= zLo)) return false;
+
+   double bodyHi = MathMax(op, cl);
+   double bodyLo = MathMin(op, cl);
+   double wick   = (dir > 0) ? (bodyLo - lo) : (hi - bodyHi);   // wick against the trade
+   if(wick / range * 100.0 < InpRejWickPct) return false;       // 1. real refusal
+
+   double mid = (hi + lo) / 2.0;
+   if(dir > 0 && cl < mid) return false;                        // 2. closed back strong
+   if(dir < 0 && cl > mid) return false;
+
+   if(InpRejNeedSweep)                                          // 3. micro liquidity sweep
+   {
+      if(dir > 0 && !(lo < r[2].low  && cl > r[2].low))  return false;
+      if(dir < 0 && !(hi > r[2].high && cl < r[2].high)) return false;
+   }
+   return true;
+}
+
 // Is an Asian-range SD level near this price? (confluence booster)
 bool AsiaSDNear(int dir, double price, double tol)
 {
@@ -1486,11 +1540,14 @@ void TryEnterArmed()
    double atrM1 = MicroAtrValue();
    bool disp = DispConfirmTF(m, dir, atrM1);
    bool ifvg = IFVGConfirms(m, dir);
+   bool rej  = RejectionConfirms(m, dir, zLo, zHi);
    int confMode = (g_setup.pattern == PATTERN_BOS) ? InpConfirmModeBOS : InpConfirmModeCHoC;
    bool confirmed;
    if(confMode <= 0)      confirmed = true;
    else if(confMode == 1) confirmed = (disp || ifvg);
-   else                   confirmed = ifvg;
+   else if(confMode == 2) confirmed = ifvg;
+   else if(confMode == 3) confirmed = rej;                      // rejection REPLACES momentum proof
+   else                   confirmed = (rej || disp || ifvg);    // mode 4: widest, more trades
    if(!confirmed) return;
 
    // Don't re-fight the same swing anchor that just failed (see AnchorRecentlyFailed)
