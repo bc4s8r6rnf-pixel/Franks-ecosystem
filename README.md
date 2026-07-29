@@ -8,6 +8,12 @@ institutions (and this EA) see continuation. That mirror is the edge.
 
 > File: `Experts/InstitutionalBlxckMirror.mq5`
 
+**The EA's default inputs are pre-tuned for GBPUSD M15 — compile and attach with no
+`.set` file needed.** Target is 1–2 quality trades/day (`InpMaxTradesPerDay=2`): one
+main move in the London prime window, one in the New York prime window. EURUSD users
+should load `presets/EURUSD.set` (its filters are tuned tighter for EUR/USD's smaller
+average range).
+
 ---
 
 ## The playbook (start to finish)

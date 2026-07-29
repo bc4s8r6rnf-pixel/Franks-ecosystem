@@ -50,7 +50,7 @@ InpPartialPercent=70.0
 InpMoveSlBehindFvg=true
 InpTrailMicroFvg=true
 InpMaxSpreadPips=4
-InpMaxTradesPerDay=3
+InpMaxTradesPerDay=2
 InpMaxStopPips=0.0
 ; --- ATR stop fallback ---
 InpUseAtrStop=true

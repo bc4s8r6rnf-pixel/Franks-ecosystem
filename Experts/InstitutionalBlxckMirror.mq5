@@ -16,14 +16,15 @@
 //|  Manage : TP1 -> take 70%, SL -> behind nearest M1 FVG to TP,     |
 //|           trail the runner behind M1 FVGs.                        |
 //|                                                                  |
-//|  Suggested pair : EURUSD   Suggested TFs: D1/H4 bias, M15 setup,  |
-//|                                            M1 refinement.         |
+//|  Default inputs below are PRE-OPTIMISED FOR GBPUSD M15 - attach   |
+//|  and go with no .set file needed. Suggested TFs: D1/H4 bias,      |
+//|  M15 setup, M1 refinement. (EURUSD users: load presets/EURUSD.set)|
 //+------------------------------------------------------------------+
 #property copyright "Institutional Blxck Mirror"
 #property link      ""
 #property version   "1.00"
 #property strict
-#property description "Institutional trend-following EA: HTF bias + previous-session liquidity sweep + inversion FVG continuation."
+#property description "Institutional trend-following EA (defaults pre-tuned for GBPUSD M15): HTF bias + BOS/CHoC swing detection + dynamic OTE entry."
 
 #include <Trade/Trade.mqh>
 #include <Trade/PositionInfo.mqh>
@@ -81,32 +82,32 @@ input double   InpNYPrimeEnd        = 9.5;           // New York prime window en
 input group "=== Liquidity & setup ==="
 input int      InpSetupLookback    = 120;           // Bars scanned on setup TF
 input int      InpSweepMaxBars     = 8;             // Max bars between sweep and IFVG entry
-input double   InpSweepMinPips     = 0.5;           // Min penetration beyond liquidity (pips)
+input double   InpSweepMinPips     = 1.0;           // Min penetration beyond liquidity (pips)
 input int      InpLiqSwingStrength = 2;             // Fractal strength for liquidity pools
 input int      InpMaxLiqPools      = 12;            // Max liquidity pools to track/draw each side
 
 input group "=== FVG / IFVG ==="
-input double   InpMinFvgPips       = 0.5;           // Minimum FVG size (pips)
+input double   InpMinFvgPips       = 1.0;           // Minimum FVG size (pips)
 input int      InpMicroFvgScan     = 40;            // Bars scanned on micro TF for trailing FVGs
 
 input group "=== Risk & management ==="
 input double   InpRiskPercent      = 0.75;          // Risk per trade (% of balance)
 input double   InpFixedLots        = 0.0;           // Fixed lots (0 = use risk %)
-input double   InpSlBufferPips     = 1.5;           // Stop buffer beyond sweep (pips)
-input double   InpMinRR            = 2.0;           // Minimum reward:risk to accept trade
+input double   InpSlBufferPips     = 2.5;           // Stop buffer beyond sweep (pips)
+input double   InpMinRR            = 2.5;           // Minimum reward:risk to accept trade
 input double   InpTP1_RR            = 2.0;          // First partial at this reward:risk (0 = off)
 input double   InpFirstPartialPct   = 50.0;         // % of position closed at the 1:R first partial
 input double   InpPartialPercent   = 70.0;          // % of REMAINING closed at the -2.0 SD target
 input bool     InpMoveSlBehindFvg  = true;          // After TP1, SL -> behind nearest M1 FVG to TP
 input bool     InpTrailMicroFvg    = true;          // Trail runner behind M1 FVGs
-input int      InpMaxSpreadPips    = 3;             // Skip entries if spread wider than this
-input int      InpMaxTradesPerDay  = 3;             // Cap trades per day
+input int      InpMaxSpreadPips    = 4;             // Skip entries if spread wider than this
+input int      InpMaxTradesPerDay  = 2;             // Cap trades per day (one main London move, one main NY move)
 input double   InpMaxStopPips       = 0.0;          // Reject if stop distance > this (0 = off)
 
 input group "=== ATR stop fallback ==="
 input bool     InpUseAtrStop       = true;          // Enforce a minimum ATR-based stop distance
 input int      InpAtrPeriod        = 14;            // ATR period (setup TF)
-input double   InpAtrMultSL        = 1.2;           // ATR multiple for the fallback stop
+input double   InpAtrMultSL        = 1.3;           // ATR multiple for the fallback stop
 
 input group "=== News filter (MT5 economic calendar) ==="
 input bool     InpUseNewsFilter    = true;          // Block entries around high-impact news
@@ -121,7 +122,7 @@ input double   InpDisplaceAtrMult   = 0.6;          // Min entry-candle body vs 
 input bool     InpUseOTE            = true;          // Premium/discount (only buy discount, sell premium)
 input bool     InpUseBreakEven      = true;         // Move SL to break-even after InpBreakEvenAtR
 input double   InpBreakEvenAtR       = 1.0;         // Move to BE once price is this many R in profit
-input double   InpBreakEvenBufferPips= 1.0;         // Buffer beyond entry for break-even
+input double   InpBreakEvenBufferPips= 1.5;         // Buffer beyond entry for break-even
 input bool     InpCloseAtSessionEnd  = true;        // Close any open trade at NY session end
 input double   InpDailyMaxLossPct    = 3.0;         // Stop for the day after this % equity loss (0=off)
 input double   InpDailyTargetPct     = 0.0;         // Stop for the day after this % equity gain (0=off)
@@ -155,12 +156,12 @@ input int      InpPendingExpiryBars  = 4;           // Cancel unfilled OTE limit
 input int      InpMicroSwingLB        = 25;         // M1 bars scanned for the confirmation swing
 input int      InpMicroSwingStr       = 2;          // M1 fractal strength for the stop swing
 input bool     InpMicroEntry          = false;      // Sniper: refine entry+stop to M1 FVG (for InpConfirmMode>=1)
-input double   InpMicroPad            = 0.0;        // Extra pad (pips) around the OTE zone for the M1 FVG
+input double   InpMicroPad            = 1.0;        // Extra pad (pips) around the OTE zone for the M1 FVG
 
 input group "=== Standard-deviation projections (Asian range) ==="
 input bool     InpUseSDProjection  = true;          // Project SD levels from the Asian range
 input string   InpSDMultiples      = "0.5,1.0,1.5,2.0,2.5,3.0"; // Range multiples to project
-input double   InpSDAlignPips       = 8.0;          // Snap SD level to liquidity within this (pips)
+input double   InpSDAlignPips       = 12.0;         // Snap SD level to liquidity within this (pips)
 // Target selection: 0=liquidity only, 1=SD projection, 2=confluence (SD aligned to liquidity)
 input int      InpTargetMode        = 2;            // TP mode (0 liq, 1 SD, 2 confluence)
 input bool     InpShowSDLevels      = true;         // Draw SD projection lines + Asia box
