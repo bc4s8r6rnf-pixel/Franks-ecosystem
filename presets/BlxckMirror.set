@@ -1,19 +1,21 @@
-; Institutional Blxck Mirror - EURUSD preset (tuned defaults)
-; Load via Strategy Tester / EA Inputs tab -> Load.
+; Institutional Blxck Mirror - single universal preset
+; Works for GBPUSD and EURUSD alike: the significance filters are ATR-relative,
+; so they self-scale to each pair's range. Pip-based values are middle-ground.
 ; IMPORTANT: verify InpServerToNYOffset against YOUR broker's server clock first.
+; This file mirrors the EA's built-in defaults exactly - it exists as a restore
+; point, you do NOT need to load it to run the EA.
 InpMagic=20260728
-; --- Timeframes (enum ids: M1=1, M15=15, M30=30, H4=16388, D1=16408) ---
+InpTradeComment="BlxckMirror"
+InpOnePositionAtATime=true
 InpBiasTF=16388
 InpHTFTrend=16408
 InpSetupTF=30
 InpMicroTF=1
-; --- Bias engine ---
 InpEmaFast=50
 InpEmaSlow=200
 InpStructLookback=60
 InpSwingStrength=2
 InpBiasMode=0
-; --- Sessions (NEW YORK time) ---
 InpServerToNYOffset=-7
 InpAsiaStart=19
 InpAsiaEnd=0
@@ -24,56 +26,53 @@ InpNYEnd=11
 InpTradeLondon=true
 InpTradeNewYork=true
 InpTradeAsia=false
-; --- High-probability entry windows (NY time, decimal hours) ---
 InpUsePrimeWindow=true
 InpLondonPrimeStart=1.0
 InpLondonPrimeEnd=5.0
 InpNYPrimeStart=7.0
 InpNYPrimeEnd=11.0
-; --- Liquidity & setup ---
 InpSetupLookback=120
 InpSweepMaxBars=8
-InpSweepMinPips=0.5
+InpSweepMinPips=1.0
 InpLiqSwingStrength=2
 InpMaxLiqPools=16
-; --- FVG / IFVG ---
-InpMinFvgPips=0.5
+InpMinFvgPips=1.0
 InpMicroFvgScan=40
-; --- Risk & management ---
 InpRiskPercent=1.0
 InpFixedLots=0.0
-InpSlBufferPips=1.5
-InpMinRR=2.0
+InpSlBufferPips=2.5
+InpMinRR=2.5
 InpTP1_RR=2.0
 InpFirstPartialPct=50.0
 InpPartialPercent=70.0
 InpMoveSlBehindFvg=true
 InpTrailMicroFvg=false
-InpMaxSpreadPips=2
-InpMaxTradesPerDay=3
+InpMaxSpreadPips=4
+InpMaxTradesPerDay=0
+InpMaxTradesPerSession=2
 InpMaxStopPips=0.0
-; --- ATR stop fallback ---
 InpUseAtrStop=true
 InpAtrPeriod=14
-InpAtrMultSL=1.2
-; --- News filter ---
+InpAtrMultSL=1.3
 InpUseNewsFilter=true
 InpNewsImportance=2
 InpNewsMinsBefore=15
 InpNewsMinsAfter=15
-; --- Win-rate boosters ---
 InpUseDisplacement=true
 InpMinBodyPct=55.0
 InpDisplaceAtrMult=0.6
 InpUseOTE=true
 InpUseBreakEven=true
 InpBreakEvenAtR=1.2
-InpBreakEvenBufferPips=1.0
+InpBreakEvenBufferPips=1.5
 InpCloseAtSessionEnd=true
 InpDailyMaxLossPct=3.0
 InpDailyTargetPct=0.0
 InpCooldownMin=30
-; --- OTE entry model (dynamic) ---
+InpUseMtfZones=true
+InpZoneTFs="M15,M30,H1,H4,D1"
+InpZoneLookback=150
+InpZoneMinSepPips=6.0
 InpUseOTEModel=true
 InpOTELow=0.62
 InpOTEHigh=0.79
@@ -89,10 +88,9 @@ InpMinStopPips=8.0
 InpAnchorCooldownMin=240
 InpAnchorCooldownPips=15.0
 InpFirstTP_SD=0.27
-InpFinalSDs=2.0,2.5,3.0
+InpFinalSDs="2.0,2.5,3.0"
 InpTP1_SD=2.0
 InpRunnerSD=3.0
-; --- Execution & stop precision (balanced tight) ---
 InpEntryExec=0
 InpOTEEntryFib=0.705
 InpStopMode=0
@@ -100,10 +98,15 @@ InpPendingExpiryBars=4
 InpMicroSwingLB=25
 InpMicroSwingStr=2
 InpMicroEntry=false
-InpMicroPad=0.0
-; --- Standard-deviation projections ---
+InpMicroPad=1.0
 InpUseSDProjection=true
-InpSDMultiples=0.5,1.0,1.5,2.0,2.5,3.0
-InpSDAlignPips=8.0
+InpSDMultiples="0.5,1.0,1.5,2.0,2.5,3.0"
+InpSDAlignPips=15.0
 InpTargetMode=2
 InpShowSDLevels=true
+InpShowHeatmap=true
+InpShowDashboard=true
+InpShowFvg=true
+InpShowZones=true
+InpShowZoneLegs=true
+InpZoneLabelSize=8

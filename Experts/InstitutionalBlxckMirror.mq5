@@ -108,7 +108,8 @@ input double   InpPartialPercent   = 70.0;          // % of REMAINING closed at 
 input bool     InpMoveSlBehindFvg  = true;          // After TP1, SL -> behind nearest M1 FVG to TP
 input bool     InpTrailMicroFvg    = false;         // Trail runner behind M1 FVGs (off by default - M1 FVGs form on normal noise and were stopping runners out before the real target; a straight win/break-even beats a small win)
 input int      InpMaxSpreadPips    = 4;             // Skip entries if spread wider than this
-input int      InpMaxTradesPerDay  = 3;             // Cap trades per day (room for one London + one NY + a retry)
+input int      InpMaxTradesPerDay  = 0;             // Cap trades per DAY (0 = no daily cap; use the per-session cap below)
+input int      InpMaxTradesPerSession = 2;          // Cap trades per SESSION (London / NY / Asia counted separately)
 input double   InpMaxStopPips       = 0.0;          // Reject if stop distance > this (0 = off)
 
 input group "=== ATR stop fallback ==="
@@ -144,6 +145,18 @@ input bool     InpCloseAtSessionEnd  = true;        // Close any open trade at N
 input double   InpDailyMaxLossPct    = 3.0;         // Stop for the day after this % equity loss (0=off)
 input double   InpDailyTargetPct     = 0.0;         // Stop for the day after this % equity gain (0=off)
 input int      InpCooldownMin        = 30;          // Minutes to pause after a losing trade
+
+input group "=== Multi-timeframe OTE map ==="
+// The EA measures the major swing on EVERY timeframe listed and builds an OTE zone
+// for BOTH directions on each, so the whole fib map is standing ready. Price then
+// moves fib-to-fib between them: e.g. yesterday's D1 swing sets a zone, Asia
+// consolidates, London sweeps the Asia extreme and taps that D1 zone, and reverses.
+// Any zone can trigger the entry - it just has to agree with the bias engine and
+// pass the same rejection confirmation. Higher-TF zones are preferred on ties.
+input bool     InpUseMtfZones      = true;          // Map swings/OTE zones across all timeframes below
+input string   InpZoneTFs          = "M15,M30,H1,H4,D1"; // Timeframes to measure swings on
+input int      InpZoneLookback     = 150;           // Bars scanned per timeframe for its major swing
+input double   InpZoneMinSepPips   = 6.0;           // Merge zones whose edges sit within this (pips)
 
 input group "=== OTE entry model (dynamic) ==="
 input bool     InpUseOTEModel      = true;          // Use dynamic OTE model (else legacy IFVG entry)
@@ -211,6 +224,12 @@ input group "=== Visuals ==="
 input bool     InpShowHeatmap      = true;          // Draw liquidity heatmap
 input bool     InpShowDashboard    = true;          // Draw info dashboard
 input bool     InpShowFvg          = true;          // Draw FVG / IFVG boxes
+input bool     InpShowZones        = true;          // Draw every MTF OTE zone with a text label
+input bool     InpShowZoneLegs     = true;          // Draw the 1.0 -> 0.0 swing leg line behind each zone
+input color    InpZoneBuyColor     = clrDarkGreen;  // Bullish (buy) OTE zone fill
+input color    InpZoneSellColor    = clrMaroon;     // Bearish (sell) OTE zone fill
+input color    InpZoneLabelColor   = clrWhite;      // Zone label text
+input int      InpZoneLabelSize    = 8;             // Zone label font size
 input color    InpBuySideColor     = clrTomato;     // Buy-side liquidity (above highs)
 input color    InpSellSideColor    = clrDodgerBlue; // Sell-side liquidity (below lows)
 input color    InpFvgBullColor     = clrSeaGreen;   // Bullish FVG box
@@ -311,6 +330,31 @@ double   g_pdHigh = 0.0, g_pdLow = 0.0;   // previous day high/low (DOL)
 
 enum SWING_PATTERN { PATTERN_BOS = 0, PATTERN_CHOC = 1 };
 
+// One measured swing leg and the OTE zone it projects. The EA holds a whole map of
+// these - both directions, every timeframe - so that whichever fib price actually
+// travels to next is already measured and waiting.
+struct OteZone
+{
+   bool     valid;
+   ENUM_TIMEFRAMES tf;
+   int      dir;          // +1 bullish leg -> BUY zone, -1 bearish leg -> SELL zone
+   int      pattern;      // PATTERN_BOS | PATTERN_CHOC
+   double   anchor;       // fib 1.0
+   double   extreme;      // fib 0.0
+   double   zLo, zHi;     // the 0.62-0.79 band
+   double   legSize;      // |extreme - anchor|, used to rank significance
+   datetime legTime;      // anchor bar time, for drawing
+   bool     tapped;       // price has traded into the band (reset when it re-extends)
+};
+OteZone  g_zones[];
+ENUM_TIMEFRAMES g_zoneTFs[];   // parsed from InpZoneTFs
+
+ENUM_TIMEFRAMES g_setupTF   = PERIOD_CURRENT;  // TF of the zone the live trade came from
+
+// Per-session trade counting (replaces the blunt per-day cap)
+int      g_sessionId        = 0;   // 0 none, 1 London, 2 NY, 3 Asia
+int      g_sessionTrades    = 0;
+
 // Pending (limit) order tracking for OTE execution
 ulong    g_pendingTicket = 0;
 datetime g_pendingExpiry = 0;
@@ -349,6 +393,7 @@ int OnInit()
    ArrayResize(g_sellSide, 0);
    ParseSDMultiples();
    ParseFinalSDs();
+   ParseZoneTFs();
 
    Print("Institutional Blxck Mirror initialised on ", _Symbol,
          "  pip=", DoubleToString(g_pip, g_digits));
@@ -387,6 +432,10 @@ void OnTick()
    }
    g_hadPosition = hasPos;
 
+   // Per-session trade counter: reset whenever we cross into a different session
+   int sid = CurrentSessionId();
+   if(sid != g_sessionId) { g_sessionId = sid; g_sessionTrades = 0; }
+
    // Reset daily counters at the start of a new day
    datetime today = TodayStart();
    if(today != g_lastDay)
@@ -396,9 +445,11 @@ void OnTick()
       g_dayStartBalance = AccountInfoDouble(ACCOUNT_BALANCE);
    }
 
-   // Fast lane: once a setup is armed, hunt the entry on every new M1 bar so the
-   // shallow 0.62-tap-and-go movers are caught on the M1 IFVG, not 15 min late.
-   if(InpUseOTEModel && g_setup.active)
+   // Fast lane: the whole MTF zone map is standing, so on every new M1 bar check
+   // whether price has reacted in ANY of the mapped zones. No "armed" precondition
+   // - the map itself is the armed state, and a shallow 0.62 tap-and-go on any
+   // timeframe is caught on the bar it happens rather than a setup-TF bar later.
+   if(InpUseOTEModel)
    {
       datetime mb = iTime(_Symbol, InpMicroTF, 0);
       if(mb != g_lastMicroBar)
@@ -683,6 +734,17 @@ bool InSessionNY(int h, int startH, int endH)
    return (h >= startH || h < endH); // wraps midnight
 }
 
+// Which session are we in right now? Used to cap trades per session rather than
+// per day, so London and New York each get their own allowance.
+int CurrentSessionId()
+{
+   int h = CurrentNYHour();
+   if(InpTradeLondon  && InSessionNY(h, InpLondonStart, InpLondonEnd)) return 1;
+   if(InpTradeNewYork && InSessionNY(h, InpNYStart,     InpNYEnd))     return 2;
+   if(InpTradeAsia    && InSessionNY(h, InpAsiaStart,   InpAsiaEnd))   return 3;
+   return 0;
+}
+
 bool InKillzone()
 {
    int h = CurrentNYHour();
@@ -887,13 +949,12 @@ bool NearestMicroFvg(int dir, double refPrice, FVG &out)
 // and usually does, exceed the old fractal price itself).
 // extreme (fib 0.0) = the running extreme of the impulsive CHoC leg so far - this
 // keeps being trailed bar-by-bar by the existing dynamic OTE logic until tapped.
-bool FindCHoC(const MqlRates &r[], int dir, double &manipAnchor, double &extreme, int &sweepIdx)
+bool FindCHoC(const MqlRates &r[], int dir, double &manipAnchor, double &extreme, int &sweepIdx,
+              double atr, int strength, int lookback)
 {
    int n = ArraySize(r);
-   int strength = InpChocSwingStrength;
-   int bound = MathMin(InpChocLookback, n - strength);
+   int bound = MathMin(lookback, n - strength);
    if(bound <= strength + 2) return false;
-   double atr = AtrValue();
 
    if(dir == BIAS_BEAR)
    {
@@ -972,13 +1033,12 @@ bool FindCHoC(const MqlRates &r[], int dir, double &manipAnchor, double &extreme
 // (BOS - the trend simply extends). anchor (fib 1.0) = the swing LOW that started
 // that impulsive leg (the base); extreme (fib 0.0) = the new high made since the
 // break, trailing further exactly like the CHoC case. Mirrored for BIAS_BEAR.
-bool FindBOS(const MqlRates &r[], int dir, double &anchor, double &extreme, int &breakIdx)
+bool FindBOS(const MqlRates &r[], int dir, double &anchor, double &extreme, int &breakIdx,
+             double atr, int strength, int lookback)
 {
    int n = ArraySize(r);
-   int strength = InpChocSwingStrength;
-   int bound = MathMin(InpChocLookback, n - strength);
+   int bound = MathMin(lookback, n - strength);
    if(bound <= strength + 2) return false;
-   double atr = AtrValue();
 
    if(dir == BIAS_BULL)
    {
@@ -1044,12 +1104,13 @@ bool FindBOS(const MqlRates &r[], int dir, double &anchor, double &extreme, int 
 // Map the market generically: try both patterns and take whichever's triggering
 // event (break/sweep) is most recent - "whichever is the most obvious major
 // swing point," not a pattern-type preference.
-bool FindSwingLeg(const MqlRates &r[], int dir, double &anchor, double &extreme, int &evIdx, int &pattern)
+bool FindSwingLeg(const MqlRates &r[], int dir, double &anchor, double &extreme, int &evIdx, int &pattern,
+                  double atr, int strength, int lookback)
 {
    double aB = 0, eB = 0; int iB = -1;
    double aC = 0, eC = 0; int iC = -1;
-   bool hasBos  = FindBOS(r, dir, aB, eB, iB);
-   bool hasChoc = FindCHoC(r, dir, aC, eC, iC);
+   bool hasBos  = FindBOS(r, dir, aB, eB, iB, atr, strength, lookback);
+   bool hasChoc = FindCHoC(r, dir, aC, eC, iC, atr, strength, lookback);
 
    if(!hasBos && !hasChoc) return false;
    if(hasBos && (!hasChoc || iB <= iC))
@@ -1123,13 +1184,146 @@ bool DetectLiquiditySweep(const MqlRates &r[], int bias, double &liqLevel, int &
 }
 
 //==================================================================//
+//  MULTI-TIMEFRAME OTE MAP                                         //
+//==================================================================//
+// Fib price for an arbitrary leg. level 1 = anchor, 0 = extreme,
+// negatives = SD projections beyond the extreme.
+double OTEPriceOf(double anchor, double extreme, double level)
+{
+   return extreme + level * (anchor - extreme);
+}
+
+ENUM_TIMEFRAMES TFFromString(string s)
+{
+   StringTrimLeft(s); StringTrimRight(s); StringToUpper(s);
+   if(s == "M1")  return PERIOD_M1;   if(s == "M5")  return PERIOD_M5;
+   if(s == "M15") return PERIOD_M15;  if(s == "M30") return PERIOD_M30;
+   if(s == "H1")  return PERIOD_H1;   if(s == "H4")  return PERIOD_H4;
+   if(s == "D1")  return PERIOD_D1;   if(s == "W1")  return PERIOD_W1;
+   return PERIOD_CURRENT;
+}
+
+string TFToString(ENUM_TIMEFRAMES tf)
+{
+   switch(tf)
+   {
+      case PERIOD_M1:  return "M1";   case PERIOD_M5:  return "M5";
+      case PERIOD_M15: return "M15";  case PERIOD_M30: return "M30";
+      case PERIOD_H1:  return "H1";   case PERIOD_H4:  return "H4";
+      case PERIOD_D1:  return "D1";   case PERIOD_W1:  return "W1";
+   }
+   return "?";
+}
+
+void ParseZoneTFs()
+{
+   ArrayResize(g_zoneTFs, 0);
+   string parts[];
+   int c = StringSplit(InpZoneTFs, ',', parts);
+   for(int i = 0; i < c; i++)
+   {
+      ENUM_TIMEFRAMES tf = TFFromString(parts[i]);
+      if(tf == PERIOD_CURRENT) continue;
+      int sz = ArraySize(g_zoneTFs);
+      ArrayResize(g_zoneTFs, sz + 1);
+      g_zoneTFs[sz] = tf;
+   }
+   if(ArraySize(g_zoneTFs) == 0)   // never leave the map empty
+   {
+      ArrayResize(g_zoneTFs, 1);
+      g_zoneTFs[0] = InpSetupTF;
+   }
+}
+
+// ATR on an arbitrary timeframe (temporary handle - zones rebuild on a bar, not a tick).
+double AtrOnTF(ENUM_TIMEFRAMES tf)
+{
+   int h = iATR(_Symbol, tf, InpAtrPeriod);
+   if(h == INVALID_HANDLE) return 0.0;
+   double a[1];
+   int got = CopyBuffer(h, 0, 0, 1, a);
+   IndicatorRelease(h);
+   return (got < 1) ? 0.0 : a[0];
+}
+
+// Is an equivalent zone already mapped? (a D1 and an H4 swing often describe the
+// same leg - keep the higher-TF one, it's the more significant read of the move)
+int FindDuplicateZone(int dir, double zLo, double zHi)
+{
+   double tol = InpZoneMinSepPips * g_pip;
+   for(int i = 0; i < ArraySize(g_zones); i++)
+   {
+      if(!g_zones[i].valid || g_zones[i].dir != dir) continue;
+      if(MathAbs(g_zones[i].zLo - zLo) <= tol && MathAbs(g_zones[i].zHi - zHi) <= tol)
+         return i;
+   }
+   return -1;
+}
+
+// Measure the major swing on every configured timeframe, in BOTH directions, and
+// build the standing OTE map. Called on each setup-TF bar.
+void BuildOteZones()
+{
+   ArrayResize(g_zones, 0);
+   if(!InpUseMtfZones) return;
+
+   for(int t = 0; t < ArraySize(g_zoneTFs); t++)
+   {
+      ENUM_TIMEFRAMES tf = g_zoneTFs[t];
+      int need = InpZoneLookback + InpChocSwingStrength * 2 + 10;
+      MqlRates r[];
+      ArraySetAsSeries(r, true);
+      if(CopyRates(_Symbol, tf, 0, need, r) < need) continue;
+
+      double atr = AtrOnTF(tf);
+      if(atr <= 0.0) continue;
+
+      for(int d = -1; d <= 1; d += 2)      // both directions, always
+      {
+         double anchor, extreme; int evIdx, pattern;
+         if(!FindSwingLeg(r, d, anchor, extreme, evIdx, pattern, atr,
+                          InpChocSwingStrength, InpZoneLookback)) continue;
+
+         double legSize = MathAbs(extreme - anchor);
+         if(legSize < InpMinDisplaceLeg * atr) continue;   // not a real move on this TF
+
+         double a = OTEPriceOf(anchor, extreme, InpOTELow);
+         double b = OTEPriceOf(anchor, extreme, InpOTEHigh);
+         double zLo = MathMin(a, b), zHi = MathMax(a, b);
+
+         int dup = FindDuplicateZone(d, zLo, zHi);
+         if(dup >= 0)
+         {
+            // same leg seen on two timeframes - keep whichever has the bigger leg
+            if(legSize <= g_zones[dup].legSize) continue;
+            g_zones[dup].valid = false;
+         }
+
+         int sz = ArraySize(g_zones);
+         ArrayResize(g_zones, sz + 1);
+         g_zones[sz].valid   = true;
+         g_zones[sz].tf      = tf;
+         g_zones[sz].dir     = d;
+         g_zones[sz].pattern = pattern;
+         g_zones[sz].anchor  = anchor;
+         g_zones[sz].extreme = extreme;
+         g_zones[sz].zLo     = zLo;
+         g_zones[sz].zHi     = zHi;
+         g_zones[sz].legSize = legSize;
+         g_zones[sz].legTime = (evIdx >= 0 && evIdx < ArraySize(r)) ? r[evIdx].time : iTime(_Symbol, tf, 1);
+         g_zones[sz].tapped  = false;
+      }
+   }
+}
+
+//==================================================================//
 //  DYNAMIC OTE ENTRY MODEL                                         //
 //==================================================================//
-// Price at a fib level of the manipulation leg. level 1 = manipAnchor,
+// Price at a fib level of the currently-selected leg. level 1 = manipAnchor,
 // level 0 = extreme, negatives = SD projections beyond the extreme.
 double OTEPrice(double level)
 {
-   return g_setup.extreme + level * (g_setup.manipAnchor - g_setup.extreme);
+   return OTEPriceOf(g_setup.manipAnchor, g_setup.extreme, level);
 }
 
 // Displacement candle closing back in the trend direction.
@@ -1424,136 +1618,92 @@ double ChooseFinalTarget(int dir, double entry)
    return best;
 }
 
-// ---- M15: arm the setup and trail the dynamic OTE leg (no entry here) ----
+// ---- Setup-TF bar: refresh the whole multi-timeframe OTE map ----
+// No single "armed setup" any more - every timeframe's major swing is measured in
+// both directions and left standing. The M1 hunter below decides which one price
+// actually comes to.
 void EvaluateOTESetup()
 {
-   if(HasOpenPosition()) { ResetSetup(); return; }
-   if(g_pendingTicket != 0) return;   // an OTE limit is already resting
-
-   int n = MathMax(InpSetupLookback, InpChocLookback) + InpChocSwingStrength * 2 + 10;
-   MqlRates r[];
-   ArraySetAsSeries(r, true);
-   if(CopyRates(_Symbol, InpSetupTF, 0, n, r) < n) return;
-
-   bool inKZ = InKillzone();
-
-   if(!g_setup.active)
-   {
-      if(!inKZ) return;
-      if(g_tradesToday >= InpMaxTradesPerDay) return;
-      if(DailyGuardBlocked() || InCooldown() || IsNewsTime()) return;
-
-      int bias = InstitutionalBias();
-      if(bias == BIAS_NONE) return;
-
-      // Map the market generically: try both a continuation BOS and a reversal
-      // CHoC in the bias direction, take whichever's triggering event is most
-      // recent - the most obvious major swing right now, of either type, on
-      // real structure of any length (not a fixed-bar window).
-      double manip, ext; int evIdx; int pattern;
-      if(!FindSwingLeg(r, bias, manip, ext, evIdx, pattern)) return;
-      if(AnchorRecentlyFailed(bias, manip)) return; // don't re-arm a swing that just failed
-
-      double atr = AtrValue();
-      if(atr > 0.0 && MathAbs(ext - manip) < InpMinDisplaceLeg * atr) return; // no real displacement
-
-      g_setup.active      = true;
-      g_setup.tapped      = false;
-      g_setup.dir         = bias;
-      g_setup.manipAnchor = manip;
-      g_setup.extreme     = ext;
-      g_setup.armedTime   = TimeCurrent();
-      g_setup.pattern     = pattern;
-      return;
-   }
-
-   int dir = g_setup.dir;
-   if(!inKZ) { ResetSetup(); return; }
-   if(dir > 0 && r[1].close < g_setup.manipAnchor) { ResetSetup(); return; }
-   if(dir < 0 && r[1].close > g_setup.manipAnchor) { ResetSetup(); return; }
-
-   // trail the "0" extreme only until price taps the OTE; after a tap the leg is
-   // locked (we stop re-anchoring and wait for the entry confirmation).
-   if(!g_setup.tapped)
-   {
-      if(dir > 0) g_setup.extreme = MathMax(g_setup.extreme, r[1].high);
-      else        g_setup.extreme = MathMin(g_setup.extreme, r[1].low);
-   }
-
-   if(InpShowSDLevels) DrawOTE();
+   if(HasOpenPosition() || g_pendingTicket != 0) return;
+   BuildOteZones();
+   if(InpShowZones) DrawZones();
 }
 
-// ---- M1: hunt the entry once armed (catches shallow 0.62-tap-and-go movers) ----
+// Rank two candidate zones. Prefer the higher timeframe; break ties on the bigger
+// leg. A D1 fib being tapped is a more significant event than an M15 one.
+bool ZoneBetterThan(const OteZone &a, const OteZone &b)
+{
+   if(a.tf != b.tf) return (PeriodSeconds(a.tf) > PeriodSeconds(b.tf));
+   return (a.legSize > b.legSize);
+}
+
+// ---- M1: watch the whole map and take whichever zone price actually reacts in ----
 void TryEnterArmed()
 {
-   if(!g_setup.active) return;
    if(HasOpenPosition() || g_pendingTicket != 0) return;
-   if(!InKillzone()) { ResetSetup(); return; }
-   if(g_tradesToday >= InpMaxTradesPerDay) return;
+   if(!InKillzone()) return;
+   if(InpMaxTradesPerDay > 0 && g_tradesToday >= InpMaxTradesPerDay) return;
+   if(InpMaxTradesPerSession > 0 && g_sessionTrades >= InpMaxTradesPerSession) return;
    if(DailyGuardBlocked() || InCooldown() || IsNewsTime()) return;
    if(SpreadPips() > InpMaxSpreadPips) return;
+   if(!InPrimeWindow()) return;
 
-   int dir = g_setup.dir;
+   int bias = InstitutionalBias();
+   if(bias == BIAS_NONE) return;          // direction must be right before anything else
+
    MqlRates m[];
    ArraySetAsSeries(m, true);
    int cnt = MathMax(InpMicroFvgScan + 3, InpMicroSwingLB + InpMicroSwingStr * 2 + 3);
    if(CopyRates(_Symbol, InpMicroTF, 0, cnt, m) < cnt) return;
 
-   // Re-anchor the "0" extreme ONLY until price first taps the OTE. Once tapped,
-   // the leg is locked and we simply wait for the confirmation to enter (a 0.62
-   // tap-and-reject is a valid entry, not a reason to re-anchor). This trailing
-   // happens regardless of the prime window - the underlying swing can keep
-   // developing all session.
-   if(!g_setup.tapped)
-   {
-      if(dir > 0) g_setup.extreme = MathMax(g_setup.extreme, m[1].high);
-      else        g_setup.extreme = MathMin(g_setup.extreme, m[1].low);
-   }
-
-   // invalidation on an M1 close beyond the manipulation anchor
-   if(dir > 0 && m[1].close < g_setup.manipAnchor) { ResetSetup(); return; }
-   if(dir < 0 && m[1].close > g_setup.manipAnchor) { ResetSetup(); return; }
-
-   // The tap+confirmation that fires a trade only counts INSIDE the prime window
-   // - not just the order placement. Without this, a setup that tapped+confirmed
-   // hours earlier (waiting for the window) fires blind the instant the window
-   // opens, on a price that may have already run well away from the real OTE
-   // reaction. Backtest evidence: 31% of trades fired at the exact literal
-   // window-open tick, and several of the fastest, cleanest stop-outs were
-   // exactly these stale fires. So a tap outside the window is never allowed to
-   // persist into it - it must tap+confirm again, live, once we're inside.
-   if(!InPrimeWindow())
-   {
-      g_setup.tapped = false;
-      return;
-   }
-
-   double zA = OTEPrice(InpOTELow), zB = OTEPrice(InpOTEHigh);
-   double zHi = MathMax(zA, zB), zLo = MathMin(zA, zB);
-
-   // register the OTE tap (0.62 edge counts) - only meaningful once inside the window
-   if(!g_setup.tapped && m[1].low <= zHi && m[1].high >= zLo) g_setup.tapped = true;
-   if(!g_setup.tapped) return;
-
-   // confirmation on M1 (this is the M1 IFVG entry for the shallow-reject movers) -
-   // continuation (BOS) and reversal (CHoC) get their own confirmation bar
    double atrM1 = MicroAtrValue();
-   bool disp = DispConfirmTF(m, dir, atrM1);
-   bool ifvg = IFVGConfirms(m, dir);
-   bool rej  = RejectionConfirms(m, dir, zLo, zHi);
-   int confMode = (g_setup.pattern == PATTERN_BOS) ? InpConfirmModeBOS : InpConfirmModeCHoC;
-   bool confirmed;
-   if(confMode <= 0)      confirmed = true;
-   else if(confMode == 1) confirmed = (disp || ifvg);
-   else if(confMode == 2) confirmed = ifvg;
-   else if(confMode == 3) confirmed = rej;                      // rejection REPLACES momentum proof
-   else                   confirmed = (rej || disp || ifvg);    // mode 4: widest, more trades
-   if(!confirmed) return;
+   bool disp = DispConfirmTF(m, bias, atrM1);
+   bool ifvg = IFVGConfirms(m, bias);
 
-   // Don't re-fight the same swing anchor that just failed (see AnchorRecentlyFailed)
-   if(AnchorRecentlyFailed(dir, g_setup.manipAnchor)) { ResetSetup(); return; }
+   int best = -1;
+   for(int i = 0; i < ArraySize(g_zones); i++)
+   {
+      if(!g_zones[i].valid) continue;
+      if(g_zones[i].dir != bias) continue;                       // only zones with the bias
 
-   PlaceOTEOrder(dir, zLo, zHi);
+      double zLo = g_zones[i].zLo, zHi = g_zones[i].zHi;
+
+      // structural invalidation: price closed clean through the 1.0 anchor
+      if(bias > 0 && m[1].close < g_zones[i].anchor) { g_zones[i].valid = false; continue; }
+      if(bias < 0 && m[1].close > g_zones[i].anchor) { g_zones[i].valid = false; continue; }
+
+      // has price traded into this band?
+      if(!g_zones[i].tapped && m[1].low <= zHi && m[1].high >= zLo) g_zones[i].tapped = true;
+      if(!g_zones[i].tapped) continue;
+
+      if(AnchorRecentlyFailed(bias, g_zones[i].anchor)) continue; // just failed here
+
+      // same confirmation gate as before, but measured against THIS zone's band
+      bool rej = RejectionConfirms(m, bias, zLo, zHi);
+      int confMode = (g_zones[i].pattern == PATTERN_BOS) ? InpConfirmModeBOS : InpConfirmModeCHoC;
+      bool confirmed;
+      if(confMode <= 0)      confirmed = true;
+      else if(confMode == 1) confirmed = (disp || ifvg);
+      else if(confMode == 2) confirmed = ifvg;
+      else if(confMode == 3) confirmed = rej;                    // rejection REPLACES momentum proof
+      else                   confirmed = (rej || disp || ifvg);  // mode 4: widest
+      if(!confirmed) continue;
+
+      if(best < 0 || ZoneBetterThan(g_zones[i], g_zones[best])) best = i;
+   }
+   if(best < 0) return;
+
+   // Load the winning zone into g_setup so targets/stops/comments work unchanged
+   g_setup.active      = true;
+   g_setup.tapped      = true;
+   g_setup.dir         = g_zones[best].dir;
+   g_setup.manipAnchor = g_zones[best].anchor;
+   g_setup.extreme     = g_zones[best].extreme;
+   g_setup.pattern     = g_zones[best].pattern;
+   g_setup.armedTime   = TimeCurrent();
+   g_setupTF           = g_zones[best].tf;
+
+   PlaceOTEOrder(g_setup.dir, g_zones[best].zLo, g_zones[best].zHi);
 }
 
 // Build and place the OTE trade (limit at OTE / M1-FVG with market fallback).
@@ -1627,6 +1777,7 @@ void PlaceOTEOrder(int dir, double zLo, double zHi)
    if(ok)
    {
       g_tradesToday++;
+      g_sessionTrades++;
       g_tp1Done   = false;
       g_beDone    = false;
       g_firstDone = false;
@@ -1650,55 +1801,81 @@ void PlaceOTEOrder(int dir, double zLo, double zHi)
 }
 
 // Draw the live OTE zone + SD target ladder for the armed setup.
-void DrawOTE()
+// Draw the whole standing OTE map: every timeframe's measured swing leg, its
+// 0.62-0.79 band, and a text label saying which TF / pattern / direction it is.
+void DrawZones()
 {
-   ObjectsDeleteAll(0, g_obj_prefix + "OTE_");
-   if(!g_setup.active) return;
+   ObjectsDeleteAll(0, g_obj_prefix + "Z_");
+   if(!InpShowZones) return;
 
-   int dir = g_setup.dir;
-   datetime t1 = g_setup.armedTime;
-   datetime t2 = iTime(_Symbol, InpSetupTF, 0) + PeriodSeconds(InpSetupTF) * 6;
+   datetime tNow = iTime(_Symbol, InpMicroTF, 0);
+   datetime tEnd = tNow + PeriodSeconds(InpSetupTF) * 30;
 
-   // OTE zone box
-   double zA = OTEPrice(InpOTELow), zB = OTEPrice(InpOTEHigh);
-   string zone = g_obj_prefix + "OTE_ZONE";
-   ObjectCreate(0, zone, OBJ_RECTANGLE, 0, t1, zA, t2, zB);
-   ObjectSetInteger(0, zone, OBJPROP_COLOR, clrMediumPurple);
-   ObjectSetInteger(0, zone, OBJPROP_FILL, true);
-   ObjectSetInteger(0, zone, OBJPROP_BACK, true);
-   ObjectSetString(0, zone, OBJPROP_TOOLTIP, "OTE 0.62-0.79 entry zone");
-
-   // key levels: manip anchor (1), extreme (0), entry, TP, runner
-   DrawOTELine("OTE_ANCHOR", g_setup.manipAnchor, t1, t2, clrGray,   "manipulation (1.0)");
-   DrawOTELine("OTE_EXT",    g_setup.extreme,     t1, t2, clrGray,   "extreme (0.0)");
-   DrawOTELine("OTE_ENTRY",  OTEPrice(InpOTEEntryFib), t1, t2, clrDeepSkyBlue,
-               StringFormat("entry limit (%.3f)", InpOTEEntryFib));
-   DrawOTELine("OTE_FIRST",  OTEPrice(-InpFirstTP_SD), t1, t2, clrOrange,
-               StringFormat("first partial -%.2f SD", InpFirstTP_SD));
-   // final-target candidates; the confluence pick is highlighted
-   double tol = InpSDAlignPips * g_pip;
-   for(int i = 0; i < ArraySize(g_finalSDs); i++)
+   for(int i = 0; i < ArraySize(g_zones); i++)
    {
-      double lvl = OTEPrice(-g_finalSDs[i]);
-      bool key = KeyLevelNear(dir, lvl, tol);
-      bool asd = AsiaSDNear(dir, lvl, tol);
-      color c  = key ? clrGold : (asd ? clrYellow : clrGreen);
-      DrawOTELine("OTE_FIN" + DoubleToString(g_finalSDs[i], 1), lvl, t1, t2, c,
-                  StringFormat("final -%.1f SD%s%s", g_finalSDs[i],
-                               key ? "  +DOL/liquidity" : "", asd ? "  +Asia-SD" : ""));
+      if(!g_zones[i].valid) continue;
+      string id  = g_obj_prefix + "Z_" + IntegerToString(i) + "_";
+      color  col = (g_zones[i].dir > 0) ? InpZoneBuyColor : InpZoneSellColor;
+      datetime t1 = g_zones[i].legTime;
+      if(t1 <= 0 || t1 > tNow) t1 = tNow - PeriodSeconds(InpSetupTF) * 20;
+
+      // the 0.62 - 0.79 band
+      string box = id + "BAND";
+      ObjectCreate(0, box, OBJ_RECTANGLE, 0, t1, g_zones[i].zLo, tEnd, g_zones[i].zHi);
+      ObjectSetInteger(0, box, OBJPROP_COLOR, col);
+      ObjectSetInteger(0, box, OBJPROP_FILL, true);
+      ObjectSetInteger(0, box, OBJPROP_BACK, true);
+      ObjectSetString(0, box, OBJPROP_TOOLTIP,
+         StringFormat("%s %s %s OTE  0.62=%.5f 0.79=%.5f",
+            TFToString(g_zones[i].tf),
+            (g_zones[i].pattern == PATTERN_BOS ? "BOS" : "CHoC"),
+            (g_zones[i].dir > 0 ? "BUY" : "SELL"),
+            g_zones[i].zLo, g_zones[i].zHi));
+
+      // the measured swing leg itself: 1.0 -> 0.0
+      if(InpShowZoneLegs)
+      {
+         string leg = id + "LEG";
+         ObjectCreate(0, leg, OBJ_TREND, 0, t1, g_zones[i].anchor, tEnd, g_zones[i].extreme);
+         ObjectSetInteger(0, leg, OBJPROP_COLOR, col);
+         ObjectSetInteger(0, leg, OBJPROP_STYLE, STYLE_DOT);
+         ObjectSetInteger(0, leg, OBJPROP_RAY_RIGHT, false);
+         ObjectSetInteger(0, leg, OBJPROP_BACK, true);
+         ObjectSetString(0, leg, OBJPROP_TOOLTIP, "swing leg 1.0 -> 0.0");
+
+         // 1.0 and 0.0 markers so the fib anchors are readable on the chart
+         string a1 = id + "A10";
+         ObjectCreate(0, a1, OBJ_TREND, 0, t1, g_zones[i].anchor, tEnd, g_zones[i].anchor);
+         ObjectSetInteger(0, a1, OBJPROP_COLOR, clrDimGray);
+         ObjectSetInteger(0, a1, OBJPROP_STYLE, STYLE_DOT);
+         ObjectSetInteger(0, a1, OBJPROP_RAY_RIGHT, false);
+         ObjectSetInteger(0, a1, OBJPROP_BACK, true);
+         ObjectSetString(0, a1, OBJPROP_TOOLTIP, "1.0 (swing anchor)");
+
+         string a0 = id + "A00";
+         ObjectCreate(0, a0, OBJ_TREND, 0, t1, g_zones[i].extreme, tEnd, g_zones[i].extreme);
+         ObjectSetInteger(0, a0, OBJPROP_COLOR, clrDimGray);
+         ObjectSetInteger(0, a0, OBJPROP_STYLE, STYLE_DOT);
+         ObjectSetInteger(0, a0, OBJPROP_RAY_RIGHT, false);
+         ObjectSetInteger(0, a0, OBJPROP_BACK, true);
+         ObjectSetString(0, a0, OBJPROP_TOOLTIP, "0.0 (swing extreme)");
+      }
+
+      // the label
+      string lab = id + "TXT";
+      ObjectCreate(0, lab, OBJ_TEXT, 0, tEnd, (g_zones[i].zLo + g_zones[i].zHi) / 2.0);
+      ObjectSetString(0, lab, OBJPROP_TEXT,
+         StringFormat(" %s %s %s%s", TFToString(g_zones[i].tf),
+            (g_zones[i].dir > 0 ? "BUY" : "SELL"),
+            (g_zones[i].pattern == PATTERN_BOS ? "BOS" : "CHoC"),
+            (g_zones[i].tapped ? " [tapped]" : "")));
+      ObjectSetInteger(0, lab, OBJPROP_COLOR, InpZoneLabelColor);
+      ObjectSetInteger(0, lab, OBJPROP_FONTSIZE, InpZoneLabelSize);
+      ObjectSetInteger(0, lab, OBJPROP_ANCHOR, ANCHOR_LEFT);
    }
 }
 
-void DrawOTELine(string tag, double price, datetime t1, datetime t2, color c, string tip)
-{
-   string nm = g_obj_prefix + tag;
-   ObjectCreate(0, nm, OBJ_TREND, 0, t1, price, t2, price);
-   ObjectSetInteger(0, nm, OBJPROP_COLOR, c);
-   ObjectSetInteger(0, nm, OBJPROP_STYLE, STYLE_DOT);
-   ObjectSetInteger(0, nm, OBJPROP_RAY_RIGHT, false);
-   ObjectSetInteger(0, nm, OBJPROP_BACK, true);
-   ObjectSetString(0, nm, OBJPROP_TOOLTIP, tip);
-}
+
 
 //==================================================================//
 //  SETUP EVALUATION + ENTRY (legacy IFVG model)                    //
@@ -1786,6 +1963,7 @@ void EvaluateSetup()
    if(ok)
    {
       g_tradesToday++;
+      g_sessionTrades++;
       g_tp1Done   = false;
       g_beDone    = false;
       g_plannedTP = tp;
@@ -2337,18 +2515,40 @@ void DrawDashboard()
       "BOS " + EnumToString(InpBiasTF) + " : " + BiasStr(StructureBias(InpBiasTF)) + "\n" +
       "BOS " + EnumToString(InpHTFTrend) + " : " + BiasStr(StructureBias(InpHTFTrend)) + "\n" +
       "Killzone    : " + (InKillzone() ? "OPEN" : "closed") + "\n" +
-      "Prime window: " + (InPrimeWindow() ? "OPEN" : "closed (armed setups wait)") + "\n" +
-      "OTE setup   : " + (g_setup.active ? (g_setup.dir > 0 ? "ARMED long" : "ARMED short") +
-                          " [" + (g_setup.pattern == PATTERN_BOS ? "BOS" : "CHoC") + "]" +
-                          (g_setup.tapped ? " [tapped-await M1 conf]" : " [await retrace]") : "none") + "\n" +
+      "Prime window: " + (InPrimeWindow() ? "OPEN" : "closed (zones wait)") + "\n" +
+      "OTE zones   : " + ZoneSummary() + "\n" +
       "OTE limit   : " + (g_pendingTicket != 0 ? "RESTING (await fill)" : "none") + "\n" +
       "Blocked by  : " + block + "\n" +
       "Spread(pips): " + DoubleToString(SpreadPips(), 1) + "\n" +
       "Day P/L     : " + DoubleToString(pct, 2) + "%\n" +
-      "Trades today: " + IntegerToString(g_tradesToday) + "/" + IntegerToString(InpMaxTradesPerDay) + "\n" +
+      "Session     : " + SessionName(g_sessionId) + "  trades " +
+                         IntegerToString(g_sessionTrades) + "/" + IntegerToString(InpMaxTradesPerSession) + "\n" +
+      "Trades today: " + IntegerToString(g_tradesToday) + "\n" +
       "Position    : " + (HasOpenPosition() ? (g_posDir > 0 ? "LONG" : "SHORT") : "flat") +
                          (g_tp1Done ? "  [runner]" : "");
    Comment(txt);
+}
+
+string SessionName(int id)
+{
+   if(id == 1) return "LONDON";
+   if(id == 2) return "NEW YORK";
+   if(id == 3) return "ASIA";
+   return "-";
+}
+
+// Compact read-out of the standing zone map for the dashboard, e.g. "6 (3B/3S) tapped:1"
+string ZoneSummary()
+{
+   int nb = 0, ns = 0, tapped = 0;
+   for(int i = 0; i < ArraySize(g_zones); i++)
+   {
+      if(!g_zones[i].valid) continue;
+      if(g_zones[i].dir > 0) nb++; else ns++;
+      if(g_zones[i].tapped) tapped++;
+   }
+   if(nb + ns == 0) return "none mapped";
+   return StringFormat("%d (%dB/%dS) tapped:%d", nb + ns, nb, ns, tapped);
 }
 
 string BiasStr(int b)
@@ -2373,8 +2573,9 @@ string BiasLetter(int b)
 string BuildTradeComment(int dir)
 {
    string patTag = (g_setup.pattern == PATTERN_BOS) ? "BOS" : "CHC";
+   string tfTag  = TFToString(g_setupTF);
    string dirTag = (dir > 0) ? "B" : "S";
    string biasTag = BiasLetter(EmaBias()) + BiasLetter(StructureBias(InpBiasTF)) + BiasLetter(StructureBias(InpHTFTrend));
-   return patTag + dirTag + "-" + biasTag;
+   return tfTag + patTag + dirTag + "-" + biasTag;
 }
 //+------------------------------------------------------------------+

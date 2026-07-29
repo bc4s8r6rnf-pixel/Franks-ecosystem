@@ -8,11 +8,12 @@ institutions (and this EA) see continuation. That mirror is the edge.
 
 > File: `Experts/InstitutionalBlxckMirror.mq5`
 
-**The EA's default inputs are pre-tuned for GBPUSD — compile and attach with no
-`.set` file needed.** Targets one main move in the London session, one in the New
-York session (`InpMaxTradesPerDay=3` gives room for both plus a retry). EURUSD users
-should load `presets/EURUSD.set` (its filters are tuned tighter for EUR/USD's smaller
-average range).
+**Compile and attach — no `.set` file needed.** The built-in defaults are the tuned
+configuration and work for **both GBPUSD and EURUSD** (the significance filters are
+ATR-relative, so they self-scale to each pair's range). Up to
+**`InpMaxTradesPerSession = 2`** trades in each of London and New York.
+`presets/BlxckMirror.set` mirrors these defaults exactly and exists only as a restore
+point.
 
 ---
 
@@ -242,6 +243,47 @@ fits their stated "more trades" purpose.
 
 A doji is deliberately **not** accepted — a doji is indecision, not rejection. The signal
 with real meaning is a wick that pierces the zone and closes back out of it.
+
+### Round 7: multi-timeframe OTE map — the whole fib picture, both directions
+
+The EA no longer tracks one "armed setup" on one timeframe. It now measures the major
+swing on **every timeframe in `InpZoneTFs` (default M15, M30, H1, H4, D1), in BOTH
+directions**, and keeps the resulting OTE zones standing as a live map. Price moves
+fib-to-fib between them, so the zone it travels to next is already measured and waiting.
+
+That directly supports the real sequences you described — e.g. yesterday's D1 swing
+leaves a zone, Asia consolidates under it, London sweeps the Asia extreme, price taps
+that **D1** fib and reverses. Previously only the single M30 leg existed, so that entry
+was invisible. Now every one of those legs is mapped simultaneously.
+
+- **`BuildOteZones()`** runs each setup-TF bar: for every listed timeframe it finds the
+  major BOS *and* CHoC leg in each direction, filters by `InpMinDisplaceLeg × ATR`
+  **of that timeframe**, and stores the 0.62–0.79 band. Zones describing the same leg on
+  two timeframes are merged, keeping the higher-TF read.
+- **`TryEnterArmed()`** now scans the whole map every M1 bar. A zone fires only when it
+  agrees with the bias engine, price has traded into its band, and the same rejection
+  confirmation passes — measured against *that zone's* band. When several qualify, the
+  **higher timeframe wins** (ties broken on leg size), because a D1 fib being tapped is
+  a more significant event than an M15 one.
+- The originating timeframe is recorded in the trade comment (`D1BOSB-UUN` = D1
+  continuation buy) so any backtest report shows which fib produced each trade.
+
+**Per-session trade cap.** `InpMaxTradesPerDay` now defaults to `0` (off) and is replaced
+by **`InpMaxTradesPerSession = 2`** — London, New York and Asia are counted separately,
+so each session gets its own allowance rather than one blunt daily number.
+
+**Chart visuals.** `InpShowZones` draws every mapped zone as a filled band with a text
+label (`H4 BUY CHoC [tapped]`), and `InpShowZoneLegs` draws the measured 1.0 → 0.0 swing
+leg plus dotted markers at both fib anchors. The dashboard gains a live zone count
+(`6 (3B/3S) tapped:1`) and the current session with its trade tally.
+
+**One preset for everything.** The four pair/frequency presets are gone, replaced by a
+single `presets/BlxckMirror.set` generated directly from the EA's own defaults — so it
+can never drift out of sync. It works for GBPUSD and EURUSD alike because the
+significance filters (`InpMinDisplaceLeg`, `InpChocMinRangeATR`, `InpAtrMultSL`) are all
+**ATR-relative and self-scale to each pair's range**; only the genuinely pip-based values
+are middle-ground compromises. You do not need to load it — it mirrors the built-in
+defaults and exists purely as a restore point.
 
 ### Getting a real optimization pass, not more manual guessing
 
