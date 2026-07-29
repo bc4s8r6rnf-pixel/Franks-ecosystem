@@ -51,7 +51,7 @@ input int      InpStructLookback   = 60;            // Bars to scan for HTF mark
 input int      InpSwingStrength    = 2;             // Fractal strength (bars each side)
 // Bias strictness: 0 = strict (EMA+BOS+D1 must all agree, fewest signals),
 // 1 = majority (2 of 3 agree), 2 = lean (any net agreement - most signals)
-input int      InpBiasMode          = 0;            // Bias mode (0 strict / 1 majority / 2 lean)
+input int      InpBiasMode          = 1;            // Bias mode (0 strict / 1 majority / 2 lean)
 
 input group "=== Sessions (defined in NEW YORK time, 24h) ==="
 // Session hours below are in NEW YORK time. The EA converts server->NY using
@@ -73,35 +73,39 @@ input group "=== High-probability entry windows (NY time, decimal hours) ==="
 // tighter window each session. This restricts ENTRY (not arming/tracking) to
 // those windows so noise trades outside them are cut out. Asia has no defined
 // prime window and is unrestricted whenever InpTradeAsia is on.
+// Widened to the full London/NY killzone - now that a tap can only ever fire
+// fresh and live (see the staleness fix in TryEnterArmed), there's no longer a
+// reason to miss a genuine reaction just because it lands outside a narrow
+// sub-window. Narrow this back down only if you want fewer, more selective fires.
 input bool     InpUsePrimeWindow    = true;          // Only fire entries inside the prime sub-window
-input double   InpLondonPrimeStart  = 2.0;           // London prime window start (NY hour, decimal)
-input double   InpLondonPrimeEnd    = 4.0;           // London prime window end (NY hour, decimal)
-input double   InpNYPrimeStart      = 8.0;           // New York prime window start (NY hour, decimal)
-input double   InpNYPrimeEnd        = 9.5;           // New York prime window end (NY hour, decimal, 9.5 = 9:30)
+input double   InpLondonPrimeStart  = 1.0;           // London prime window start (NY hour, decimal)
+input double   InpLondonPrimeEnd    = 5.0;           // London prime window end (NY hour, decimal)
+input double   InpNYPrimeStart      = 7.0;           // New York prime window start (NY hour, decimal)
+input double   InpNYPrimeEnd        = 11.0;          // New York prime window end (NY hour, decimal)
 
 input group "=== Liquidity & setup ==="
 input int      InpSetupLookback    = 120;           // Bars scanned on setup TF
 input int      InpSweepMaxBars     = 8;             // Max bars between sweep and IFVG entry
 input double   InpSweepMinPips     = 1.0;           // Min penetration beyond liquidity (pips)
 input int      InpLiqSwingStrength = 2;             // Fractal strength for liquidity pools
-input int      InpMaxLiqPools      = 12;            // Max liquidity pools to track/draw each side
+input int      InpMaxLiqPools      = 16;            // Max liquidity pools to track/draw each side
 
 input group "=== FVG / IFVG ==="
 input double   InpMinFvgPips       = 1.0;           // Minimum FVG size (pips)
 input int      InpMicroFvgScan     = 40;            // Bars scanned on micro TF for trailing FVGs
 
 input group "=== Risk & management ==="
-input double   InpRiskPercent      = 0.75;          // Risk per trade (% of balance)
+input double   InpRiskPercent      = 1.0;           // Risk per trade (% of balance) - CalcLots() sizes adaptively off current balance + stop distance every trade
 input double   InpFixedLots        = 0.0;           // Fixed lots (0 = use risk %)
 input double   InpSlBufferPips     = 2.5;           // Stop buffer beyond sweep (pips)
-input double   InpMinRR            = 2.5;           // Minimum reward:risk to accept trade
+input double   InpMinRR            = 2.0;           // Minimum reward:risk to accept trade
 input double   InpTP1_RR            = 2.0;          // First partial at this reward:risk (0 = off)
 input double   InpFirstPartialPct   = 50.0;         // % of position closed at the 1:R first partial
 input double   InpPartialPercent   = 70.0;          // % of REMAINING closed at the -2.0 SD target
 input bool     InpMoveSlBehindFvg  = true;          // After TP1, SL -> behind nearest M1 FVG to TP
 input bool     InpTrailMicroFvg    = true;          // Trail runner behind M1 FVGs
 input int      InpMaxSpreadPips    = 4;             // Skip entries if spread wider than this
-input int      InpMaxTradesPerDay  = 2;             // Cap trades per day (one main London move, one main NY move)
+input int      InpMaxTradesPerDay  = 3;             // Cap trades per day (room for one London + one NY + a retry)
 input double   InpMaxStopPips       = 0.0;          // Reject if stop distance > this (0 = off)
 
 input group "=== ATR stop fallback ==="
@@ -120,8 +124,14 @@ input bool     InpUseDisplacement  = true;          // Require a strong displace
 input double   InpMinBodyPct        = 55.0;         // Min body/range % of the entry candle
 input double   InpDisplaceAtrMult   = 0.6;          // Min entry-candle body vs ATR
 input bool     InpUseOTE            = true;          // Premium/discount (only buy discount, sell premium)
+// NOTE: the -0.27 SD first partial (below) is the PRIMARY protective step and
+// typically sits ~9-10R from entry on a normal OTE setup (tight stop, far SD
+// target). This independent break-even is only a deep safety net for a trade
+// that stalls well short of that - keep InpBreakEvenAtR comfortably BELOW the
+// first-partial's typical R multiple, or it fires first on every trade and
+// clamps the runner to scratch before the real move even starts.
 input bool     InpUseBreakEven      = true;         // Move SL to break-even after InpBreakEvenAtR
-input double   InpBreakEvenAtR       = 1.0;         // Move to BE once price is this many R in profit
+input double   InpBreakEvenAtR       = 6.0;         // Move to BE once price is this many R in profit (deep safety net only)
 input double   InpBreakEvenBufferPips= 1.5;         // Buffer beyond entry for break-even
 input bool     InpCloseAtSessionEnd  = true;        // Close any open trade at NY session end
 input double   InpDailyMaxLossPct    = 3.0;         // Stop for the day after this % equity loss (0=off)
@@ -133,8 +143,12 @@ input bool     InpUseOTEModel      = true;          // Use dynamic OTE model (el
 input double   InpOTELow            = 0.62;         // OTE zone near edge (fib)
 input double   InpOTEHigh           = 0.79;         // OTE zone far edge (fib)
 // Entry trigger: 0 = OTE tap only, 1 = OTE + (displacement OR IFVG), 2 = OTE + IFVG required
-input int      InpConfirmMode        = 0;           // OTE confirmation mode (0 = tap IS the entry)
-input double   InpMinDisplaceLeg     = 1.0;         // Min displacement leg vs ATR to arm a setup
+// Continuation (BOS) is just a pullback re-entry into an already-established trend -
+// the tap itself is enough. Reversal (CHoC) is fighting the immediately-prior
+// momentum, so it needs real proof order flow shifted before entering.
+input int      InpConfirmModeBOS     = 0;           // Confirmation for continuation/BOS setups
+input int      InpConfirmModeCHoC    = 1;           // Confirmation for reversal/CHoC setups (needs solid proof)
+input double   InpMinDisplaceLeg     = 0.8;         // Min displacement leg vs ATR to arm a setup
 // Real swing/CHoC detection - the manipulation (1.0) and CHoC structure point are
 // genuine swing pivots, not an artificial fixed-bar sweep window. This is what lets
 // the EA see the same swings a trader draws fibs from, however many bars they span.
@@ -154,17 +168,17 @@ input group "=== Execution & stop precision ==="
 input int      InpEntryExec         = 0;            // 0 = market on tap (always filled), 1 = limit at OTE
 input double   InpOTEEntryFib        = 0.705;       // Fib level for the OTE limit (when InpEntryExec=1)
 // Stop: 0 = beyond 1.0 manip anchor (widest), 1 = beyond 0.79 OTE edge, 2 = M1 confirmation swing (tightest)
-input int      InpStopMode           = 1;           // Stop placement (1 = behind 0.79, room + small risk)
+input int      InpStopMode           = 0;           // Stop placement (0 = behind the real swing/manip anchor)
 input int      InpPendingExpiryBars  = 4;           // Cancel unfilled OTE limit after N setup bars
 input int      InpMicroSwingLB        = 25;         // M1 bars scanned for the confirmation swing
 input int      InpMicroSwingStr       = 2;          // M1 fractal strength for the stop swing
-input bool     InpMicroEntry          = false;      // Sniper: refine entry+stop to M1 FVG (for InpConfirmMode>=1)
+input bool     InpMicroEntry          = false;      // Sniper: refine entry+stop to M1 FVG (for confirm mode >= 1)
 input double   InpMicroPad            = 1.0;        // Extra pad (pips) around the OTE zone for the M1 FVG
 
 input group "=== Standard-deviation projections (Asian range) ==="
 input bool     InpUseSDProjection  = true;          // Project SD levels from the Asian range
 input string   InpSDMultiples      = "0.5,1.0,1.5,2.0,2.5,3.0"; // Range multiples to project
-input double   InpSDAlignPips       = 12.0;         // Snap SD level to liquidity within this (pips)
+input double   InpSDAlignPips       = 15.0;         // Snap SD level to liquidity within this (pips)
 // Target selection: 0=liquidity only, 1=SD projection, 2=confluence (SD aligned to liquidity)
 input int      InpTargetMode        = 2;            // TP mode (0 liq, 1 SD, 2 confluence)
 input bool     InpShowSDLevels      = true;         // Draw SD projection lines + Asia box
@@ -1454,14 +1468,16 @@ void TryEnterArmed()
    if(!g_setup.tapped && m[1].low <= zHi && m[1].high >= zLo) g_setup.tapped = true;
    if(!g_setup.tapped) return;
 
-   // confirmation on M1 (this is the M1 IFVG entry for the shallow-reject movers)
+   // confirmation on M1 (this is the M1 IFVG entry for the shallow-reject movers) -
+   // continuation (BOS) and reversal (CHoC) get their own confirmation bar
    double atrM1 = MicroAtrValue();
    bool disp = DispConfirmTF(m, dir, atrM1);
    bool ifvg = IFVGConfirms(m, dir);
+   int confMode = (g_setup.pattern == PATTERN_BOS) ? InpConfirmModeBOS : InpConfirmModeCHoC;
    bool confirmed;
-   if(InpConfirmMode <= 0)      confirmed = true;
-   else if(InpConfirmMode == 1) confirmed = (disp || ifvg);
-   else                         confirmed = ifvg;
+   if(confMode <= 0)      confirmed = true;
+   else if(confMode == 1) confirmed = (disp || ifvg);
+   else                   confirmed = ifvg;
    if(!confirmed) return;
 
    // Don't re-fight the same swing anchor that just failed (see AnchorRecentlyFailed)

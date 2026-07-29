@@ -28,16 +28,16 @@ InpTradeAsia=true
 ; --- High-probability entry windows (NY time, decimal hours) - kept ON: this is
 ; the core "high probability" timing, not a frequency throttle to loosen ---
 InpUsePrimeWindow=true
-InpLondonPrimeStart=2.0
-InpLondonPrimeEnd=4.0
-InpNYPrimeStart=8.0
-InpNYPrimeEnd=9.5
+InpLondonPrimeStart=1.0
+InpLondonPrimeEnd=5.0
+InpNYPrimeStart=7.0
+InpNYPrimeEnd=11.0
 ; --- Liquidity & setup (loosened: shorter/shallower sweep required) ---
 InpSetupLookback=120
 InpSweepMaxBars=14
 InpSweepMinPips=0.5
 InpLiqSwingStrength=2
-InpMaxLiqPools=12
+InpMaxLiqPools=16
 ; --- FVG / IFVG ---
 InpMinFvgPips=0.6
 InpMicroFvgScan=40
@@ -69,7 +69,7 @@ InpMinBodyPct=45.0
 InpDisplaceAtrMult=0.4
 InpUseOTE=true
 InpUseBreakEven=true
-InpBreakEvenAtR=1.0
+InpBreakEvenAtR=6.0
 InpBreakEvenBufferPips=1.5
 InpCloseAtSessionEnd=true
 InpDailyMaxLossPct=3.0
@@ -79,7 +79,8 @@ InpCooldownMin=15
 InpUseOTEModel=true
 InpOTELow=0.62
 InpOTEHigh=0.79
-InpConfirmMode=0
+InpConfirmModeBOS=0
+InpConfirmModeCHoC=1
 InpMinDisplaceLeg=0.5
 InpChocSwingStrength=2
 InpChocLookback=300
@@ -94,7 +95,7 @@ InpRunnerSD=3.0
 ; --- Execution & stop precision ---
 InpEntryExec=0
 InpOTEEntryFib=0.705
-InpStopMode=1
+InpStopMode=0
 InpPendingExpiryBars=4
 InpMicroSwingLB=25
 InpMicroSwingStr=2

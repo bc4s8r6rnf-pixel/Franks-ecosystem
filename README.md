@@ -9,8 +9,8 @@ institutions (and this EA) see continuation. That mirror is the edge.
 > File: `Experts/InstitutionalBlxckMirror.mq5`
 
 **The EA's default inputs are pre-tuned for GBPUSD M15 — compile and attach with no
-`.set` file needed.** Target is 1–2 quality trades/day (`InpMaxTradesPerDay=2`): one
-main move in the London prime window, one in the New York prime window. EURUSD users
+`.set` file needed.** Targets one main move in the London session, one in the New
+York session (`InpMaxTradesPerDay=3` gives room for both plus a retry). EURUSD users
 should load `presets/EURUSD.set` (its filters are tuned tighter for EUR/USD's smaller
 average range).
 
@@ -46,16 +46,57 @@ that came out of them:
 - **`InpChocLookback` raised 100 → 300** — several of the example swings sent for
   review spanned multi-day structure well beyond the old 100-bar cap.
 
+### Round 2: the break-even math was choking every runner
+
+A second pass through the entry/exit data found the biggest remaining issue - not a
+bug this time, a math mismatch between two independent stop-management rules:
+
+- **The real problem:** the OTE entry sits ~fib 0.7 with a tight stop just behind the
+  swing; the structural first-partial target (−0.27 SD) sits on the *far* side of the
+  same swing — typically **~9-10R away**. But `InpUseBreakEven` was independently
+  moving the stop to break-even at just **1R**, completely decoupled from the swing's
+  actual scale. Since 1R arrives almost immediately, *every* trade got clamped to
+  scratch long before the real move even started, then a completely normal pullback
+  on the way to the 9R target tapped that break-even stop and killed it. This is very
+  likely the single biggest reason big moves weren't being ridden.
+  **Fixed:** `InpBreakEvenAtR` raised `1.0 → 6.0` — now a deep safety net for a trade
+  that stalls, not something that fires before the real structural partial ever gets a
+  chance.
+- **Stop moved to the real swing, not a fib edge.** `InpStopMode` default `1 → 0`:
+  stop now sits behind the actual manipulation/swing anchor (real structure) instead
+  of the arbitrary 0.79 OTE edge.
+- **Continuation and reversal now get their own confirmation bar.** `InpConfirmMode`
+  split into `InpConfirmModeBOS` (default 0 — a pullback tap is enough, you're just
+  rejoining an already-established trend) and `InpConfirmModeCHoC` (default 1 — a
+  reversal is fighting the immediately-prior momentum, so it needs real proof order
+  flow shifted before entering).
+- **Prime windows widened to the full session.** Now that a tap can only ever fire
+  fresh (the round-1 fix above), narrow sub-windows are no longer needed to prevent
+  stale fires — London `1:00–5:00`, NY `7:00–11:00` NY time (full killzone). Big moves
+  that react outside the old narrow 2–4am / 8–9:30am slice are no longer missed.
+  `InpUsePrimeWindow` is still there if you want to narrow it back down.
+- **Bias mode `0 → 1` (majority):** no longer requires all three signals (H4 BOS +
+  D1 + EMA) to agree — real trend moves often start before every signal has caught up.
+- Secondary loosening for more real catches without opening the door to noise:
+  `InpMinRR 2.5→2.0`, `InpMinDisplaceLeg 1.0→0.8`, `InpMaxLiqPools 12→16`,
+  `InpSDAlignPips 12→15` (GBPUSD), `InpMaxTradesPerDay 2→3`.
+- **`InpRiskPercent 0.75% → 1.0%`** — `CalcLots()` already sizes adaptively off the
+  current balance and computed stop distance every trade; this just raises the target
+  risk per trade.
+
 ---
 
 ## The playbook (start to finish)
 
-1. **Bias** — H4 Break of Structure aligned with D1 **and** EMA 50/200 order-flow agree. No confluence → no trade.
-2. **Liquidity map** — mark prior-session highs/lows + swing pools (manipulation targets *and* profit targets).
-3. **Setup** — in the killzone, wait for a **sweep of the previous session's liquidity against bias** (the stop-run). Sweep extreme = fib **1.0**; the displacement leg extreme = fib **0.0** (dynamic).
-4. **Entry** — price retraces into **OTE 0.62–0.79**, confirmed by a displacement candle or inversion FVG. A **limit rests at 0.705** (market fallback if price runs), stop just beyond the **M1 confirmation swing**.
-5. **Risk** — fixed 0.5–0.75% sized to the tight stop; skip on low RR, wide spread, news, daily-loss, or cooldown.
-6. **Manage** — first partial at **1:2 → break-even**, then **−2.0 SD** partial, runner trailed to **−3.0 SD** behind M1 FVGs. Flat by session end.
+1. **Bias** — H4 Break of Structure, D1, and EMA 50/200 order-flow vote (majority by default, `InpBiasMode`). No agreement → no trade.
+2. **Liquidity map** — mark prior-session/prior-day highs+lows and swing pools (targets, weighted by how many times each was touched).
+3. **Setup — either of two real patterns, whichever's most recent:**
+   - **Continuation (BOS):** trend already established, a clean close breaks the last same-direction swing point, retrace to the OTE of that leg.
+   - **Reversal (CHoC):** a swing pivot gets swept (manipulation), then price closes through the *opposing* structural point (change of character), retrace to the OTE of the new leg.
+   Fib **1.0** = the real swing anchor either way; fib **0.0** = the dynamic running extreme.
+4. **Entry** — price retraces into **OTE 0.62–0.79**. Continuation just needs the tap (`InpConfirmModeBOS=0`); reversal needs real confirmation — a displacement candle or inversion FVG (`InpConfirmModeCHoC=1`), since it's fighting recent momentum. Market-on-tap by default (never misses a shallow tap-and-reject); stop sits behind the **real swing/manipulation anchor**, not an arbitrary fib edge.
+5. **Risk** — 1% sized adaptively to the stop distance every trade; skip on low RR, wide spread, news, daily-loss, cooldown, or a swing that just failed nearby (anchor cooldown).
+6. **Manage** — first partial at **−0.27 SD** → stop tightens to just behind the candle that broke it (better than flat break-even); remainder rides toward the liquidity/SD-confluence target. Independent break-even is a deep safety net only (`InpBreakEvenAtR=6`), not a runner-choking 1R clamp. Flat by session end.
 7. **Guards** — max trades/day, daily max-loss, post-loss cooldown, optional daily target.
 
 ---
@@ -210,19 +251,23 @@ The EA maps engineered liquidity and weights it:
    the `0` anchor (and therefore the whole **OTE 0.62–0.79 zone**) slides with it. The
    setup stays "armed, awaiting retracement".
 3. **Entry** when price finally retraces into the **OTE 0.62–0.79 zone**, with a
-   **confirmation trigger** (`InpConfirmMode`): a displacement candle back in trend
-   and/or an **inversion FVG**. If a pullback doesn't reach OTE and price makes a new
-   extreme, the zone re-anchors and waits again — **unless price leaves the killzone**,
+   **confirmation trigger** — `InpConfirmModeBOS` for continuation, `InpConfirmModeCHoC`
+   for reversal (see below): a displacement candle back in trend and/or an
+   **inversion FVG**. If a pullback doesn't reach OTE and price makes a new extreme
+   (pre-tap), the zone re-anchors and waits again — **unless price leaves the killzone**,
    in which case the setup is abandoned. A close beyond the `1.0` anchor invalidates it.
 
 > **Legacy mode:** set `InpUseOTEModel = false` to use the simpler one-shot
 > sweep→IFVG entry instead. The OTE model is the recommended default.
 
-**Why OTE + light confirmation (not OTE alone, not strict IFVG):** OTE is the
-*location* (discount/premium after a liquidity grab — what institutions fill into);
-the confirmation is the *proof order flow shifted* there. Requiring a strict IFVG on
-top misses clean V-reversals; pure OTE taps eat fakeouts. `InpConfirmMode = 1`
-(OTE + displacement **or** IFVG) is the balance — backtest 0/1/2 on your data.
+**Why continuation and reversal need different confirmation:** OTE is the *location*
+(discount/premium after a liquidity grab); confirmation is the *proof order flow
+shifted* there. A **continuation (BOS)** trade is just rejoining a trend that's
+already established — the tap alone is enough (`InpConfirmModeBOS = 0`). A
+**reversal (CHoC)** trade fights the immediately-prior momentum, so it needs real
+proof before entering (`InpConfirmModeCHoC = 1`, OTE + displacement **or** IFVG).
+Requiring strict IFVG on either misses clean V-reversals; pure taps on CHoC eat
+fakeouts — that's why the two are split rather than sharing one dial.
 
 ### 4. Targets & trade management
 - **Take profit = opposing liquidity, snapped to a standard-deviation projection.**
@@ -333,25 +378,27 @@ Default session windows (already set, in **NY time**):
 |-------|---------|---------|
 | `InpUseOTEModel` | true | Use the dynamic OTE model (false = legacy sweep→IFVG entry) |
 | `InpOTELow` / `InpOTEHigh` | 0.62 / 0.79 | OTE retracement zone (fib) |
-| `InpConfirmMode` | 1 | 0 = OTE tap, 1 = OTE + (displacement **or** IFVG), 2 = OTE + IFVG required |
-| `InpMinDisplaceLeg` | 1.0 | Min displacement leg (× ATR) needed to arm a setup |
-| `InpTP1_SD` | 2.0 | Main SD target — partial banked here |
-| `InpRunnerSD` | 3.0 | Runner target SD level (stop trails behind M1 FVGs toward it) |
+| `InpConfirmModeBOS` | 0 | Continuation confirmation: 0 = tap is the entry, 1 = + (displacement **or** IFVG), 2 = + IFVG required |
+| `InpConfirmModeCHoC` | 1 | Reversal confirmation (same scale, defaults stricter — fighting prior momentum) |
+| `InpMinDisplaceLeg` | 0.8 | Min displacement leg (× ATR) needed to arm a setup |
+| `InpTP1_SD` | 2.0 | Fallback final SD if no confluence candidate scores |
+| `InpRunnerSD` | 3.0 | (reserved) legacy runner SD level |
 
-> TP levels are projected from the **manipulation leg** (fib `-2.0`, `-3.0`), exactly
-> like the SD tool in your charts. The live OTE zone + entry/target ladder are drawn on
-> the chart while a setup is armed.
+> Targets are projected from the **manipulation leg** and picked by liquidity/SD
+> confluence (see Target selection below), exactly like the SD tool in your charts.
+> The live OTE zone + entry/target ladder are drawn on the chart while a setup is armed.
 
 ### Execution & stop precision (the "best execution" layer)
 | Input | Default | Meaning |
 |-------|---------|---------|
-| `InpEntryExec` | 1 | 0 = market on confirmation (never miss), 1 = **limit at OTE** with automatic market fallback |
-| `InpOTEEntryFib` | 0.705 | Fib level the limit rests at (the sweet spot) |
-| `InpStopMode` | 2 | 0 = beyond 1.0 anchor, 1 = beyond 0.79 edge, **2 = behind the M1 confirmation swing (tightest sane)** |
+| `InpEntryExec` | 0 | 0 = **market on tap** (never miss a shallow tap-and-reject), 1 = limit at OTE with market fallback |
+| `InpOTEEntryFib` | 0.705 | Fib level the limit rests at (only used when `InpEntryExec = 1`) |
+| `InpStopMode` | 0 | **0 = behind the real swing/manipulation anchor** (real structure), 1 = beyond 0.79 edge, 2 = behind the M1 confirmation swing (tightest, but sensitive to a stale entry - see the 2.0 changelog) |
+| `InpMinStopPips` | 8.0 | Reject a setup if the computed stop is below this — guards against a degenerate/oversized position |
 | `InpPendingExpiryBars` | 4 | Cancel an unfilled OTE limit after N setup bars (also cancels when the killzone closes) |
 | `InpMicroSwingLB` / `InpMicroSwingStr` | 25 / 2 | M1 lookback / fractal strength for the stop swing |
-| `InpMicroEntry` | true | **Sniper:** refine entry+stop to the M1 FVG inside the OTE (tightest) |
-| `InpMicroPad` | 0.0 | Extra pad (pips) around the OTE zone when hunting the M1 FVG |
+| `InpMicroEntry` | false | **Sniper:** refine entry+stop to the M1 FVG inside the OTE (tightest; off by default given `InpStopMode=0`) |
+| `InpMicroPad` | 0.0 (EUR) / 1.0 (GBP) | Extra pad (pips) around the OTE zone when hunting the M1 FVG |
 
 **How the entry actually fires (tightest execution after confidence):** OTE tap →
 confirmation → the EA drops to **M1 and finds the FVG inside the OTE zone**. The limit
