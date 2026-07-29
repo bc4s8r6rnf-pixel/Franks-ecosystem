@@ -131,6 +131,57 @@ e.g. `BOSB-UUN` = continuation buy, EMA/H4-BOS/D1-BOS all reading up; `CHCS-DDN`
 reversal sell, EMA and H4 down, D1 neutral. Any future loss can be checked directly
 against its own comment for whether the sub-signals actually agreed.
 
+### Round 4: structure timeframe, and the over-trailing that was capping winners
+
+Profit factor was still barely above/below 1.0 after round 3. Two structural changes,
+both aimed directly at the actual complaint — *"I'd rather have break-evens and
+straight wins than small wins and big losses"*:
+
+- **Swings now mapped on M30, not M15** (`InpSetupTF: M15 → M30`). A calmer timeframe
+  filters out the minor internal wiggles that M15 was treating as tradable structure,
+  so the swing pivots FindBOS/FindCHoC key off are more significant to begin with —
+  fewer setups that fail immediately because the "swing" wasn't real. **Entry timing
+  is untouched**: the OTE tap, confirmation, and order placement still run on
+  `InpMicroTF` (M1) exactly as before — only where the fib legs come from changed.
+  `InpChocLookback` adjusted `300 → 150` to keep the same ~3-calendar-day scan window
+  (150 × M30 = 300 × M15 in minutes).
+- **`InpTrailMicroFvg` now off by default.** After the first partial, this was
+  re-tightening the stop behind the nearest **M1** FVG on every tick — M1 FVGs form
+  on completely normal noise, so this was very likely stopping runners out on an
+  ordinary retracement before they ever reached the real target, turning what should
+  have been full winners into small scratch-wins. With it off, the runner rides
+  cleanly from the tightened-at-partial stop to the official final target: either a
+  straight win (target hit) or a still-a-win exit (stopped at the partial-tightened
+  level) — never the "trailed into a loss on noise" outcome. Re-enable and re-test if
+  you want the tighter management back; the mechanism is untouched, only the default.
+
+### Getting a real optimization pass, not more manual guessing
+
+Single backtests get me *diagnosis*. To actually find optimal values (not just "better
+than the last guess") I need an **Optimization run**, which MT5's Strategy Tester does
+natively:
+
+1. Strategy Tester → **Settings** tab → tick **"Optimization"** (Slow/complete or the
+   genetic algorithm — genetic is fine for a first pass, complete is more thorough for
+   a small parameter set).
+2. **Inputs** tab → tick the checkbox next to each parameter you want swept, and set
+   Start/Step/Stop. Good first candidates from everything above:
+   `InpBreakEvenProgressPct` (20–60, step 5), `InpChocMinRangeATR` (1.0–2.5, step 0.25),
+   `InpMinRR` (2.0–3.5, step 0.25), `InpChocSwingStrength` (2–4, step 1),
+   `InpFirstTP_SD` (0.15–0.4, step 0.05).
+3. Set the optimization **criterion** — "Profit Factor" alone can pick a set with 3
+   trades that got lucky; **"Custom max"** or manually cross-checking trade count is
+   safer. If unsure, optimize on Balance and I'll re-rank by profit factor / drawdown
+   myself once I have the full table.
+4. Run it, then in the **Optimization Results** tab, right-click → **Save as Report**.
+   Send me that file (it's a full table of every parameter combination tried and its
+   result) — that's what lets me actually find optimal values from data instead of
+   iterating one guess at a time.
+
+Also still useful, same as before: a normal single-backtest report after any change,
+so I can see the individual trades (now self-tagged) behind whatever the summary
+numbers say.
+
 ---
 
 ## The playbook (start to finish)

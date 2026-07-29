@@ -2,10 +2,10 @@
 ; Load via Strategy Tester / EA Inputs tab -> Load.
 ; IMPORTANT: verify InpServerToNYOffset against YOUR broker's server clock first.
 InpMagic=20260728
-; --- Timeframes (enum ids: M1=1, M15=15, H4=16388, D1=16408) ---
+; --- Timeframes (enum ids: M1=1, M15=15, M30=30, H4=16388, D1=16408) ---
 InpBiasTF=16388
 InpHTFTrend=16408
-InpSetupTF=15
+InpSetupTF=30
 InpMicroTF=1
 ; --- Bias engine ---
 InpEmaFast=50
@@ -48,7 +48,7 @@ InpTP1_RR=2.0
 InpFirstPartialPct=50.0
 InpPartialPercent=70.0
 InpMoveSlBehindFvg=true
-InpTrailMicroFvg=true
+InpTrailMicroFvg=false
 InpMaxSpreadPips=2
 InpMaxTradesPerDay=3
 InpMaxStopPips=0.0
@@ -81,7 +81,7 @@ InpConfirmModeBOS=1
 InpConfirmModeCHoC=1
 InpMinDisplaceLeg=1.0
 InpChocSwingStrength=3
-InpChocLookback=300
+InpChocLookback=150
 InpChocMinRangeATR=1.5
 InpMinStopPips=8.0
 InpAnchorCooldownMin=240

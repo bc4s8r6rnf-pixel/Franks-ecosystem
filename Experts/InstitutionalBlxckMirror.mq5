@@ -41,7 +41,7 @@ input bool     InpOnePositionAtATime = true;       // Only one open position per
 input group "=== Timeframes ==="
 input ENUM_TIMEFRAMES InpBiasTF   = PERIOD_H4;      // HTF bias / market-structure TF
 input ENUM_TIMEFRAMES InpHTFTrend = PERIOD_D1;      // Higher trend confirmation TF
-input ENUM_TIMEFRAMES InpSetupTF  = PERIOD_M15;     // Setup / sweep / IFVG TF
+input ENUM_TIMEFRAMES InpSetupTF  = PERIOD_M30;     // Structure/swing TF, less noise = more significant swings (entry/tap still on InpMicroTF)
 input ENUM_TIMEFRAMES InpMicroTF  = PERIOD_M1;      // Micro TF for trailing FVGs
 
 input group "=== Bias engine ==="
@@ -103,7 +103,7 @@ input double   InpTP1_RR            = 2.0;          // First partial at this rew
 input double   InpFirstPartialPct   = 50.0;         // % of position closed at the 1:R first partial
 input double   InpPartialPercent   = 70.0;          // % of REMAINING closed at the -2.0 SD target
 input bool     InpMoveSlBehindFvg  = true;          // After TP1, SL -> behind nearest M1 FVG to TP
-input bool     InpTrailMicroFvg    = true;          // Trail runner behind M1 FVGs
+input bool     InpTrailMicroFvg    = false;         // Trail runner behind M1 FVGs (off by default - M1 FVGs form on normal noise and were stopping runners out before the real target; a straight win/break-even beats a small win)
 input int      InpMaxSpreadPips    = 4;             // Skip entries if spread wider than this
 input int      InpMaxTradesPerDay  = 3;             // Cap trades per day (room for one London + one NY + a retry)
 input double   InpMaxStopPips       = 0.0;          // Reject if stop distance > this (0 = off)
@@ -155,7 +155,7 @@ input double   InpMinDisplaceLeg     = 1.0;         // Min displacement leg vs A
 // genuine swing pivots, not an artificial fixed-bar sweep window. This is what lets
 // the EA see the same swings a trader draws fibs from, however many bars they span.
 input int      InpChocSwingStrength  = 3;           // Fractal strength for CHoC swings (bigger = fewer, more real)
-input int      InpChocLookback       = 300;         // Bars scanned on setup TF for the CHoC swing pair (covers multi-day swings)
+input int      InpChocLookback       = 150;         // Bars scanned on setup TF (150 x M30 = 300 x M15 - same ~3-day calendar coverage)
 input double   InpChocMinRangeATR    = 1.5;         // Min swing-high-to-swing-low range (x ATR) to count as real structure
 input double   InpMinStopPips        = 8.0;         // Reject if computed stop distance is below this (guards against oversized lots)
 input double   InpAnchorCooldownMin  = 240;          // Don't re-arm the same failed swing anchor for this many minutes
