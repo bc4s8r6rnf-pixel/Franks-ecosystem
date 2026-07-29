@@ -12,7 +12,7 @@ InpEmaFast=50
 InpEmaSlow=200
 InpStructLookback=60
 InpSwingStrength=2
-InpRequireEmaAndBOS=true
+InpBiasMode=0
 ; --- Sessions (NEW YORK time) ---
 InpServerToNYOffset=-7
 InpAsiaStart=19
@@ -23,6 +23,7 @@ InpNYStart=7
 InpNYEnd=11
 InpTradeLondon=true
 InpTradeNewYork=true
+InpTradeAsia=false
 ; --- Liquidity & setup ---
 InpSetupLookback=120
 InpSweepMaxBars=8
@@ -72,6 +73,9 @@ InpOTELow=0.62
 InpOTEHigh=0.79
 InpConfirmMode=0
 InpMinDisplaceLeg=1.0
+InpChocSwingStrength=3
+InpChocLookback=100
+InpChocMinRangeATR=1.5
 InpFirstTP_SD=0.27
 InpFinalSDs=2.0,2.5,3.0
 InpTP1_SD=2.0

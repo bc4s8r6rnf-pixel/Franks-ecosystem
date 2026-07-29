@@ -48,7 +48,9 @@ input int      InpEmaFast          = 50;            // Fast EMA (order-flow) on 
 input int      InpEmaSlow          = 200;           // Slow EMA (order-flow) on bias TF
 input int      InpStructLookback   = 60;            // Bars to scan for HTF market structure
 input int      InpSwingStrength    = 2;             // Fractal strength (bars each side)
-input bool     InpRequireEmaAndBOS = true;          // Require EMA + BOS to agree
+// Bias strictness: 0 = strict (EMA+BOS+D1 must all agree, fewest signals),
+// 1 = majority (2 of 3 agree), 2 = lean (any net agreement - most signals)
+input int      InpBiasMode          = 0;            // Bias mode (0 strict / 1 majority / 2 lean)
 
 input group "=== Sessions (defined in NEW YORK time, 24h) ==="
 // Session hours below are in NEW YORK time. The EA converts server->NY using
@@ -62,6 +64,7 @@ input int      InpNYStart          = 7;             // New York session start ho
 input int      InpNYEnd            = 11;            // New York session end hour (NY)
 input bool     InpTradeLondon      = true;          // Allow entries in London killzone
 input bool     InpTradeNewYork     = true;          // Allow entries in New York killzone
+input bool     InpTradeAsia        = false;         // Allow entries in Asia killzone (sweeps prior NY session)
 
 input group "=== Liquidity & setup ==="
 input int      InpSetupLookback    = 120;           // Bars scanned on setup TF
@@ -119,6 +122,12 @@ input double   InpOTEHigh           = 0.79;         // OTE zone far edge (fib)
 // Entry trigger: 0 = OTE tap only, 1 = OTE + (displacement OR IFVG), 2 = OTE + IFVG required
 input int      InpConfirmMode        = 0;           // OTE confirmation mode (0 = tap IS the entry)
 input double   InpMinDisplaceLeg     = 1.0;         // Min displacement leg vs ATR to arm a setup
+// Real swing/CHoC detection - the manipulation (1.0) and CHoC structure point are
+// genuine swing pivots, not an artificial fixed-bar sweep window. This is what lets
+// the EA see the same swings a trader draws fibs from, however many bars they span.
+input int      InpChocSwingStrength  = 3;           // Fractal strength for CHoC swings (bigger = fewer, more real)
+input int      InpChocLookback       = 100;         // Bars scanned on setup TF for the CHoC swing pair
+input double   InpChocMinRangeATR    = 1.5;         // Min swing-high-to-swing-low range (x ATR) to count as real structure
 input double   InpFirstTP_SD         = 0.27;        // First partial at this SD level (~1:2)
 input string   InpFinalSDs           = "2.0,2.5,3.0"; // Final-target SD candidates (confluence-picked)
 input double   InpTP1_SD             = 2.0;         // Fallback final SD if none has confluence
@@ -401,17 +410,25 @@ int InstitutionalBias()
    int bos  = StructureBias(InpBiasTF);
    int htf  = StructureBias(InpHTFTrend);
 
-   if(InpRequireEmaAndBOS)
+   int score = ema + bos + htf;
+
+   if(InpBiasMode <= 0)
    {
-      // EMA and BOS on bias TF must agree; HTF must not oppose
+      // Strict: EMA and BOS on bias TF must agree; HTF must not oppose
       if(ema == BIAS_BULL && bos == BIAS_BULL && htf != BIAS_BEAR) return BIAS_BULL;
       if(ema == BIAS_BEAR && bos == BIAS_BEAR && htf != BIAS_BULL) return BIAS_BEAR;
       return BIAS_NONE;
    }
-   // Softer: majority vote
-   int score = ema + bos + htf;
-   if(score >= 2)  return BIAS_BULL;
-   if(score <= -2) return BIAS_BEAR;
+   if(InpBiasMode == 1)
+   {
+      // Majority: 2 of 3 signals agree, third may be neutral but not opposing enough to flip
+      if(score >= 2)  return BIAS_BULL;
+      if(score <= -2) return BIAS_BEAR;
+      return BIAS_NONE;
+   }
+   // Lean (mode 2): any net agreement counts - loosest, most frequent
+   if(score > 0) return BIAS_BULL;
+   if(score < 0) return BIAS_BEAR;
    return BIAS_NONE;
 }
 
@@ -606,6 +623,7 @@ bool InKillzone()
    int h = CurrentNYHour();
    if(InpTradeLondon  && InSessionNY(h, InpLondonStart, InpLondonEnd)) return true;
    if(InpTradeNewYork && InSessionNY(h, InpNYStart,     InpNYEnd))     return true;
+   if(InpTradeAsia    && InSessionNY(h, InpAsiaStart,   InpAsiaEnd))   return true;
    return false;
 }
 
@@ -755,6 +773,98 @@ bool NearestMicroFvg(int dir, double refPrice, FVG &out)
 // the trend, then closes back inside. Returns the sweep candle series index.
 //   Bullish bias -> sweep of SELL-side (previous session low) then close back up.
 //   Bearish bias -> sweep of BUY-side (previous session high) then close back down.
+// ---- Real swing/CHoC detection (replaces the fixed-bar-window sweep guess) ----
+// Finds the most recent GENUINE change-of-character: a confirmed swing pivot that
+// gets manipulated (wicked through) followed by a close through the opposing
+// structural swing point. The leg can span any number of bars - it is anchored to
+// real price structure, not an arbitrary lookback window.
+//   dir = BIAS_BEAR: H = last confirmed swing high (the liquidity), L = the swing
+//                    low preceding it (the higher-low structure CHoC must break).
+//   dir = BIAS_BULL: mirrored (L = swept low, H = swing high structure to break).
+// manipAnchor (fib 1.0) = the true extreme reached while sweeping H/L (a wick can,
+// and usually does, exceed the old fractal price itself).
+// extreme (fib 0.0) = the running extreme of the impulsive CHoC leg so far - this
+// keeps being trailed bar-by-bar by the existing dynamic OTE logic until tapped.
+bool FindCHoC(const MqlRates &r[], int dir, double &manipAnchor, double &extreme, int &sweepIdx)
+{
+   int n = ArraySize(r);
+   int strength = InpChocSwingStrength;
+   int bound = MathMin(InpChocLookback, n - strength);
+   if(bound <= strength + 2) return false;
+   double atr = AtrValue();
+
+   if(dir == BIAS_BEAR)
+   {
+      for(int iH = strength; iH < bound; iH++)
+      {
+         if(!IsSwingHigh(r, iH, strength)) continue;
+
+         int iL = -1;
+         for(int j = iH + 1; j < bound; j++)
+            if(IsSwingLow(r, j, strength)) { iL = j; break; }
+         if(iL < 0) continue;
+
+         double Hh = r[iH].high, Ll = r[iL].low;
+         if(atr > 0.0 && (Hh - Ll) < InpChocMinRangeATR * atr) continue; // too small - noise, not real structure
+
+         // manipulation: does a later (more recent) bar wick beyond H?
+         int sIdx = -1; double manipExt = Hh;
+         for(int k = iH - 1; k >= 1; k--)
+            if(r[k].high > manipExt) { manipExt = r[k].high; sIdx = k; }
+         if(sIdx < 0) continue; // H hasn't been swept yet
+
+         // CHoC confirmation: a close beyond L after the sweep
+         bool choc = false;
+         for(int m = sIdx - 1; m >= 0; m--)
+            if(r[m].close < Ll) { choc = true; break; }
+         if(!choc) continue;
+
+         double lo = DBL_MAX;
+         for(int p = sIdx; p >= 1; p--) lo = MathMin(lo, r[p].low);
+
+         manipAnchor = manipExt;
+         extreme     = lo;
+         sweepIdx    = sIdx;
+         return true;
+      }
+      return false;
+   }
+   else // BIAS_BULL (mirrored)
+   {
+      for(int iL = strength; iL < bound; iL++)
+      {
+         if(!IsSwingLow(r, iL, strength)) continue;
+
+         int iH = -1;
+         for(int j = iL + 1; j < bound; j++)
+            if(IsSwingHigh(r, j, strength)) { iH = j; break; }
+         if(iH < 0) continue;
+
+         double Ll = r[iL].low, Hh = r[iH].high;
+         if(atr > 0.0 && (Hh - Ll) < InpChocMinRangeATR * atr) continue;
+
+         int sIdx = -1; double manipExt = Ll;
+         for(int k = iL - 1; k >= 1; k--)
+            if(r[k].low < manipExt) { manipExt = r[k].low; sIdx = k; }
+         if(sIdx < 0) continue;
+
+         bool choc = false;
+         for(int m = sIdx - 1; m >= 0; m--)
+            if(r[m].close > Hh) { choc = true; break; }
+         if(!choc) continue;
+
+         double hi = -DBL_MAX;
+         for(int p = sIdx; p >= 1; p--) hi = MathMax(hi, r[p].high);
+
+         manipAnchor = manipExt;
+         extreme     = hi;
+         sweepIdx    = sIdx;
+         return true;
+      }
+      return false;
+   }
+}
+
 bool DetectLiquiditySweep(const MqlRates &r[], int bias, double &liqLevel, int &sweepIdx)
 {
    sweepIdx = -1;
@@ -767,12 +877,29 @@ bool DetectLiquiditySweep(const MqlRates &r[], int bias, double &liqLevel, int &
    bool haveLondon = PreviousSessionRange(InpLondonStart, InpLondonEnd, lonH, lonL);
 
    int h = CurrentNYHour();
-   bool inNY = InSessionNY(h, InpNYStart, InpNYEnd);
+   bool inNY     = InSessionNY(h, InpNYStart,     InpNYEnd);
+   bool inLondon = InSessionNY(h, InpLondonStart, InpLondonEnd);
+   bool inAsia   = InSessionNY(h, InpAsiaStart,   InpAsiaEnd);
+
    double targetHigh, targetLow;
-   if(inNY && haveLondon)  { targetHigh = lonH; targetLow = lonL; }   // NY killzone -> sweep London
-   else if(haveAsia)       { targetHigh = sessH; targetLow = sessL; } // London killzone -> sweep Asia
-   else if(haveLondon)     { targetHigh = lonH; targetLow = lonL; }
-   else return false;
+   bool haveTarget = false;
+
+   if(inNY && haveLondon)          { targetHigh = lonH;  targetLow = lonL;  haveTarget = true; } // NY -> sweep London
+   else if(inLondon && haveAsia)   { targetHigh = sessH; targetLow = sessL; haveTarget = true; } // London -> sweep Asia
+   else if(inAsia)
+   {
+      double nyH, nyL;
+      if(PreviousSessionRange(InpNYStart, InpNYEnd, nyH, nyL))         // Asia -> sweep prior NY session
+      { targetHigh = nyH; targetLow = nyL; haveTarget = true; }
+   }
+
+   if(!haveTarget)
+   {
+      // fallback: whichever prior session range is available
+      if(haveLondon)     { targetHigh = lonH;  targetLow = lonL;  }
+      else if(haveAsia)  { targetHigh = sessH; targetLow = sessL; }
+      else return false;
+   }
 
    int scan = MathMin(InpSweepMaxBars + 3, ArraySize(r) - 1);
 
@@ -1040,7 +1167,7 @@ void EvaluateOTESetup()
    if(HasOpenPosition()) { ResetSetup(); return; }
    if(g_pendingTicket != 0) return;   // an OTE limit is already resting
 
-   int n = InpSetupLookback + 5;
+   int n = MathMax(InpSetupLookback, InpChocLookback) + InpChocSwingStrength * 2 + 10;
    MqlRates r[];
    ArraySetAsSeries(r, true);
    if(CopyRates(_Symbol, InpSetupTF, 0, n, r) < n) return;
@@ -1056,16 +1183,12 @@ void EvaluateOTESetup()
       int bias = InstitutionalBias();
       if(bias == BIAS_NONE) return;
 
-      double liq; int sweepIdx;
-      if(!DetectLiquiditySweep(r, bias, liq, sweepIdx)) return;
+      // Real swing/CHoC detection: manip + extreme are genuine structural pivots,
+      // not an artificial fixed-bar sweep window - so legs of any length (like a
+      // multi-hour sweep-then-CHoC) are recognised, not just short ones.
+      double manip, ext; int sweepIdx;
+      if(!FindCHoC(r, bias, manip, ext, sweepIdx)) return;
 
-      double manip = (bias == BIAS_BULL) ? r[sweepIdx].low : r[sweepIdx].high;
-      double ext   = manip;
-      for(int i = 1; i <= sweepIdx; i++)
-      {
-         if(bias == BIAS_BULL) ext = MathMax(ext, r[i].high);
-         else                  ext = MathMin(ext, r[i].low);
-      }
       double atr = AtrValue();
       if(atr > 0.0 && MathAbs(ext - manip) < InpMinDisplaceLeg * atr) return; // no real displacement
 

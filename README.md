@@ -22,6 +22,53 @@ institutions (and this EA) see continuation. That mirror is the edge.
 
 ---
 
+## Real swing / CHoC detection (critical fix)
+
+Earlier builds derived the manipulation leg (fib 1.0→0.0) from a fixed, narrow bar
+window tied to session boundaries — it could miss a real setup if the swing simply
+spanned more bars than that window, or wasn't anchored to a labelled session. That's
+now replaced with **genuine swing-pivot detection**:
+
+- Finds the last confirmed **swing high/low pair** on the setup TF (real fractals,
+  filtered by `InpChocMinRangeATR` so tiny noise swings don't count).
+- **Manipulation (fib 1.0)** = the true wick extreme that sweeps the swing pivot.
+- **Change of Character (fib 0.0)** = confirmed only once price **closes** through
+  the opposing structural swing point — and then trails as the impulsive leg extends.
+- The leg can span **any number of bars** — a few, or fifty — because it's anchored
+  to real structure, not an artificial window. This is what lets the EA see the same
+  swing a trader would draw a fib on.
+
+Tune via `InpChocSwingStrength` (fractal strength — higher = fewer, more significant
+swings), `InpChocLookback` (bars scanned), and `InpChocMinRangeATR` (minimum swing
+size to count as real structure, filters noise).
+
+---
+
+## Trade frequency — from ~27/yr toward daily
+
+If backtests show very few trades, the **bias gate is almost always the bottleneck** —
+requiring H4 BOS + D1 + EMA to *all* agree is a strict 3-way AND that can leave the EA
+with "no bias" most days. Loosen the funnel in this order:
+
+1. **`InpBiasMode`** (biggest lever): `0` = strict (all 3 agree), `1` = **majority**
+   (2 of 3), `2` = **lean** (any net agreement — loosest). Start with `1`.
+2. **`InpTradeAsia = true`** — adds a third tradeable killzone (Asia sweeps the prior
+   NY session), plus widening the London/NY windows by an hour each.
+3. **`InpChocSwingStrength`** lower (e.g. 2) and **`InpChocMinRangeATR`** lower
+   (e.g. 1.0) — recognises smaller, more frequent CHoC structures.
+4. **`InpSweepMinPips`** down, **`InpSweepMaxBars`** up — easier/longer sweep window.
+5. **`InpMinDisplaceLeg`** down (e.g. 0.5) — accepts smaller displacement legs.
+6. **`InpMinRR`** down (e.g. 1.3–1.5) — fewer setups rejected on reward:risk.
+7. **`InpMaxTradesPerDay`** up (e.g. 6) — only matters once the above raise frequency.
+
+`presets/EURUSD_HighFrequency.set` and `presets/GBPUSD_HighFrequency.set` apply all of
+this at once (with risk trimmed to 0.5% to offset the higher trade count). **Every
+loosened gate trades some quality for frequency** — A/B them against the original
+presets in the tester and check profit factor / drawdown, not just trade count, before
+choosing one to run live.
+
+---
+
 ## The strategy structure (my recommended institutional model)
 
 You asked me to pick the structure that gives the highest probability, biggest
