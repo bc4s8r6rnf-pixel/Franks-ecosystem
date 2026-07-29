@@ -25,6 +25,13 @@ InpNYEnd=12
 InpTradeLondon=true
 InpTradeNewYork=true
 InpTradeAsia=true
+; --- High-probability entry windows (NY time, decimal hours) - kept ON: this is
+; the core "high probability" timing, not a frequency throttle to loosen ---
+InpUsePrimeWindow=true
+InpLondonPrimeStart=2.0
+InpLondonPrimeEnd=4.0
+InpNYPrimeStart=8.0
+InpNYPrimeEnd=9.5
 ; --- Liquidity & setup (loosened: shorter/shallower sweep required) ---
 InpSetupLookback=120
 InpSweepMaxBars=14

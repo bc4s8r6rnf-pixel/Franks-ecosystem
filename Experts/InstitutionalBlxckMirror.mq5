@@ -66,6 +66,18 @@ input bool     InpTradeLondon      = true;          // Allow entries in London k
 input bool     InpTradeNewYork     = true;          // Allow entries in New York killzone
 input bool     InpTradeAsia        = false;         // Allow entries in Asia killzone (sweeps prior NY session)
 
+input group "=== High-probability entry windows (NY time, decimal hours) ==="
+// The swing/OTE can arm and track any time within the broader killzone above -
+// but the actual OTE tap that fires an entry statistically clusters in a much
+// tighter window each session. This restricts ENTRY (not arming/tracking) to
+// those windows so noise trades outside them are cut out. Asia has no defined
+// prime window and is unrestricted whenever InpTradeAsia is on.
+input bool     InpUsePrimeWindow    = true;          // Only fire entries inside the prime sub-window
+input double   InpLondonPrimeStart  = 2.0;           // London prime window start (NY hour, decimal)
+input double   InpLondonPrimeEnd    = 4.0;           // London prime window end (NY hour, decimal)
+input double   InpNYPrimeStart      = 8.0;           // New York prime window start (NY hour, decimal)
+input double   InpNYPrimeEnd        = 9.5;           // New York prime window end (NY hour, decimal, 9.5 = 9:30)
+
 input group "=== Liquidity & setup ==="
 input int      InpSetupLookback    = 120;           // Bars scanned on setup TF
 input int      InpSweepMaxBars     = 8;             // Max bars between sweep and IFVG entry
@@ -237,6 +249,7 @@ struct SetupState
    double   manipAnchor;  // fib 1.0 = end of manipulation / start of displacement
    double   extreme;      // fib 0.0 = running displacement extreme (dynamic)
    datetime armedTime;
+   int      pattern;      // 0 = BOS continuation, 1 = CHoC reversal
 };
 SetupState g_setup;
 double   g_runnerTP = 0.0;   // final runner target (SD projection)
@@ -245,6 +258,8 @@ double   g_finalSDs[];       // parsed final-target SD candidates
 int      hAtrMicro  = INVALID_HANDLE;
 datetime g_lastMicroBar = 0;
 double   g_pdHigh = 0.0, g_pdLow = 0.0;   // previous day high/low (DOL)
+
+enum SWING_PATTERN { PATTERN_BOS = 0, PATTERN_CHOC = 1 };
 
 // Pending (limit) order tracking for OTE execution
 ulong    g_pendingTicket = 0;
@@ -627,6 +642,43 @@ bool InKillzone()
    return false;
 }
 
+// Current NY time as a decimal hour (e.g. 9:30 -> 9.5) for prime-window checks.
+double NYDecimalHourNow()
+{
+   MqlDateTime dt;
+   TimeToStruct(TimeCurrent(), dt);
+   int totalMin = (dt.hour + InpServerToNYOffset) * 60 + dt.min;
+   totalMin = ((totalMin % 1440) + 1440) % 1440;
+   return totalMin / 60.0;
+}
+
+bool InRangeDec(double h, double startH, double endH)
+{
+   if(startH == endH) return false;
+   if(startH < endH) return (h >= startH && h < endH);
+   return (h >= startH || h < endH); // wraps midnight
+}
+
+// Restricts ENTRY (not arming/tracking) to the tight sub-window each session's
+// OTE tap statistically clusters in. Setups can still arm and trail any time
+// within the broader killzone; this only gates whether we're allowed to fire.
+bool InPrimeWindow()
+{
+   if(!InpUsePrimeWindow) return true;
+   int h = CurrentNYHour();
+
+   if(InpTradeAsia && InSessionNY(h, InpAsiaStart, InpAsiaEnd))
+      return true; // no prime sub-window defined for Asia - unrestricted
+
+   double hd = NYDecimalHourNow();
+   if(InpTradeLondon && InSessionNY(h, InpLondonStart, InpLondonEnd))
+      return InRangeDec(hd, InpLondonPrimeStart, InpLondonPrimeEnd);
+   if(InpTradeNewYork && InSessionNY(h, InpNYStart, InpNYEnd))
+      return InRangeDec(hd, InpNYPrimeStart, InpNYPrimeEnd);
+
+   return true; // shouldn't be reached - InKillzone() already gates this
+}
+
 // Range of the most recent COMPLETED occurrence of a session (previous session),
 // evaluated in NY time. Walks back to the first in-session block and captures it.
 bool PreviousSessionRange(int startH, int endH, double &hi, double &lo)
@@ -863,6 +915,98 @@ bool FindCHoC(const MqlRates &r[], int dir, double &manipAnchor, double &extreme
       }
       return false;
    }
+}
+
+// ---- Continuation pattern: clean Break Of Structure, no manipulation needed ----
+// dir = BIAS_BULL: H = last confirmed swing high; a later bar CLOSES beyond it
+// (BOS - the trend simply extends). anchor (fib 1.0) = the swing LOW that started
+// that impulsive leg (the base); extreme (fib 0.0) = the new high made since the
+// break, trailing further exactly like the CHoC case. Mirrored for BIAS_BEAR.
+bool FindBOS(const MqlRates &r[], int dir, double &anchor, double &extreme, int &breakIdx)
+{
+   int n = ArraySize(r);
+   int strength = InpChocSwingStrength;
+   int bound = MathMin(InpChocLookback, n - strength);
+   if(bound <= strength + 2) return false;
+   double atr = AtrValue();
+
+   if(dir == BIAS_BULL)
+   {
+      for(int iH = strength; iH < bound; iH++)
+      {
+         if(!IsSwingHigh(r, iH, strength)) continue;
+
+         int iL = -1;
+         for(int j = iH + 1; j < bound; j++)
+            if(IsSwingLow(r, j, strength)) { iL = j; break; }
+         if(iL < 0) continue;
+
+         double Hh = r[iH].high, Ll = r[iL].low;
+         if(atr > 0.0 && (Hh - Ll) < InpChocMinRangeATR * atr) continue;
+
+         // BOS: the most recent bar whose CLOSE broke above H (clean continuation)
+         int bIdx = -1;
+         for(int k = iH - 1; k >= 1; k--)
+            if(r[k].close > Hh) bIdx = k;
+         if(bIdx < 0) continue;
+
+         double hi = -DBL_MAX;
+         for(int p = bIdx; p >= 1; p--) hi = MathMax(hi, r[p].high);
+
+         anchor   = Ll;
+         extreme  = hi;
+         breakIdx = bIdx;
+         return true;
+      }
+      return false;
+   }
+   else // BIAS_BEAR (mirrored)
+   {
+      for(int iL = strength; iL < bound; iL++)
+      {
+         if(!IsSwingLow(r, iL, strength)) continue;
+
+         int iH = -1;
+         for(int j = iL + 1; j < bound; j++)
+            if(IsSwingHigh(r, j, strength)) { iH = j; break; }
+         if(iH < 0) continue;
+
+         double Ll = r[iL].low, Hh = r[iH].high;
+         if(atr > 0.0 && (Hh - Ll) < InpChocMinRangeATR * atr) continue;
+
+         int bIdx = -1;
+         for(int k = iL - 1; k >= 1; k--)
+            if(r[k].close < Ll) bIdx = k;
+         if(bIdx < 0) continue;
+
+         double lo = DBL_MAX;
+         for(int p = bIdx; p >= 1; p--) lo = MathMin(lo, r[p].low);
+
+         anchor   = Hh;
+         extreme  = lo;
+         breakIdx = bIdx;
+         return true;
+      }
+      return false;
+   }
+}
+
+// Map the market generically: try both patterns and take whichever's triggering
+// event (break/sweep) is most recent - "whichever is the most obvious major
+// swing point," not a pattern-type preference.
+bool FindSwingLeg(const MqlRates &r[], int dir, double &anchor, double &extreme, int &evIdx, int &pattern)
+{
+   double aB = 0, eB = 0; int iB = -1;
+   double aC = 0, eC = 0; int iC = -1;
+   bool hasBos  = FindBOS(r, dir, aB, eB, iB);
+   bool hasChoc = FindCHoC(r, dir, aC, eC, iC);
+
+   if(!hasBos && !hasChoc) return false;
+   if(hasBos && (!hasChoc || iB <= iC))
+   { anchor = aB; extreme = eB; evIdx = iB; pattern = PATTERN_BOS; return true; }
+
+   anchor = aC; extreme = eC; evIdx = iC; pattern = PATTERN_CHOC;
+   return true;
 }
 
 bool DetectLiquiditySweep(const MqlRates &r[], int bias, double &liqLevel, int &sweepIdx)
@@ -1140,19 +1284,45 @@ bool KeyLevelNear(int dir, double price, double tol)
    return false;
 }
 
-// Choose the final target: the SD candidate with the strongest confluence.
-// Score stacks: base + Asia-range SD alignment + key liquidity (DOL/session) alignment.
+// Weight of the liquidity pool nearest this price (its touches count - equal
+// highs/lows and DOL score higher). 0 if nothing matches within tolerance.
+int PoolWeight(int dir, double price, double tol)
+{
+   int w = 0;
+   if(dir > 0)
+   {
+      for(int i = 0; i < ArraySize(g_buySide); i++)
+         if(g_buySide[i].valid && MathAbs(g_buySide[i].price - price) <= tol)
+            w = MathMax(w, g_buySide[i].touches);
+   }
+   else
+   {
+      for(int i = 0; i < ArraySize(g_sellSide); i++)
+         if(g_sellSide[i].valid && MathAbs(g_sellSide[i].price - price) <= tol)
+            w = MathMax(w, g_sellSide[i].touches);
+   }
+   return w;
+}
+
+// Choose the final target: the swing point with the most liquidity AND a key
+// level that lines up with an SD zone - not just any SD projection. Score stacks:
+// base + Asia-range SD alignment + liquidity-pool weight (DOL/equal-highs score
+// higher the more "touches" they carry).
 double ChooseFinalTarget(int dir, double entry)
 {
    double tol = InpSDAlignPips * g_pip;
-   double best = 0.0; int bestScore = -1; double bestDist = DBL_MAX;
+   double best = 0.0; double bestScore = -1.0; double bestDist = DBL_MAX;
    for(int i = 0; i < ArraySize(g_finalSDs); i++)
    {
       double price = OTEPrice(-g_finalSDs[i]);
       if(price <= 0.0) continue;
-      int score = 1;
-      if(AsiaSDNear(dir, price, tol))  score += 1;   // aligns with Asia-range deviation
-      if(KeyLevelNear(dir, price, tol)) score += 2;  // aligns with DOL / session liquidity (strongest)
+
+      double score = 1.0;
+      if(AsiaSDNear(dir, price, tol)) score += 1.0;             // aligns with Asia-range deviation
+      int pw = PoolWeight(dir, price, tol);
+      if(pw > 0)                        score += 2.0 + pw;      // real liquidity here - heavier pool ranks higher
+      else if(KeyLevelNear(dir, price, tol)) score += 2.0;       // fallback key-level check
+
       double dist = MathAbs(price - entry);
       if(score > bestScore || (score == bestScore && dist < bestDist))
       { bestScore = score; bestDist = dist; best = price; }
@@ -1183,11 +1353,12 @@ void EvaluateOTESetup()
       int bias = InstitutionalBias();
       if(bias == BIAS_NONE) return;
 
-      // Real swing/CHoC detection: manip + extreme are genuine structural pivots,
-      // not an artificial fixed-bar sweep window - so legs of any length (like a
-      // multi-hour sweep-then-CHoC) are recognised, not just short ones.
-      double manip, ext; int sweepIdx;
-      if(!FindCHoC(r, bias, manip, ext, sweepIdx)) return;
+      // Map the market generically: try both a continuation BOS and a reversal
+      // CHoC in the bias direction, take whichever's triggering event is most
+      // recent - the most obvious major swing right now, of either type, on
+      // real structure of any length (not a fixed-bar window).
+      double manip, ext; int evIdx; int pattern;
+      if(!FindSwingLeg(r, bias, manip, ext, evIdx, pattern)) return;
 
       double atr = AtrValue();
       if(atr > 0.0 && MathAbs(ext - manip) < InpMinDisplaceLeg * atr) return; // no real displacement
@@ -1198,6 +1369,7 @@ void EvaluateOTESetup()
       g_setup.manipAnchor = manip;
       g_setup.extreme     = ext;
       g_setup.armedTime   = TimeCurrent();
+      g_setup.pattern     = pattern;
       return;
    }
 
@@ -1262,6 +1434,11 @@ void TryEnterArmed()
    else if(InpConfirmMode == 1) confirmed = (disp || ifvg);
    else                         confirmed = ifvg;
    if(!confirmed) return;
+
+   // Tap+confirmation can happen any time in the killzone; the actual entry only
+   // fires inside the tighter prime window each session's OTE tap clusters in.
+   // The setup stays armed/tapped and simply waits if we're outside it.
+   if(!InPrimeWindow()) return;
 
    PlaceOTEOrder(dir, zLo, zHi);
 }
@@ -1341,7 +1518,8 @@ void PlaceOTEOrder(int dir, double zLo, double zHi)
       g_plannedSL = sl;
       g_initRisk  = risk;
       g_posDir    = dir;
-      PrintFormat("OTE %s %s lots=%.2f @ %.5f sl=%.5f (%.1f pips) first=%.5f final=%.5f RR=%.2f",
+      PrintFormat("OTE [%s] %s %s lots=%.2f @ %.5f sl=%.5f (%.1f pips) first=%.5f final=%.5f RR=%.2f",
+                  (g_setup.pattern == PATTERN_BOS ? "BOS" : "CHoC"),
                   (useLimit ? "LIMIT" : "MARKET"), (dir > 0 ? "BUY" : "SELL"),
                   lots, entryPrice, sl, risk / g_pip, firstTP, finalTP, reward / risk);
    }
@@ -1822,9 +2000,24 @@ void ManageOpenPosition()
                PrintFormat("First partial: closed %.2f lots (%.0f%%) at %.5f -> break-even",
                            closeVol, InpFirstPartialPct, firstTgt);
          }
+         // Tighten to just behind the candle that broke through the 0.27 level -
+         // usually much better than flat break-even, locking most trades in at
+         // roughly 2:1+ if later stopped out, while still giving the runner room.
+         double tightSL = 0.0;
+         MqlRates m1[];
+         ArraySetAsSeries(m1, true);
+         if(CopyRates(_Symbol, InpMicroTF, 0, 2, m1) >= 2)
+         {
+            double lvl = (dir > 0) ? m1[0].low : m1[0].high;
+            tightSL = (dir > 0) ? (lvl - g_pip * InpBreakEvenBufferPips)
+                                : (lvl + g_pip * InpBreakEvenBufferPips);
+            tightSL = EnforceMinStop(dir, px, tightSL);
+         }
          double be = openp + dir * g_pip * InpBreakEvenBufferPips;
-         if((dir > 0 && be > curSL) || (dir < 0 && (curSL == 0 || be < curSL)))
-            ModifySL(be);
+         // never worse than break-even, even if the breaking candle overshot
+         double newSL = (tightSL > 0.0) ? ((dir > 0) ? MathMax(tightSL, be) : MathMin(tightSL, be)) : be;
+         if((dir > 0 && newSL > curSL) || (dir < 0 && (curSL == 0 || newSL < curSL)))
+            ModifySL(newSL);
          g_firstDone = true;
          g_beDone    = true;
       }
@@ -2001,7 +2194,9 @@ void DrawDashboard()
       "BOS " + EnumToString(InpBiasTF) + " : " + BiasStr(StructureBias(InpBiasTF)) + "\n" +
       "BOS " + EnumToString(InpHTFTrend) + " : " + BiasStr(StructureBias(InpHTFTrend)) + "\n" +
       "Killzone    : " + (InKillzone() ? "OPEN" : "closed") + "\n" +
+      "Prime window: " + (InPrimeWindow() ? "OPEN" : "closed (armed setups wait)") + "\n" +
       "OTE setup   : " + (g_setup.active ? (g_setup.dir > 0 ? "ARMED long" : "ARMED short") +
+                          " [" + (g_setup.pattern == PATTERN_BOS ? "BOS" : "CHoC") + "]" +
                           (g_setup.tapped ? " [tapped-await M1 conf]" : " [await retrace]") : "none") + "\n" +
       "OTE limit   : " + (g_pendingTicket != 0 ? "RESTING (await fill)" : "none") + "\n" +
       "Blocked by  : " + block + "\n" +

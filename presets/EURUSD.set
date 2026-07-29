@@ -24,6 +24,12 @@ InpNYEnd=11
 InpTradeLondon=true
 InpTradeNewYork=true
 InpTradeAsia=false
+; --- High-probability entry windows (NY time, decimal hours) ---
+InpUsePrimeWindow=true
+InpLondonPrimeStart=2.0
+InpLondonPrimeEnd=4.0
+InpNYPrimeStart=8.0
+InpNYPrimeEnd=9.5
 ; --- Liquidity & setup ---
 InpSetupLookback=120
 InpSweepMaxBars=8

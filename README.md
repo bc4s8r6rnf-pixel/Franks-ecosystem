@@ -44,6 +44,64 @@ size to count as real structure, filters noise).
 
 ---
 
+## Two setup types only: continuation (BOS) and reversal (CHoC)
+
+The market only ever gives two valid setups, and the EA now maps both, every bar,
+and takes whichever is the most recent genuine one — not a fixed pattern preference:
+
+- **Continuation — BOS then retrace to OTE.** Trend is already established; price
+  makes a clean **Break of Structure** (a close beyond the last same-direction swing
+  point, no manipulation needed) and then pulls back into the OTE of that impulsive
+  leg. `FindBOS()`.
+- **Reversal — liquidity sweep + Change of Character then retrace to OTE.** Price
+  wicks through the opposing swing pivot (manipulation), then **closes** through the
+  preceding structural point (CHoC), confirming the flip; entry on the retrace into
+  OTE of that new leg. `FindCHoC()`.
+
+Both are gated by the same **HTF institutional bias** (`InstitutionalBias()`) —
+the EA only ever trades *with* the higher-timeframe trend, whether that's via a
+textbook continuation or via a CHoC that re-confirms it after a stop-hunt. Each new
+setup-TF bar, `FindSwingLeg()` evaluates both patterns and keeps whichever swing's
+triggering event (the break or the sweep) is **most recent** — the currently obvious
+major swing, exactly as a trader would read the chart, regardless of how many bars
+it spans.
+
+## High-probability entry windows (prime windows)
+
+The underlying swing can arm and trail **any time** within the broader killzone —
+that part is never restricted to a small window. But the actual **OTE tap that fires
+an entry** statistically clusters in a much tighter sub-window each session:
+
+- **London prime: 02:00–04:00 NY time** (`InpLondonPrimeStart` / `InpLondonPrimeEnd`)
+- **New York prime: 08:00–09:30 NY time** (`InpNYPrimeStart` / `InpNYPrimeEnd`)
+
+`InpUsePrimeWindow` (default **on**) restricts the **entry** (not the arming/tracking)
+to these windows — a setup can tap and confirm outside them and will simply wait,
+still armed, until the prime window opens (or the broader killzone ends and it
+resets). This is the main noise filter: it's not a frequency throttle to loosen for
+more trades, it's the timing discipline that makes the setup high-probability in the
+first place. Asia has no defined prime window and is unrestricted whenever
+`InpTradeAsia` is on.
+
+## Target selection: most liquidity + key level + SD confluence
+
+The final target now ranks the `−2.0 / −2.5 / −3.0` SD candidates by **stacked
+liquidity weight**, not just a binary "does it align" check — a candidate that lines
+up with a heavier pool (equal highs/lows, the previous day's high/low) outranks one
+that merely lines up with an Asia-range deviation level with no real liquidity behind
+it. `PoolWeight()` feeds each candidate's touches count directly into the score.
+
+## Stop management after the first partial
+
+Once price reaches the **−0.27 SD** first-partial target, the stop no longer just
+jumps to flat break-even — it moves to **just behind the candle that broke through
+0.27** (on `InpMicroTF`), which is normally tighter than break-even and locks most
+trades in at roughly **2:1 or better** if later stopped out, while the runner still
+has room to reach the final DOL/liquidity target. Never worse than break-even even
+if that candle overshot.
+
+---
+
 ## Trade frequency — from ~27/yr toward daily
 
 If backtests show very few trades, the **bias gate is almost always the bottleneck** —
