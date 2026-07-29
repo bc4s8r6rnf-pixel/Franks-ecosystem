@@ -2,8 +2,7 @@
 ; Works for GBPUSD and EURUSD alike: the significance filters are ATR-relative,
 ; so they self-scale to each pair's range. Pip-based values are middle-ground.
 ; IMPORTANT: verify InpServerToNYOffset against YOUR broker's server clock first.
-; This file mirrors the EA's built-in defaults exactly - it exists as a restore
-; point, you do NOT need to load it to run the EA.
+; Mirrors the EA's built-in defaults exactly - a restore point, not required.
 InpMagic=20260728
 InpTradeComment="BlxckMirror"
 InpOnePositionAtATime=true
@@ -50,6 +49,8 @@ InpTrailMicroFvg=false
 InpMaxSpreadPips=4
 InpMaxTradesPerDay=0
 InpMaxTradesPerSession=2
+InpStopSessionAfterWin=true
+InpSessionWinR=0.5
 InpMaxStopPips=0.0
 InpUseAtrStop=true
 InpAtrPeriod=14

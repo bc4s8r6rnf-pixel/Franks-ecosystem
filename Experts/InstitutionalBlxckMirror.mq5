@@ -110,6 +110,12 @@ input bool     InpTrailMicroFvg    = false;         // Trail runner behind M1 FV
 input int      InpMaxSpreadPips    = 4;             // Skip entries if spread wider than this
 input int      InpMaxTradesPerDay  = 0;             // Cap trades per DAY (0 = no daily cap; use the per-session cap below)
 input int      InpMaxTradesPerSession = 2;          // Cap trades per SESSION (London / NY / Asia counted separately)
+// Bank the session once it's paid. The 2nd slot is a RETRY after a failed attempt,
+// not a way to stack winners - so a genuine win ends the session there. A
+// break-even scratch is deliberately NOT a win (that's what InpSessionWinR filters),
+// otherwise a +1 pip BE exit would end the session and forfeit the real retry.
+input bool     InpStopSessionAfterWin = true;       // A winning trade ends that session's trading
+input double   InpSessionWinR         = 0.5;        // Profit (in R) that counts as a "win" - below this is a scratch, retry allowed
 input double   InpMaxStopPips       = 0.0;          // Reject if stop distance > this (0 = off)
 
 input group "=== ATR stop fallback ==="
@@ -354,6 +360,9 @@ ENUM_TIMEFRAMES g_setupTF   = PERIOD_CURRENT;  // TF of the zone the live trade 
 // Per-session trade counting (replaces the blunt per-day cap)
 int      g_sessionId        = 0;   // 0 none, 1 London, 2 NY, 3 Asia
 int      g_sessionTrades    = 0;
+bool     g_sessionWon       = false;  // a real win already banked this session
+datetime g_posOpenTime      = 0;      // open time of the live position (to sum ALL its exits)
+double   g_initRiskMoney    = 0.0;    // intended money risk of the live trade, for R maths
 
 // Pending (limit) order tracking for OTE execution
 ulong    g_pendingTicket = 0;
@@ -434,7 +443,7 @@ void OnTick()
 
    // Per-session trade counter: reset whenever we cross into a different session
    int sid = CurrentSessionId();
-   if(sid != g_sessionId) { g_sessionId = sid; g_sessionTrades = 0; }
+   if(sid != g_sessionId) { g_sessionId = sid; g_sessionTrades = 0; g_sessionWon = false; }
 
    // Reset daily counters at the start of a new day
    datetime today = TodayStart();
@@ -1644,6 +1653,7 @@ void TryEnterArmed()
    if(!InKillzone()) return;
    if(InpMaxTradesPerDay > 0 && g_tradesToday >= InpMaxTradesPerDay) return;
    if(InpMaxTradesPerSession > 0 && g_sessionTrades >= InpMaxTradesPerSession) return;
+   if(InpStopSessionAfterWin && g_sessionWon) return;   // already paid this session - bank it
    if(DailyGuardBlocked() || InCooldown() || IsNewsTime()) return;
    if(SpreadPips() > InpMaxSpreadPips) return;
    if(!InPrimeWindow()) return;
@@ -1789,6 +1799,9 @@ void PlaceOTEOrder(int dir, double zLo, double zHi)
       g_posDir    = dir;
       g_activeAnchor = g_setup.manipAnchor;
       g_activeDir    = dir;
+      g_initRiskMoney = (InpFixedLots > 0.0)
+                      ? (risk / g_pip) * PipValuePerLot() * lots
+                      : AccountInfoDouble(ACCOUNT_BALANCE) * InpRiskPercent / 100.0;
       PrintFormat("OTE [%s] %s %s lots=%.2f @ %.5f sl=%.5f (%.1f pips) first=%.5f final=%.5f RR=%.2f",
                   (g_setup.pattern == PATTERN_BOS ? "BOS" : "CHoC"),
                   (useLimit ? "LIMIT" : "MARKET"), (dir > 0 ? "BUY" : "SELL"),
@@ -2036,31 +2049,57 @@ bool DailyGuardBlocked()
 // Record the time of a losing close so the cooldown can kick in.
 void CheckClosedResult()
 {
-   if(!HistorySelect(TimeCurrent() - 6 * 3600, TimeCurrent() + 60)) return;
+   // Sum EVERY exit deal of the position that just closed, not just the last one.
+   // A partial-then-runner trade produces two exits; reading only the most recent
+   // one mis-scored a trade whose partial banked a solid win but whose runner
+   // scratched slightly negative - it was recorded as a loss, wrongly firing the
+   // cooldown and the anchor-failure block.
+   datetime from = (g_posOpenTime > 0) ? g_posOpenTime - 60 : TimeCurrent() - 6 * 3600;
+   if(!HistorySelect(from, TimeCurrent() + 60)) return;
+
+   double total = 0.0;
+   bool   found = false;
    int deals = HistoryDealsTotal();
-   for(int i = deals - 1; i >= 0; i--)
+   for(int i = 0; i < deals; i++)
    {
       ulong ticket = HistoryDealGetTicket(i);
       if(ticket == 0) continue;
       if((ulong)HistoryDealGetInteger(ticket, DEAL_MAGIC) != InpMagic) continue;
       if(HistoryDealGetString(ticket, DEAL_SYMBOL) != _Symbol) continue;
       if(HistoryDealGetInteger(ticket, DEAL_ENTRY) != DEAL_ENTRY_OUT) continue;
-      double profit = HistoryDealGetDouble(ticket, DEAL_PROFIT)
-                    + HistoryDealGetDouble(ticket, DEAL_SWAP)
-                    + HistoryDealGetDouble(ticket, DEAL_COMMISSION);
-      if(profit < 0.0)
-      {
-         g_lastLossTime = TimeCurrent();
-         if(g_activeAnchor > 0.0)
-         {
-            g_lastFailedAnchor = g_activeAnchor;
-            g_lastFailedDir    = g_activeDir;
-            g_lastFailedTime   = TimeCurrent();
-         }
-      }
-      break; // most recent close-out deal only
+      if(g_posOpenTime > 0 && (datetime)HistoryDealGetInteger(ticket, DEAL_TIME) < g_posOpenTime) continue;
+      total += HistoryDealGetDouble(ticket, DEAL_PROFIT)
+             + HistoryDealGetDouble(ticket, DEAL_SWAP)
+             + HistoryDealGetDouble(ticket, DEAL_COMMISSION);
+      found = true;
    }
+   if(!found) return;
+
+   if(total < 0.0)
+   {
+      g_lastLossTime = TimeCurrent();
+      if(g_activeAnchor > 0.0)
+      {
+         g_lastFailedAnchor = g_activeAnchor;
+         g_lastFailedDir    = g_activeDir;
+         g_lastFailedTime   = TimeCurrent();
+      }
+   }
+   else if(InpStopSessionAfterWin && g_initRiskMoney > 0.0)
+   {
+      // Only a REAL win banks the session - a break-even scratch still leaves the
+      // retry available, which is the whole point of the second slot.
+      double rMultiple = total / g_initRiskMoney;
+      if(rMultiple >= InpSessionWinR)
+      {
+         g_sessionWon = true;
+         PrintFormat("Session win banked: %.2fR (%.2f) - no further entries in %s this session",
+                     rMultiple, total, SessionName(g_sessionId));
+      }
+   }
+   g_posOpenTime = 0;
 }
+
 
 // Don't re-arm/re-enter the identical swing anchor that just failed - e.g.
 // re-taking the same broken level 40 minutes later on a fresh cooldown timer.
@@ -2283,6 +2322,7 @@ void ManageOpenPosition()
    double curTP   = posinfo.TakeProfit();
    int    dir     = (type == POSITION_TYPE_BUY) ? +1 : -1;
    g_posDir       = dir;
+   g_posOpenTime  = (datetime)posinfo.Time();   // needed to sum every exit of THIS position
 
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
@@ -2468,6 +2508,15 @@ double NormalizeVolume(double lots)
    return NormalizeDouble(lots, 2);
 }
 
+// Money value of 1 pip on 1.0 lot, for converting a price-distance risk into money.
+double PipValuePerLot()
+{
+   double tickValue = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_VALUE);
+   double tickSize  = SymbolInfoDouble(_Symbol, SYMBOL_TRADE_TICK_SIZE);
+   if(tickSize <= 0.0) return 0.0;
+   return tickValue * (g_pip / tickSize);
+}
+
 double SpreadPips()
 {
    double spread = (SymbolInfoDouble(_Symbol, SYMBOL_ASK) - SymbolInfoDouble(_Symbol, SYMBOL_BID));
@@ -2505,6 +2554,7 @@ void DrawDashboard()
    if(IsNewsTime())            block = "NEWS";
    else if(InCooldown())       block = "COOLDOWN";
    else if(DailyGuardBlocked())block = "DAILY GUARD";
+   else if(InpStopSessionAfterWin && g_sessionWon) block = "SESSION WON";
 
    string txt =
       "INSTITUTIONAL BLXCK MIRROR\n" +
@@ -2522,7 +2572,8 @@ void DrawDashboard()
       "Spread(pips): " + DoubleToString(SpreadPips(), 1) + "\n" +
       "Day P/L     : " + DoubleToString(pct, 2) + "%\n" +
       "Session     : " + SessionName(g_sessionId) + "  trades " +
-                         IntegerToString(g_sessionTrades) + "/" + IntegerToString(InpMaxTradesPerSession) + "\n" +
+                         IntegerToString(g_sessionTrades) + "/" + IntegerToString(InpMaxTradesPerSession) +
+                         (g_sessionWon ? "  [WON - banked]" : "") + "\n" +
       "Trades today: " + IntegerToString(g_tradesToday) + "\n" +
       "Position    : " + (HasOpenPosition() ? (g_posDir > 0 ? "LONG" : "SHORT") : "flat") +
                          (g_tp1Done ? "  [runner]" : "");

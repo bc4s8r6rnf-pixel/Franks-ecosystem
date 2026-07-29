@@ -285,6 +285,31 @@ significance filters (`InpMinDisplaceLeg`, `InpChocMinRangeATR`, `InpAtrMultSL`)
 are middle-ground compromises. You do not need to load it — it mirrors the built-in
 defaults and exists purely as a restore point.
 
+### Round 8: bank the session after a win (and a real close-detection bug)
+
+**The 2nd trade in a session is a retry, not a way to stack winners.** With
+`InpStopSessionAfterWin` (default on), a genuine win ends that session's trading —
+London and New York each still get up to `InpMaxTradesPerSession = 2`, but the second
+slot is only used if the first attempt *didn't* pay.
+
+A break-even scratch deliberately does **not** count as a win. `InpSessionWinR`
+(default `0.5`) is the profit, in R, required to bank the session — otherwise a +1 pip
+break-even exit would end the session and forfeit the retry that's the whole point of
+the second slot.
+
+**Bug found while building it:** `CheckClosedResult()` only read the *most recent* exit
+deal (`break` after the first match). A partial-then-runner trade produces **two** exits,
+so a trade whose partial banked a solid win but whose runner scratched slightly negative
+was scored as a **loss** — wrongly triggering the post-loss cooldown and the
+anchor-failure block, and suppressing later valid setups. It now sums **every** exit
+belonging to the closed position (matched by `g_posOpenTime`), which is also what makes
+the R-based win test above correct.
+
+Already enforced from earlier rounds, and unchanged here — entries require the bias
+engine to agree (checked twice: `BIAS_NONE` rejects outright, then per-zone
+`dir != bias`) and must land inside the prime window. Zones are still **mapped and drawn
+on every timeframe regardless** — banking a session stops *entries*, not the map.
+
 ### Getting a real optimization pass, not more manual guessing
 
 Single backtests get me *diagnosis*. To actually find optimal values (not just "better
