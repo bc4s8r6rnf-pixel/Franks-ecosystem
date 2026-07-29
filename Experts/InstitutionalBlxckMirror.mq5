@@ -3,28 +3,31 @@
 //|                Institutional Trend-Following / Liquidity EA       |
 //|                                                                  |
 //|  Concept:                                                        |
-//|    HTF market structure + EMA order-flow give the daily bias.    |
-//|    Price sweeps the PREVIOUS session's liquidity (retail stops), |
-//|    then INVERTS the fair-value-gap created by the sweep candle   |
-//|    and continues in the institutional trend toward the opposing  |
-//|    liquidity pool. This is the "black mirror": retail reads a     |
-//|    reversal, institutions read continuation.                     |
+//|    HTF market structure + EMA order-flow give the bias. The EA    |
+//|    then maps real swing structure and trades ONE of two setups,   |
+//|    whichever is most recent, always with the higher-TF trend:     |
+//|      - Continuation (BOS): trend breaks structure, retrace to OTE |
+//|      - Reversal (CHoC): liquidity sweep + change of character,    |
+//|        then retrace to OTE of the new leg                         |
+//|    This is the "black mirror": retail reads the sweep as a        |
+//|    reversal, institutions read continuation.                      |
 //|                                                                  |
-//|  Entry  : close through an inversion FVG (IFVG) in bias direction |
-//|  Stop   : beyond the liquidity-sweep extreme                      |
-//|  Target : opposing liquidity pool                                 |
-//|  Manage : TP1 -> take 70%, SL -> behind nearest M1 FVG to TP,     |
-//|           trail the runner behind M1 FVGs.                        |
+//|  Entry  : tap of the OTE 0.62-0.79 zone of the real swing leg,    |
+//|           confirmed by displacement or an inversion FVG           |
+//|  Stop   : behind the real swing / manipulation anchor             |
+//|  Target : SD projection picked by liquidity + key-level confluence|
+//|  Manage : partial at -0.27 SD, stop to just behind the candle     |
+//|           that broke it, remainder rides to the final target      |
 //|                                                                  |
-//|  Default inputs below are PRE-OPTIMISED FOR GBPUSD M15 - attach   |
-//|  and go with no .set file needed. Suggested TFs: D1/H4 bias,      |
-//|  M15 setup, M1 refinement. (EURUSD users: load presets/EURUSD.set)|
+//|  Default inputs are PRE-OPTIMISED FOR GBPUSD - attach and go with |
+//|  no .set file needed. TFs: D1/H4 bias, M30 structure/swings,      |
+//|  M1 entry timing. (EURUSD users: load presets/EURUSD.set)         |
 //+------------------------------------------------------------------+
 #property copyright "Institutional Blxck Mirror"
 #property link      ""
 #property version   "1.00"
 #property strict
-#property description "Institutional trend-following EA (defaults pre-tuned for GBPUSD M15): HTF bias + BOS/CHoC swing detection + dynamic OTE entry."
+#property description "Institutional trend-following EA (defaults pre-tuned for GBPUSD): HTF bias + BOS/CHoC swing detection + dynamic OTE entry."
 
 #include <Trade/Trade.mqh>
 #include <Trade/PositionInfo.mqh>
@@ -36,7 +39,7 @@
 input group "=== General ==="
 input ulong    InpMagic              = 20260728;   // Magic number
 input string   InpTradeComment       = "BlxckMirror";
-input bool     InpOnePositionAtATime = true;       // Only one open position per symbol
+input bool     InpOnePositionAtATime = true;       // (informational) one position per symbol is ALWAYS enforced - the setup/risk state is single-position by design
 
 input group "=== Timeframes ==="
 input ENUM_TIMEFRAMES InpBiasTF   = PERIOD_H4;      // HTF bias / market-structure TF
@@ -124,16 +127,18 @@ input bool     InpUseDisplacement  = true;          // Require a strong displace
 input double   InpMinBodyPct        = 55.0;         // Min body/range % of the entry candle
 input double   InpDisplaceAtrMult   = 0.6;          // Min entry-candle body vs ATR
 input bool     InpUseOTE            = true;          // Premium/discount (only buy discount, sell premium)
-// Break-even triggers once price has covered this % of the distance to the REAL
-// first-partial target (-0.27 SD) - NOT a fixed R-multiple. A fixed R trigger is
-// decoupled from the setup's actual scale: too low (e.g. 1R) clamps every trade
-// to scratch long before the real move starts (measured: this cratered win rate
-// vs. loss size); too high (e.g. 6R) removes the early save entirely and lets
-// every failed setup run to the full stop (measured: this made every loser as
-// big as a full stop-loss with zero relief). Scaling it to THIS setup's own
-// measured distance avoids both failure modes.
-input bool     InpUseBreakEven      = true;         // Move SL to break-even after this much progress to the first partial
-input double   InpBreakEvenProgressPct = 35.0;      // % of the way to the -0.27 SD target before locking break-even
+// Break-even trigger, expressed in R (multiples of the trade's actual risk).
+// History of this setting, because it matters: an earlier build used a fixed R
+// while InpStopMode was 1 (stop at the 0.79 OTE edge). That made R tiny, so 1R
+// arrived instantly and clamped every trade to scratch. The next attempt tied
+// the trigger to a % of the distance to the -0.27 first partial instead - but
+// that distance scales with the swing leg while risk is pinned near 1.3xATR by
+// the ATR floor, so on small legs BE still fired at ~0.24R. Measured directly.
+// With InpStopMode=0 the risk distance is now stable (~1.3xATR), so R is once
+// again the correct scale-invariant unit - and 1.2R is far enough that ordinary
+// retracement no longer scratches the trade.
+input bool     InpUseBreakEven      = true;         // Move SL to break-even after InpBreakEvenAtR
+input double   InpBreakEvenAtR       = 1.2;         // Move to BE once price is this many R in profit
 input double   InpBreakEvenBufferPips= 1.5;         // Buffer beyond entry for break-even
 input bool     InpCloseAtSessionEnd  = true;        // Close any open trade at NY session end
 input double   InpDailyMaxLossPct    = 3.0;         // Stop for the day after this % equity loss (0=off)
@@ -145,12 +150,18 @@ input bool     InpUseOTEModel      = true;          // Use dynamic OTE model (el
 input double   InpOTELow            = 0.62;         // OTE zone near edge (fib)
 input double   InpOTEHigh           = 0.79;         // OTE zone far edge (fib)
 // Entry trigger: 0 = OTE tap only, 1 = OTE + (displacement OR IFVG), 2 = OTE + IFVG required
-// Continuation (BOS) is just a pullback re-entry into an already-established trend -
-// the tap itself is enough. Reversal (CHoC) is fighting the immediately-prior
-// momentum, so it needs real proof order flow shifted before entering.
+// In principle a continuation (BOS) is just a pullback re-entry into an already
+// established trend, so the bare tap (0) should be enough - but with both modes at 0
+// a measured backtest let in far too much noise, so both default to 1. A reversal
+// (CHoC) fights the immediately-prior momentum and should never go looser than 1.
 input int      InpConfirmModeBOS     = 1;           // Confirmation for continuation/BOS setups
 input int      InpConfirmModeCHoC    = 1;           // Confirmation for reversal/CHoC setups (needs solid proof)
-input double   InpMinDisplaceLeg     = 1.0;         // Min displacement leg vs ATR to arm a setup
+// Min displacement leg, in ATR. This is NOT just a noise filter - it sets the whole
+// trade's geometry. The -0.27 SD first partial sits ~0.89 x leg from entry, while
+// risk is floored near InpAtrMultSL x ATR, so a leg under ~1.46 x ATR puts the first
+// partial BELOW 1R (banking 50% for less than one unit of risk). 1.5 keeps the first
+// partial at ~1R or better on every setup that's allowed to arm.
+input double   InpMinDisplaceLeg     = 1.5;         // Min displacement leg vs ATR to arm a setup
 // Real swing/CHoC detection - the manipulation (1.0) and CHoC structure point are
 // genuine swing pivots, not an artificial fixed-bar sweep window. This is what lets
 // the EA see the same swings a trader draws fibs from, however many bars they span.
@@ -163,7 +174,7 @@ input double   InpAnchorCooldownPips = 15.0;        // "Same anchor" tolerance (
 input double   InpFirstTP_SD         = 0.27;        // First partial at this SD level (~1:2)
 input string   InpFinalSDs           = "2.0,2.5,3.0"; // Final-target SD candidates (confluence-picked)
 input double   InpTP1_SD             = 2.0;         // Fallback final SD if none has confluence
-input double   InpRunnerSD           = 3.0;         // (reserved) legacy runner SD level
+input double   InpRunnerSD           = 3.0;         // (unused) superseded by InpFinalSDs confluence pick - kept only so old .set files still load
 
 input group "=== Execution & stop precision ==="
 // Entry: 0 = market on confirmation (guaranteed fill), 1 = limit at OTE (best price)
@@ -2094,19 +2105,15 @@ void ManageOpenPosition()
       }
    }
 
-   // --- Break-even: safety net once price has covered InpBreakEvenProgressPct% of
-   // the distance to the REAL first-partial target - this scales with the actual
-   // measured swing instead of a generic R-multiple that's decoupled from it (a
-   // fixed R trigger either fires on every trade before the real move starts, or
-   // -if raised too far- removes the early save entirely and lets every failed
-   // setup run to full stop; tying it to the setup's own scale avoids both).
+   // --- Break-even: safety net once price is InpBreakEvenAtR in profit. R is the
+   // right unit here because InpStopMode=0 keeps the risk distance stable near
+   // InpAtrMultSL x ATR; 1.2R is far enough that ordinary retracement inside a
+   // live move no longer scratches the trade (see the input's note for why the
+   // earlier fixed-1R and %-of-first-partial variants both failed).
    if(InpUseBreakEven && !g_beDone && !g_tp1Done && g_initRisk > 0.0)
    {
       double moved = (dir > 0) ? (px - openp) : (openp - px);
-      double beTrigger = (g_firstTP > 0.0)
-                       ? MathAbs(g_firstTP - openp) * (InpBreakEvenProgressPct / 100.0)
-                       : 1.5 * g_initRisk; // legacy (non-OTE) model fallback
-      if(moved >= beTrigger)
+      if(moved >= InpBreakEvenAtR * g_initRisk)
       {
          double be = openp + dir * g_pip * InpBreakEvenBufferPips;
          if((dir > 0 && be > curSL) || (dir < 0 && (curSL == 0 || be < curSL)))

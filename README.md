@@ -8,7 +8,7 @@ institutions (and this EA) see continuation. That mirror is the edge.
 
 > File: `Experts/InstitutionalBlxckMirror.mq5`
 
-**The EA's default inputs are pre-tuned for GBPUSD M15 — compile and attach with no
+**The EA's default inputs are pre-tuned for GBPUSD — compile and attach with no
 `.set` file needed.** Targets one main move in the London session, one in the New
 York session (`InpMaxTradesPerDay=3` gives room for both plus a retry). EURUSD users
 should load `presets/EURUSD.set` (its filters are tuned tighter for EUR/USD's smaller
@@ -155,6 +155,54 @@ straight wins than small wins and big losses"*:
   level) — never the "trailed into a loss on noise" outcome. Re-enable and re-test if
   you want the tighter management back; the mechanism is untouched, only the default.
 
+### Round 5: full-file audit — the geometry was quietly broken
+
+A line-by-line audit of the whole EA (rather than another parameter guess) found three
+linked defects that together explain why profit factor stayed pinned near 1.0 no matter
+how the dials were turned. All three were verified by computing the actual trade
+geometry the code produces across every possible swing size, not by inference:
+
+| leg (×ATR) | stop actually used | first partial | break-even fired at |
+|---|---|---|---|
+| 1.0 – 3.0 | **ATR floor, *not* the swing** | 0.68 – 2.05R | **0.24 – 0.72R** |
+| 3.4+ | anchor (as intended) | ~2.1R | 0.73R |
+
+1. **`InpStopMode = 0` was not actually putting the stop behind the swing.**
+   `ComputeStop()` applies `MathMin(anchor, entry − InpAtrMultSL × ATR)` — for a buy,
+   the lower value is the *wider* one, so the ATR floor overrode the structural anchor
+   on every leg below ~3.4×ATR, i.e. nearly all of them. The intended "stop behind the
+   real swing" was silently replaced by a flat 1.3×ATR stop.
+2. **Break-even was still firing at 0.24–0.76R** — the exact "stopped out early / small
+   wins" complaint, still live after round 3. The round-3 fix tied the trigger to a %
+   of the distance to the first partial, but that distance scales with the swing leg
+   while risk is pinned near 1.3×ATR by the floor above. On small legs 35% of it works
+   out to a quarter of R, so any ordinary wiggle scratched the trade.
+3. **The first partial landed below 1R** on any leg under ~1.46×ATR — banking 50% of
+   the position for less than a single unit of risk.
+
+Fixes:
+
+- **Break-even back to R, at `InpBreakEvenAtR = 1.2`.** R is the correct
+  scale-invariant unit *now* — the earlier fixed-R attempt only failed because
+  `InpStopMode` was then 1 (stop at the 0.79 edge), which made R tiny. With mode 0 the
+  risk distance is stable, so 1.2R is a real, predictable distance that ordinary
+  retracement won't reach.
+- **`InpMinDisplaceLeg 1.0 → 1.5`** (HF presets `0.5 → 1.2`). This is not just a noise
+  filter — it sets the whole trade's geometry. At 1.5 the first partial is ≥1R on every
+  setup allowed to arm, and the final target sits at 3.0–6.4R.
+- Stale header/description text (still describing the old M15 + IFVG design) corrected,
+  and `InpOnePositionAtATime` / `InpRunnerSD` relabelled honestly — both are declared
+  but never read, the first because single-position is structural, the second because
+  `InpFinalSDs` confluence superseded it. They're kept only so old `.set` files load.
+
+Verified after the change: first partial ≥1R and break-even at a fixed 1.2R across
+every leg size. Ordering is handled correctly either way — on small legs the partial
+(≈1.03R) fires before break-even, on larger legs break-even locks first and the partial
+banks after; the `g_beDone` flag covers both paths.
+
+**This still needs a backtest to confirm.** The geometry is now provably sane, which is
+a precondition for the strategy working — not proof that it does.
+
 ### Getting a real optimization pass, not more manual guessing
 
 Single backtests get me *diagnosis*. To actually find optimal values (not just "better
@@ -166,7 +214,7 @@ natively:
    a small parameter set).
 2. **Inputs** tab → tick the checkbox next to each parameter you want swept, and set
    Start/Step/Stop. Good first candidates from everything above:
-   `InpBreakEvenProgressPct` (20–60, step 5), `InpChocMinRangeATR` (1.0–2.5, step 0.25),
+   `InpBreakEvenAtR` (0.8–2.0, step 0.2), `InpChocMinRangeATR` (1.0–2.5, step 0.25),
    `InpMinRR` (2.0–3.5, step 0.25), `InpChocSwingStrength` (2–4, step 1),
    `InpFirstTP_SD` (0.15–0.4, step 0.05).
 3. Set the optimization **criterion** — "Profit Factor" alone can pick a set with 3
@@ -194,7 +242,7 @@ numbers say.
    Fib **1.0** = the real swing anchor either way; fib **0.0** = the dynamic running extreme.
 4. **Entry** — price retraces into **OTE 0.62–0.79**, confirmed by a displacement candle or inversion FVG for both continuation and reversal (`InpConfirmModeBOS=1` / `InpConfirmModeCHoC=1`). Market-on-tap by default (never misses a shallow tap-and-reject); stop sits behind the **real swing/manipulation anchor**, not an arbitrary fib edge.
 5. **Risk** — 1% sized adaptively to the stop distance every trade; skip on low RR, wide spread, news, daily-loss, cooldown, or a swing that just failed nearby (anchor cooldown).
-6. **Manage** — first partial at **−0.27 SD** → stop tightens to just behind the candle that broke it (better than flat break-even); remainder rides toward the liquidity/SD-confluence target. Independent break-even scales with the setup (`InpBreakEvenProgressPct=35`, i.e. 35% of the way to the first partial) rather than a fixed R-multiple that's decoupled from it. Flat by session end.
+6. **Manage** — first partial at **−0.27 SD** → stop tightens to just behind the candle that broke it (better than flat break-even); remainder rides toward the liquidity/SD-confluence target. Independent break-even fires at `InpBreakEvenAtR=1.2` (R = actual risk), late enough that ordinary retracement inside a live move no longer scratches the trade. Flat by session end.
 7. **Guards** — max trades/day, daily max-loss, post-loss cooldown, optional daily target.
 
 ---
@@ -388,7 +436,7 @@ own testing supports it.
 | Role | Timeframe | Why |
 |------|-----------|-----|
 | Bias / structure | **D1 + H4** | Where institutional trend and BOS are cleanest |
-| Setup / sweep / IFVG | **M15** | Session sweeps and FVGs are reliable here without M1 noise |
+| Structure / swings / OTE legs | **M30** | Calmer TF = more significant swings; filters the internal wiggles M15 mistook for structure |
 | Refinement / trailing | **M1** | Precise FVG trailing on the runner |
 
 **Best pair: EUR/USD.** Deepest liquidity, tightest spreads, and the cleanest
@@ -412,7 +460,7 @@ Strong alternates: **GBP/USD** (bigger range, slightly lower win rate) and
 2. Copy `Experts/InstitutionalBlxckMirror.mq5` into `MQL5/Experts/` (and the
    `presets/*.set` files into `MQL5/Presets/` if you want them in the Load dialog).
 3. Open **MetaEditor**, open the file, press **F7** to compile.
-4. Attach the EA to a **EUR/USD M15** chart. Enable **Algo Trading**.
+4. Attach the EA to a **GBP/USD** chart (any TF — the EA reads M30/M1 itself). Enable **Algo Trading**.
 5. Make sure the chart symbol has D1, H4 and M1 history downloaded.
 6. Load a preset from the EA **Inputs → Load** button, then set `InpServerToNYOffset`.
 
@@ -445,13 +493,13 @@ Default session windows (already set, in **NY time**):
 | Input | Default | Meaning |
 |-------|---------|---------|
 | `InpBiasTF` / `InpHTFTrend` | H4 / D1 | Bias timeframes |
-| `InpSetupTF` / `InpMicroTF` | M15 / M1 | Setup & trailing timeframes |
+| `InpSetupTF` / `InpMicroTF` | M30 / M1 | Structure/swing TF & entry-timing TF |
 | `InpRequireEmaAndBOS` | true | Require EMA **and** BOS confluence (higher win rate) |
 | `InpRiskPercent` | 0.75 | Risk per trade (% balance); `InpFixedLots` overrides |
 | `InpMinRR` | 2.0 | Reject setups below this reward:risk |
 | `InpPartialPercent` | 70 | % closed at TP1 |
 | `InpMoveSlBehindFvg` | true | After TP1, stop → behind nearest M1 FVG to TP |
-| `InpTrailMicroFvg` | true | Trail runner behind M1 FVGs |
+| `InpTrailMicroFvg` | **false** | Trail runner behind M1 FVGs — off: M1 FVGs form on noise and were capping runners into small wins |
 | `InpMaxTradesPerDay` | 3 | Daily trade cap |
 | `InpMaxSpreadPips` | 3 | Skip entries in wide spread |
 | `InpShowHeatmap` / `InpShowFvg` / `InpShowDashboard` | true | Visuals |
