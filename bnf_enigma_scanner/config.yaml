@@ -1,0 +1,36 @@
+scanner:
+  sma_days: 25
+  candidate_min_divergence_pct:
+    equities: -12.0
+    indices: -5.0
+    metals: -6.0
+    fx: -3.0
+  robust_z_max: -2.5
+  atr_multiple_min: 2.0
+  min_dollar_volume: 50000000
+  max_spread_bps: 25
+  min_score: 80
+  min_reward_risk_to_primary: 1.8
+  min_reward_risk_to_mean: 3.0
+  max_alerts_per_asset_class: 3
+  event_lockout_minutes: 30
+
+catalyst:
+  lookback_hours: 48
+  structural_probability_veto: 0.55
+  unknown_probability_veto: 0.45
+  minimum_source_count: 2
+
+order_flow:
+  climax_percentile: 0.95
+  absorption_percentile: 0.90
+  min_replenishment_ratio: 1.50
+  min_impact_decay: 0.35
+  min_reclaim_ticks: 2
+  confirmation_window_seconds: 300
+
+risk:
+  volatility_buffer_atr_fraction: 0.15
+  min_tick_buffer: 3
+  target_1_fraction_to_mean: 0.40
+  target_2_fraction_to_mean: 0.70

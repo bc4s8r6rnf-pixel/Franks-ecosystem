@@ -558,8 +558,52 @@ Strong alternates: **GBP/USD** (bigger range, slightly lower win rate) and
 | Path | What |
 |------|------|
 | `Experts/InstitutionalBlxckMirror.mq5` | The EA |
-| `presets/EURUSD.set` · `presets/GBPUSD.set` | Tuned input presets (load via Inputs → Load) |
+| `presets/BlxckMirror.set` | Restore point mirroring the built-in defaults (load via Inputs → Load) |
 | `docs/OPTIMIZATION.md` | Strategy Tester & optimization walkthrough |
+| `bnf_enigma_scanner/` | BNF ENIGMA — Python mean-reversion scanner research scaffold (separate project, see below) |
+
+---
+
+## BNF ENIGMA — mean-reversion scanner (Python research scaffold)
+
+`bnf_enigma_scanner/` is a **separate project** from the EA. Where Blxck Mirror is a
+trend-continuation EA that trades MT5 in real time, BNF ENIGMA is an offline research
+scaffold for the opposite idea: **daily mean reversion**, in the style publicly
+attributed to Takashi Kotegawa ("BNF") — buy instruments trading abnormally far below
+their 25-day SMA, but *only* when the sell-off is emotional/technical rather than a
+genuine repricing, and only when exchange order flow shows sellers actually exhausting.
+
+It shares no code with the EA and does not place orders. It is a scaffold with
+transparent, replaceable rule engines — the point is the interfaces and the veto
+structure, not the current thresholds.
+
+```text
+Universe → daily displacement candidate → liquidity gate → catalyst classification
+        → hard vetoes → order-flow exhaustion → entry trigger → risk plan → rank
+```
+
+| Module | Role |
+|--------|------|
+| `bnf_scanner/features.py` | Daily SMA(25) divergence, robust return z-score, ATR displacement |
+| `bnf_scanner/catalyst.py` | Keyword rule engine classifying *why* it sold off; vetoes fundamental/structural repricing |
+| `bnf_scanner/orderflow.py` | Exhaustion features from MBO/trade events (climax, absorption, impact decay, failed auction) |
+| `bnf_scanner/engine.py` | Scoring, hard vetoes, entry/stop/target construction |
+| `bnf_scanner/scanner.py` | Ranks confirmed setups within each asset class |
+
+Run it:
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r bnf_enigma_scanner/requirements.txt
+python bnf_enigma_scanner/example_run.py   # synthetic data, demonstrates the interfaces
+pytest                                     # works from the repo root or from bnf_enigma_scanner/
+```
+
+`bnf_enigma_scanner/README.md` covers the design principles and `DEVELOPER_HANDOFF.md`
+is the build spec (data requirements, MBO reconstruction, validation methodology,
+acceptance criteria). Read the handoff before touching thresholds — several are
+placeholders pending calibration, and `config.yaml` is **not yet wired into the code**
+(the engine's defaults are currently hard-coded in `engine.py`).
 
 ## Install
 
