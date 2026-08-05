@@ -584,11 +584,14 @@ Universe → daily displacement candidate → liquidity gate → catalyst classi
 
 | Module | Role |
 |--------|------|
+| `bnf_scanner/config.py` | Loads `config.yaml` — the single source of truth for every threshold |
 | `bnf_scanner/features.py` | Daily SMA(25) divergence, robust return z-score, ATR displacement |
 | `bnf_scanner/catalyst.py` | Keyword rule engine classifying *why* it sold off; vetoes fundamental/structural repricing |
-| `bnf_scanner/orderflow.py` | Exhaustion features from MBO/trade events (climax, absorption, impact decay, failed auction) |
+| `bnf_scanner/orderflow.py` | Exhaustion features from MBO/trade events (climax, absorption, impact decay, anchored-VWAP reclaim) |
 | `bnf_scanner/engine.py` | Scoring, hard vetoes, entry/stop/target construction |
 | `bnf_scanner/scanner.py` | Ranks confirmed setups within each asset class |
+| `bnf_scanner/data.py` | Daily CSV loading and validation |
+| `bnf_scanner/backtest.py` | Triple-barrier backtester and reporting CLI |
 
 Run it:
 
@@ -599,11 +602,26 @@ python bnf_enigma_scanner/example_run.py   # synthetic data, demonstrates the in
 pytest                                     # works from the repo root or from bnf_enigma_scanner/
 ```
 
+Backtest the daily layer over a directory of daily CSVs:
+
+```bash
+cd bnf_enigma_scanner
+python tools/make_demo_data.py --out demo_data     # synthetic bars, plumbing check only
+python -m bnf_scanner.backtest --data-dir demo_data --year 2026
+```
+
+> **Read this before quoting a backtest number.** Daily bars can only exercise the
+> displacement layer. The catalyst veto and the order-flow exhaustion gate — which
+> are the system's entire selectivity — need point-in-time news and MBO data
+> respectively and are **inactive** in a daily backtest. It therefore takes every
+> dislocation, including the ones the real system exists to refuse. Results are a
+> floor on selectivity, not an estimate of performance. Every report prints which
+> layers were active; keep that banner attached.
+
 `bnf_enigma_scanner/README.md` covers the design principles and `DEVELOPER_HANDOFF.md`
 is the build spec (data requirements, MBO reconstruction, validation methodology,
-acceptance criteria). Read the handoff before touching thresholds — several are
-placeholders pending calibration, and `config.yaml` is **not yet wired into the code**
-(the engine's defaults are currently hard-coded in `engine.py`).
+acceptance criteria). Read the handoff before touching thresholds — every value in
+`config.yaml` is a placeholder pending calibration.
 
 ## Install
 

@@ -25,23 +25,45 @@ def synthetic_daily() -> pd.DataFrame:
 
 
 def synthetic_mbo() -> pd.DataFrame:
+    """A textbook exhaustion sequence: grind down, capitulation flush, reclaim.
+
+    The feed deliberately runs well past the flush low. The entry trigger
+    requires price to reclaim the anchored micro-VWAP and *hold* it for
+    `order_flow.confirmation_window_seconds` (300s by default), so a feed that
+    ends moments after the low can never confirm — correctly, but it also never
+    demonstrates the confirmed path.
+    """
     rng = np.random.default_rng(11)
-    n = 2000
+    grind, flush, reclaim = 1800, 200, 1200
+    n = grind + flush + reclaim
     now = pd.Timestamp.now(tz="UTC")
-    timestamps = [now - pd.Timedelta(seconds=n-i) for i in range(n)]
+    timestamps = [now - pd.Timedelta(seconds=n - i) for i in range(n)]
+
     price = 85 + np.cumsum(rng.normal(-0.0007, 0.01, n))
-    price[-250:] += np.linspace(-0.6, 0.35, 250)  # flush and reclaim
+    # Capitulation: fast, steep, on heavy aggressive selling.
+    price[grind:grind + flush] += np.linspace(0.0, -0.9, flush)
+    # Reclaim: buyers take the auction back and hold it above the flush VWAP.
+    price[grind + flush:] += np.linspace(-0.9, 0.5, reclaim)
+
     side = rng.choice([-1, 1], size=n, p=[0.62, 0.38])
-    side[-150:] = rng.choice([-1, 1], size=150, p=[0.45, 0.55])
+    side[grind:grind + flush] = rng.choice([-1, 1], size=flush, p=[0.85, 0.15])
+    side[grind + flush:] = rng.choice([-1, 1], size=reclaim, p=[0.40, 0.60])
+
     size = rng.integers(1, 40, n)
-    size[1200:1500] *= 5
+    size[grind:grind + flush] *= 5  # climax prints
+
+    # Bid depth collapses into the flush, then replenishes as buyers absorb.
+    bid_size = rng.integers(50, 250, n)
+    bid_size[grind:grind + flush] = rng.integers(10, 60, flush)
+    bid_size[grind + flush:] = rng.integers(180, 420, reclaim)
+
     return pd.DataFrame({
         "timestamp": timestamps,
         "price": price,
         "size": size,
         "aggressor_side": side,
         "event_type": "trade",
-        "bid_size": rng.integers(50, 250, n),
+        "bid_size": bid_size,
         "ask_size": rng.integers(50, 250, n),
         "best_bid": price - 0.01,
         "best_ask": price + 0.01,
@@ -77,7 +99,7 @@ news = [
     ),
 ]
 catalyst = assess_catalyst(instrument, news)
-flow = compute_order_flow_features(synthetic_mbo())
+flow = compute_order_flow_features(synthetic_mbo(), tick_size=instrument.tick_size)
 setup = evaluate_long_setup(instrument, daily, catalyst, flow)
 
 print("State:", setup.state.value)

@@ -36,6 +36,12 @@ class Instrument:
     tick_size: float
     currency: str = "USD"
     sector: str | None = None
+    # Notional represented by one unit of quoted volume. 1.0 for cash equities
+    # (volume is shares); the contract size for futures (ES=50, GC=100,
+    # 6E=125_000). Without it, `close * volume` understates a futures market's
+    # traded notional by orders of magnitude and the liquidity gate rejects
+    # every FX and index candidate.
+    contract_multiplier: float = 1.0
 
 
 @dataclass(frozen=True)

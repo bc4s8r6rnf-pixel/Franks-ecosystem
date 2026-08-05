@@ -1,6 +1,7 @@
 from __future__ import annotations
 import re
 from collections import defaultdict
+from .config import default_config
 from .models import CatalystAssessment, CatalystClass, Instrument, NewsItem
 
 # This rule engine is intentionally transparent. In production, replace or
@@ -33,8 +34,11 @@ def _contains(text: str, terms: set[str]) -> list[str]:
 def assess_catalyst(
     instrument: Instrument,
     items: list[NewsItem],
-    minimum_source_count: int = 2,
+    minimum_source_count: int | None = None,
 ) -> CatalystAssessment:
+    if minimum_source_count is None:
+        minimum_source_count = default_config().catalyst.minimum_source_count
+
     if not items:
         probs = {c: 0.0 for c in CatalystClass}
         probs[CatalystClass.UNKNOWN] = 1.0

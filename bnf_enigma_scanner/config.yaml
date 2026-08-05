@@ -1,3 +1,12 @@
+# Single source of truth for every tunable threshold.
+#
+# Loaded by bnf_scanner.config.load_config(). Nothing in the engine hard-codes a
+# threshold any more: if you want to change behaviour, change it here.
+#
+# Every value below is a PLACEHOLDER pending the calibration described in
+# DEVELOPER_HANDOFF.md ("Model validation"). They are the scaffold's starting
+# point, not a validated configuration.
+
 scanner:
   sma_days: 25
   candidate_min_divergence_pct:
@@ -7,6 +16,7 @@ scanner:
     fx: -3.0
   robust_z_max: -2.5
   atr_multiple_min: 2.0
+  cross_sectional_percentile_max: 0.05
   min_dollar_volume: 50000000
   max_spread_bps: 25
   min_score: 80
@@ -22,10 +32,16 @@ catalyst:
   minimum_source_count: 2
 
 order_flow:
+  # Trade-size quantile that defines a "climax" print.
   climax_percentile: 0.95
   absorption_percentile: 0.90
+  # Share of aggressive sell volume that must come from climax prints.
+  min_climax_share: 0.20
   min_replenishment_ratio: 1.50
   min_impact_decay: 0.35
+  # Entry trigger: price must reclaim the anchored micro-VWAP by at least this
+  # many ticks and hold it for the confirmation window (handoff: "Require
+  # confirmation persistence to avoid a one-tick false reclaim").
   min_reclaim_ticks: 2
   confirmation_window_seconds: 300
 
@@ -34,3 +50,31 @@ risk:
   min_tick_buffer: 3
   target_1_fraction_to_mean: 0.40
   target_2_fraction_to_mean: 0.70
+
+# Score weights. These reproduce the engine's existing behaviour exactly; see
+# README "Default scoring" for the discrepancy with the documented table
+# (regime_suitability is defined but never awarded — no regime model exists yet).
+scoring:
+  divergence_max: 20.0
+  robust_return_max: 10.0
+  atr_displacement_max: 10.0
+  cross_sectional: 10.0
+  catalyst_non_structural: 15.0
+  sell_flow_climax: 10.0
+  absorption_replenishment: 10.0
+  impact_decay: 5.0
+  failed_auction: 5.0
+  regime_suitability: 5.0
+
+backtest:
+  # Triple-barrier horizon in trading days.
+  max_holding_days: 25
+  # Round-trip transaction cost applied to every trade, in basis points of
+  # notional. Placeholder: replace with a per-venue, per-asset-class model.
+  cost_bps_round_trip: 10.0
+  # Extra slippage on entry and on exit, in basis points, each way.
+  slippage_bps: 5.0
+  # Walk-forward: length of each out-of-sample window in trading days, and the
+  # embargo applied either side of it to prevent label leakage.
+  walk_forward_test_days: 252
+  embargo_days: 25

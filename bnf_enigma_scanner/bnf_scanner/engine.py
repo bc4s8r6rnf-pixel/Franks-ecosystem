@@ -1,34 +1,28 @@
 from __future__ import annotations
+
 from dataclasses import asdict
+
+from .config import Config, default_config
 from .models import (
-    AssetClass, CatalystClass, DailyFeatures, Instrument, OrderFlowFeatures,
-    RiskPlan, Setup, SetupState, CatalystAssessment,
+    CatalystAssessment, CatalystClass, DailyFeatures, Instrument,
+    OrderFlowFeatures, RiskPlan, Setup, SetupState,
 )
-
-
-DEFAULT_DIVERGENCE = {
-    AssetClass.EQUITIES: -12.0,
-    AssetClass.INDICES: -5.0,
-    AssetClass.METALS: -6.0,
-    AssetClass.FX: -3.0,
-}
 
 
 def make_risk_plan(
     daily: DailyFeatures,
     flow: OrderFlowFeatures,
     tick_size: float,
-    volatility_buffer_atr_fraction: float = 0.15,
-    min_tick_buffer: int = 3,
-    t1_fraction: float = 0.40,
-    t2_fraction: float = 0.70,
+    config: Config | None = None,
 ) -> RiskPlan | None:
+    cfg = (config if config is not None else default_config()).risk
+
     if flow.reclaim_price is None:
         return None
     entry = float(flow.reclaim_price)
     buffer_ = max(
-        min_tick_buffer * tick_size,
-        volatility_buffer_atr_fraction * daily.atr14,
+        cfg.min_tick_buffer * tick_size,
+        cfg.volatility_buffer_atr_fraction * daily.atr14,
     )
     stop = flow.structural_low - buffer_
     if entry <= stop:
@@ -37,8 +31,8 @@ def make_risk_plan(
     if distance <= 0:
         return None
 
-    t1 = entry + t1_fraction * distance
-    t2 = entry + t2_fraction * distance
+    t1 = entry + cfg.target_1_fraction_to_mean * distance
+    t2 = entry + cfg.target_2_fraction_to_mean * distance
     risk = entry - stop
     return RiskPlan(
         entry=entry,
@@ -47,9 +41,9 @@ def make_risk_plan(
         target_2=t2,
         mean_target=daily.sma25,
         risk_per_unit=risk,
-        rr_target_1=(t1-entry)/risk,
-        rr_target_2=(t2-entry)/risk,
-        rr_mean=(daily.sma25-entry)/risk,
+        rr_target_1=(t1 - entry) / risk,
+        rr_target_2=(t2 - entry) / risk,
+        rr_mean=(daily.sma25 - entry) / risk,
     )
 
 
@@ -58,40 +52,43 @@ def evaluate_long_setup(
     daily: DailyFeatures,
     catalyst: CatalystAssessment,
     flow: OrderFlowFeatures | None,
-    min_score: float = 80.0,
-    min_dollar_volume: float = 50_000_000,
-    max_spread_bps: float = 25.0,
-    min_rr_primary: float = 1.8,
-    min_rr_mean: float = 3.0,
+    config: Config | None = None,
 ) -> Setup:
+    cfg = config if config is not None else default_config()
+    scan = cfg.scanner
+    flow_cfg = cfg.order_flow
+    weights = cfg.scoring
+
     reasons: list[str] = []
     vetoes: list[str] = []
     score = 0.0
 
-    threshold = DEFAULT_DIVERGENCE[instrument.asset_class]
+    threshold = scan.candidate_min_divergence_pct[instrument.asset_class]
 
     # Candidate generation: daily BNF core.
     if daily.divergence_pct <= threshold:
-        score += min(20.0, 10.0 + abs(daily.divergence_pct - threshold))
+        score += min(weights.divergence_max, 10.0 + abs(daily.divergence_pct - threshold))
         reasons.append(f"25-day divergence {daily.divergence_pct:.2f}%")
     else:
         vetoes.append("NOT_EXTREME_ENOUGH_VS_SMA25")
 
-    if daily.robust_return_z <= -2.5:
-        score += min(10.0, 5.0 + abs(daily.robust_return_z))
+    if daily.robust_return_z <= scan.robust_z_max:
+        score += min(weights.robust_return_max, 5.0 + abs(daily.robust_return_z))
         reasons.append(f"Robust return z-score {daily.robust_return_z:.2f}")
 
-    if daily.atr_displacement <= -2.0:
-        score += min(10.0, 5.0 + abs(daily.atr_displacement))
+    if daily.atr_displacement <= -scan.atr_multiple_min:
+        score += min(weights.atr_displacement_max, 5.0 + abs(daily.atr_displacement))
         reasons.append(f"{daily.atr_displacement:.2f} ATR below SMA25")
 
-    if daily.cross_sectional_percentile <= 0.05:
-        score += 10.0
-        reasons.append("Bottom 5% cross-sectional dislocation")
+    if daily.cross_sectional_percentile <= scan.cross_sectional_percentile_max:
+        score += weights.cross_sectional
+        reasons.append(
+            f"Bottom {scan.cross_sectional_percentile_max:.0%} cross-sectional dislocation"
+        )
 
-    if daily.dollar_volume < min_dollar_volume:
+    if daily.dollar_volume < scan.min_dollar_volume:
         vetoes.append("INSUFFICIENT_LIQUIDITY")
-    if daily.spread_bps > max_spread_bps:
+    if daily.spread_bps > scan.max_spread_bps:
         vetoes.append("SPREAD_TOO_WIDE")
 
     # Facts before emotion.
@@ -101,13 +98,15 @@ def evaluate_long_setup(
         CatalystClass.EMOTIONAL_TECHNICAL,
         CatalystClass.LIQUIDITY_STRESS,
     }:
-        score += 15.0 * catalyst.confidence
+        score += weights.catalyst_non_structural * catalyst.confidence
         reasons.append(f"Catalyst classified {catalyst.label.value}")
     elif catalyst.label == CatalystClass.UNKNOWN:
         vetoes.append("CATALYST_UNRESOLVED")
     else:
         # Macro moves are not automatically invalid, but receive no catalyst points.
-        reasons.append(f"Macro catalyst requires stricter confirmation: {catalyst.label.value}")
+        reasons.append(
+            f"Macro catalyst requires stricter confirmation: {catalyst.label.value}"
+        )
 
     risk = None
     if flow is None:
@@ -115,32 +114,32 @@ def evaluate_long_setup(
     elif not flow.data_quality_ok:
         vetoes.append("ORDER_FLOW_DATA_QUALITY")
     else:
-        if flow.sell_climax_percentile >= 0.20:
-            score += 10.0
+        if flow.sell_climax_percentile >= flow_cfg.min_climax_share:
+            score += weights.sell_flow_climax
             reasons.append("Aggressive sell-volume climax")
-        if flow.bid_replenishment_ratio >= 1.50:
-            score += 10.0
+        if flow.bid_replenishment_ratio >= flow_cfg.min_replenishment_ratio:
+            score += weights.absorption_replenishment
             reasons.append("Bid replenishment / absorption")
-        if flow.impact_decay >= 0.35:
-            score += 5.0
+        if flow.impact_decay >= flow_cfg.min_impact_decay:
+            score += weights.impact_decay
             reasons.append("Seller price-impact decay")
         if flow.failed_auction:
-            score += 5.0
+            score += weights.failed_auction
             reasons.append("Failed auction below the extreme")
         if flow.reclaim_price is None:
             vetoes.append("NO_ENTRY_RECLAIM")
-        risk = make_risk_plan(daily, flow, instrument.tick_size)
+        risk = make_risk_plan(daily, flow, instrument.tick_size, cfg)
         if risk is None:
             vetoes.append("NO_VALID_RISK_PLAN")
         else:
-            if risk.rr_target_1 < min_rr_primary:
+            if risk.rr_target_1 < scan.min_reward_risk_to_primary:
                 vetoes.append("PRIMARY_TARGET_RR_TOO_LOW")
-            if risk.rr_mean < min_rr_mean:
+            if risk.rr_mean < scan.min_reward_risk_to_mean:
                 vetoes.append("MEAN_TARGET_RR_TOO_LOW")
 
     if vetoes:
         state = SetupState.REJECTED
-    elif score >= min_score and risk is not None:
+    elif score >= scan.min_score and risk is not None:
         state = SetupState.CONFIRMED
     elif flow is not None and flow.reclaim_price is not None:
         state = SetupState.ARMED

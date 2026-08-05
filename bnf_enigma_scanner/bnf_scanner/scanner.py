@@ -1,13 +1,17 @@
 from __future__ import annotations
 from collections import defaultdict
+from .config import default_config
 from .models import AssetClass, Setup, SetupState
 
 
 def rank_setups(
     setups: list[Setup],
-    max_per_asset_class: int = 3,
+    max_per_asset_class: int | None = None,
 ) -> list[Setup]:
     """Return only confirmed setups, ranked within asset class."""
+    if max_per_asset_class is None:
+        max_per_asset_class = default_config().scanner.max_alerts_per_asset_class
+
     grouped: dict[AssetClass, list[Setup]] = defaultdict(list)
     for setup in setups:
         if setup.state == SetupState.CONFIRMED:

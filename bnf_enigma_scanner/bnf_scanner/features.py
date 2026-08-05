@@ -20,11 +20,17 @@ def compute_daily_features(
     bars: pd.DataFrame,
     cross_sectional_percentile: float,
     spread_bps: float,
+    contract_multiplier: float = 1.0,
 ) -> DailyFeatures:
     """Compute the primary BNF daily candidate features.
 
     Required columns: open, high, low, close, volume.
     Index must be DatetimeIndex in chronological order.
+
+    Args:
+        contract_multiplier: notional per unit of quoted volume. 1.0 for cash
+            equities; the contract size for futures. Traded notional is
+            meaningless for FX and index futures without it.
     """
     required = {"open", "high", "low", "close", "volume"}
     missing = required.difference(bars.columns)
@@ -57,7 +63,9 @@ def compute_daily_features(
 
     divergence_pct = 100.0 * (latest_close / latest_sma - 1.0)
     atr_displacement = (latest_close - latest_sma) / latest_atr
-    dollar_volume = float(latest_close * b["volume"].tail(20).mean())
+    if contract_multiplier <= 0:
+        raise ValueError("contract_multiplier must be positive")
+    dollar_volume = float(latest_close * b["volume"].tail(20).mean() * contract_multiplier)
 
     return DailyFeatures(
         symbol=symbol,
