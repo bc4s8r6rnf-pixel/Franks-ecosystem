@@ -62,6 +62,22 @@ def test_reference_candle_and_activation():
     print("ok reference candle + activation")
 
 
+def test_reference_hour_with_no_usable_candles():
+    """An hour that yields nothing must return an empty frame, not raise.
+
+    17:00 NY is the CME halt: it has a handful of zero-range stub candles that
+    all get filtered, which crashed the sweep over every reference hour.
+    """
+    n = 60 * 30
+    idx = pd.date_range(pd.Timestamp("2021-03-01 00:00", tz=NY), periods=n, freq="1min")
+    flat = pd.DataFrame({"open": 100.0, "high": 100.0, "low": 100.0, "close": 100.0}, index=idx)
+    bs = D.from_frame(flat)
+    refs = P.build_reference_candles(bs, kinds=("9PM",))     # every candle has R == 0
+    assert refs.empty
+    assert "ref_time" in refs.columns and "ref_id" in refs.columns
+    print("ok empty reference hour")
+
+
 def test_first_touch():
     prices = np.array([100, 101, 102, 105, 103, 99, 95, 108], dtype=float)
     bs = _bars(prices)

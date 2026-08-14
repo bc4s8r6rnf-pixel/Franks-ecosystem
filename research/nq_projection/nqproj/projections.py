@@ -125,6 +125,11 @@ def build_reference_candles(
                     "activate": ts + pd.Timedelta(hours=1),
                 }
             )
+    cols = ["ref_time", "kind", "H", "L", "C", "R", "activate"]
+    if not rows:
+        # An hour can legitimately yield nothing -- 17:00 NY is the CME halt, so
+        # its handful of stub candles are all zero-range and filtered out.
+        return pd.DataFrame(columns=cols + ["ref_id"])
     refs = pd.DataFrame(rows).sort_values("ref_time").reset_index(drop=True)
     refs["ref_id"] = refs.index
     return refs

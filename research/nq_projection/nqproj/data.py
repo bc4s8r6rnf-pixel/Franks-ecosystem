@@ -85,6 +85,7 @@ def load_csv(
     symbol: str = "NQ",
     date_col: str | None = None,
     time_col: str | None = None,
+    sep: str | None = None,
 ) -> BarSet:
     """Load an OHLC CSV and convert it to New York time.
 
@@ -93,7 +94,9 @@ def load_csv(
     than guessed. Files that split date and time across two columns are handled
     via ``date_col``/``time_col``.
     """
-    raw = pd.read_csv(path)
+    # MT5/TradingView exports are variously comma-, tab- or semicolon-delimited;
+    # sniff unless the caller pins it.
+    raw = pd.read_csv(path, sep=sep, engine="python" if sep is None else "c")
 
     if date_col is not None:
         ts_src = raw[date_col].astype(str)

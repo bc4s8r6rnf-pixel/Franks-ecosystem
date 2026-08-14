@@ -3,13 +3,15 @@
 Independent quantitative investigation of the 9PM/9AM hourly-range projection
 geometry on Nasdaq/NQ.
 
-**Read [`FINDINGS.md`](FINDINGS.md) first** — it contains the one result that is
-already settled (the opposite-2.0 statistic is indistinguishable from a random
-walk) and the null baselines every other statistic must be read against.
+**Read [`FINDINGS.md`](FINDINGS.md) first.** The study has been run on 8.9 years
+of NQ 15-minute data and the result is negative: every statistic in the brief
+lands at or below its null. The apparent 9PM edge is explained by the 21:00
+candle being the quietest hour of the day (reference-hour quietness explains
+R² = 0.997 of the effect), and 21:00 ranks 6th of 23 hours once that is
+controlled for.
 
-No real market data was reachable in the environment this was built in, so the
-empirical questions are **unanswered, not answered negatively**. Supply a CSV and
-the whole study runs.
+The engine is general and the negative result is reproducible from the commands
+at the bottom of `FINDINGS.md`.
 
 ---
 
@@ -33,6 +35,13 @@ guessed. Get it wrong and every reference candle is the wrong hour, which
 invalidates the entire study silently. Everything is converted to
 `America/New_York` and reference candles are cut on NY wall-clock hours, so DST
 is handled by the tz database rather than a fixed offset.
+
+If the timezone is unknown, identify it from session structure rather than
+assuming: the CME 17:00 NY maintenance halt should fall in a single hour. The
+MT5 export used here is EET/EEST (`--tz Europe/Helsinki`), which leaves 10 bars
+in the 17:00 NY hour against ~9,100 for a typical hour; fixed offsets such as
+`Etc/GMT-2` smear the halt across two hours because broker DST does not track
+US DST.
 
 Coverage: the 21:00 and 09:00 NY hours must be populated. Several years is
 wanted — the walk-forward needs at least train + test spans (default 2y + 1y).
@@ -94,13 +103,21 @@ nqproj/
   metrics.py      R-based performance reporting
   nullmodel.py    synthetic nulls + block bootstrap
 scripts/
-  run_research.py    full pipeline on real or synthetic data
-  run_null_study.py  null calibration of the headline statistics
-tests/test_core.py   correctness tests (projection maths, touch, DST, lookahead)
+  run_research.py          full pipeline on real or synthetic data
+  run_null_study.py        null calibration of the headline statistics
+  reference_hour_sweep.py  every hour as a placebo reference candle
+tests/test_core.py         correctness tests (projection maths, touch, DST, lookahead)
 ```
+
+`REF_HOURS` in `projections.py` maps a label to an NY hour, so any hour can be
+used as a reference candle — that is what the sweep exploits, and what makes
+testing a new reference cheap.
 
 ## Known limitations
 
+- **Swing extremes are timestamped on hourly pivots**, so sub-hour time buckets
+  (notably 09:30–10:00) are structurally empty in `time_of_day_*.csv`. Detect
+  swings on a finer resample before reading anything into those buckets.
 - Zones are horizontal price levels; no session-VWAP or time-decay weighting.
 - `transition_stats` de-duplicates touches within 1 hour, since a dense ladder
   otherwise records level spacing rather than genuine rotations. The window is

@@ -105,23 +105,42 @@ def simulate(
 
 
 def bootstrap_from_real(bs: BarSet, block_hours: float = 24.0, seed: int | None = None,
-                        symbol: str = "BOOT") -> BarSet:
-    """Stationary block bootstrap of real bars.
+                        symbol: str = "BOOT", align_daily: bool = True) -> BarSet:
+    """Block bootstrap of real bars.
 
     Preserves intraday volatility shape and fat tails while destroying any
     multi-day geometric relationship -- the sharpest null available once real
     data exists, because it keeps everything except the thing under test.
+
+    ``align_daily`` resamples whole NY days onto the original calendar so each
+    bar keeps its hour-of-day. This matters for any hour-of-day question: with
+    free-floating block starts the intraday volatility profile is smeared out,
+    the reference hour loses its characteristic range, and the null stops being
+    matched on the very property under test.
     """
     rng = np.random.default_rng(seed)
     b = bs.bars
     ret = np.log(b["close"]).diff().fillna(0.0).to_numpy()
     hl = (b["high"] / b["close"]).to_numpy(), (b["low"] / b["close"]).to_numpy()
-
-    bars_per_block = max(1, int(block_hours * 60 / bs.minutes))
     n = len(b)
-    n_blocks = int(np.ceil(n / bars_per_block))
-    starts = rng.integers(0, max(1, n - bars_per_block), size=n_blocks)
-    order = np.concatenate([np.arange(s, s + bars_per_block) for s in starts])[:n] % n
+
+    if align_daily:
+        # Map each target day's bars onto a randomly chosen source day, matching
+        # by position within the day so 21:00 draws from some other day's 21:00.
+        day_pos = {}
+        for pos, d in enumerate(b.index.normalize()):
+            day_pos.setdefault(d, []).append(pos)
+        days = list(day_pos.values())
+        order = np.empty(n, dtype=np.int64)
+        for tgt in days:
+            src = days[rng.integers(0, len(days))]
+            for j, pos in enumerate(tgt):
+                order[pos] = src[j % len(src)]
+    else:
+        bars_per_block = max(1, int(block_hours * 60 / bs.minutes))
+        n_blocks = int(np.ceil(n / bars_per_block))
+        starts = rng.integers(0, max(1, n - bars_per_block), size=n_blocks)
+        order = np.concatenate([np.arange(s, s + bars_per_block) for s in starts])[:n] % n
 
     close = b["close"].iloc[0] * np.exp(np.cumsum(ret[order]))
     frame = pd.DataFrame(
