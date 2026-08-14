@@ -1,0 +1,13 @@
+# Price data is never committed — it is large, and usually licensed.
+data/*
+!data/.gitkeep
+
+# Generated analysis output. The null-study evidence quoted in FINDINGS.md is
+# force-added as the record behind those numbers; everything else regenerates.
+out/*
+!out/null_study_raw.csv
+!out/null_study_summary.csv
+!out/null_headline.json
+
+__pycache__/
+*.pyc
