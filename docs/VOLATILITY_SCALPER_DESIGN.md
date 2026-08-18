@@ -534,3 +534,120 @@ result every batch.
 5. Session/news/spread gates
 6. Backtest on real ticks, ≥12 months, across trending *and* ranging regimes
 7. Forward-test on demo before anything else
+
+---
+
+## 13. Evaluated alternative: trading every M1 candle's opening volatility
+
+**The idea.** At each M1 open, wait for the first directional move off the open,
+enter that way, put the stop behind the candle open, and take a tight profit that
+fills before the candle can flip. On hitting TP, re-enter on the next burst in the
+same direction and repeat within the candle. Lots scale with equity.
+
+**Verdict: the entry structure is good and worth keeping; the tight target is
+fatal, and it is fatal for a reason that generalises to every variant.**
+
+### 13.1 The governing constraint
+
+For any trade with target `TP`, stop `SL` and round-turn cost `c` (all in pips):
+
+```
+break-even win rate  P_be  = (SL + c) / (TP + SL)
+random-walk win rate P_rw  =  SL      / (TP + SL)
+
+directional edge you must supply  =  P_be - P_rw  =  c / (TP + SL)
+```
+
+**The edge required is the cost divided by the total span of the trade.** This is
+the single most useful formula in the document, because it prices any scalping idea
+in one line:
+
+| TP / SL | Span | Random-walk win % | Edge needed (c = 1.5) |
+|---------|------|-------------------|-----------------------|
+| 2 / 1.5 | 3.5 | 42.9% | **42.9 points** |
+| 4 / 4 | 8 | 50.0% | 18.8 points |
+| 8 / 12 | 20 | 60.0% | 7.5 points |
+| 15 / 10 | 25 | 40.0% | 6.0 points |
+| 20 / 20 | 40 | 50.0% | 3.8 points |
+| 50 / 50 | 100 | 50.0% | 1.5 points |
+
+**Tighter trades need more edge, not less.** This is the counterintuitive result and
+it is what every version of the concept has been running into. Shrinking the trade
+to make it "safer" or "quicker" inflates the requirement, because the fixed cost is
+being spread over a smaller span.
+
+The specified version — 1-pip trigger, stop 1.5 behind the open, 2-pip target —
+needs to beat a coin flip by **42.9 percentage points**: an 85.7% win rate against a
+42.9% baseline. No M1 directional signal is remotely that good.
+
+### 13.2 Why "too fast for the candle to flip" does not help
+
+Note that **time does not appear anywhere in the formula.** The probability of
+touching `+TP` before `-SL` depends only on the ratio of the two distances, not on
+how quickly it happens. A target that fills in three seconds and one that fills in
+three hours have identical odds at the same distances. The intuition that speed
+protects the trade is the one part of the concept that has no mathematical support.
+
+Worse, the empirical tilt runs the wrong way: M1 transaction-price returns show
+slightly *negative* lag-1 autocorrelation (bid-ask bounce, the Roll effect), so the
+first move off an open is marginally more likely to revert than continue. The
+premise is not merely unsupported, it is mildly inverted. `tools/` measures this on
+your own data — see below.
+
+### 13.3 Frequency makes it worse, not better
+
+Cost is charged per trade, so frequency multiplies it. Roughly a third of M1 candles
+trigger on a 1-pip threshold, which is ~480 trades/day running 24h. At 1.5 pips
+each that is **~720 pips/day of cost** against an instrument whose entire daily
+range is ~100-150 pips — several times the whole day's available movement, paid out
+in friction. The in-candle re-entry rule multiplies this again: every re-entry pays
+another full round turn for another sub-2-pip target.
+
+Two practical notes on top: broker order-rate limits, and the fact that several
+hundred sub-minute trades a day is the textbook toxic-flow pattern that gets retail
+accounts restricted or closed.
+
+### 13.4 What to keep
+
+The **stop behind the candle open is genuinely good** — a structural invalidation
+level rather than an arbitrary pip count, and naturally tight. Keep it. Also keep
+the trigger concept: entering on a real directional impulse rather than a
+prediction is sound.
+
+What has to change is the target and the selectivity:
+
+- **Target 2.5-3x the stop distance**, not below it. Same entry, same stop; only
+  the exit moves. This is what drags the edge requirement from ~43 points down to
+  single digits.
+- **Not every candle.** Take the opening-impulse entry only where volatility
+  expansion has a cause: session opens (London 08:00, NY 13:30 GMT), a break out of
+  a measured compression (NR7 / ATR contraction), or price entering the sandwich
+  zone from section 5. That is ~5-15 trades a day rather than ~480, which is what
+  the cost budget can actually support.
+- Equity-based sizing per section 7 carries over unchanged.
+
+### 13.5 Measure it yourself before building it
+
+`tools/m1_open_volatility_test.py` runs this exact strategy over an M1 export from
+your own broker, so the question is settled with your spreads and your feed rather
+than by argument:
+
+```
+python3 tools/m1_open_volatility_test.py bars.csv --pip 0.0001 --cost 1.5 \
+        --trigger 1.0 --buffer 0.5 --tp 2.0
+```
+
+It reports candle-size distribution by hour (does a 10-pip-each-way candle exist?),
+lag-1 autocorrelation (does a move continue or revert?), the strategy's measured
+expectancy, the edge-requirement table above, and the daily cost burn.
+
+OHLC bars do not record whether the high or the low came first, and for this
+strategy entry, stop and target can all fall inside one candle. Rather than assume
+the flattering ordering, the tool scores every ambiguous candle both ways and
+**brackets** the result. If the optimistic bound is still negative, the idea is
+dead without needing tick data; if the bracket straddles zero, that tells you tick
+data is worth obtaining.
+
+Sanity check: run against a driftless synthetic random walk it returns gross ≈ 0.00
+and net ≈ −1.50 pips/trade, i.e. exactly the cost — confirming the tool measures
+cost drag correctly and adds no bias of its own.
