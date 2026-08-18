@@ -175,3 +175,41 @@ you what your feed and spreads can actually support.
   symbol manually on the same account at the same time.
 - Netting accounts collapse the ladder to a single leg. The EA detects this at init and
   says so in the log.
+
+---
+
+## Expected results
+
+There is no backtest, so there is no measured result. What exists is
+`tools/expectancy_model.py`, which combines the EA's geometry (exact) with an
+assumed outcome distribution (a guess) to show what the guess is worth.
+
+At default settings, a 1.5 pip cost and an assumed 60% headline win rate, the
+model returns **−2.8%/month**. It turns positive if the full-loss rate falls
+about 5 points. That single number decides everything:
+
+| Full-loss rate | Per month |
+|----------------|-----------|
+| 15% | +3.9% |
+| 20% | +0.6% |
+| 25% (assumed) | −2.8% |
+| 30% | −6.1% |
+
+The honest range is roughly **−6% to +4% per month**, and where inside it you
+land depends entirely on whether the ER and volatility filters actually improve
+the hit rate over an unfiltered baseline. That is the one thing a backtest needs
+to establish, and the one thing no amount of design reasoning can settle.
+
+### What the model changed about the design
+
+Running it across ATR values exposed a gap. Expectancy is negative around ATR
+4–5 pips and clearly positive by ATR 8, because **cost is a fixed number of pips
+while every target scales with ATR**. The relative gate (`InpVolMin`) cannot see
+this — a quiet market can be busy relative to itself and still have targets too
+small to clear the spread. `InpMinAtrPips` (default 6.0) was added as an absolute
+floor to close it. Raise it and the EA trades less but with better geometry;
+below about 5 the arithmetic stops working at typical retail costs.
+
+Fewer ladder legs also helps at low ATR — three legs pay 4.5 pips of cost against
+a 5-pip TP1, which is most of one leg's target. `InpLadderLegs = 2` is worth
+testing if your spreads are wide.

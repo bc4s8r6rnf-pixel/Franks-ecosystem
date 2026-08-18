@@ -61,6 +61,7 @@ input ENUM_TIMEFRAMES InpEntryTF  = PERIOD_M1;  // Trigger timeframe (rejection 
 input group "=== Volatility gate (the permission filter) ==="
 input int    InpAtrPeriod     = 14;         // ATR period
 input int    InpBaselineDays  = 5;          // Days of all-hours history for the ATR baseline
+input double InpMinAtrPips    = 6.0;        // Absolute ATR floor in pips - see note below
 input double InpVolMin        = 0.80;       // Min ATR / baseline - below this there is nothing to catch
 input double InpVolMax        = 2.50;       // Max ATR / baseline - above this it is news, spreads gap
 input double InpMaxSpreadAtr  = 0.25;       // Reject if spread > this x ATR(zone TF)
@@ -270,6 +271,19 @@ void EvaluateEntry()
    double baseline = AtrBaseline();
    if(baseline <= 0.0)
       { Reject("not enough history yet to build the ATR baseline"); return; }
+   // ABSOLUTE floor, checked before the relative one.
+   //
+   // The ratio gate answers "is it busy for this market?" but cost is a fixed
+   // number of pips while every target here scales with ATR, so a quiet market
+   // can be busy relative to itself and still have targets too small to clear
+   // the spread. Modelling the default geometry against a 1.5 pip cost, the
+   // expectancy is negative around ATR 4-5 pips and clearly positive by ATR 8 -
+   // the ratio gate alone does not catch that, because both cases can sit at
+   // the same ratio. This floor does.
+   if(atr < InpMinAtrPips * g_pip)
+      { Reject(StringFormat("ATR %.1f pips below the %.1f floor - targets too small vs cost",
+                            atr / g_pip, InpMinAtrPips)); return; }
+
    double volRatio = atr / baseline;
    if(volRatio < InpVolMin)
       { Reject(StringFormat("vol %.2f < min %.2f (too quiet)", volRatio, InpVolMin)); return; }
