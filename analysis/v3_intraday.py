@@ -27,7 +27,8 @@ from zone_sequence import pct
 NY = ZoneInfo("America/New_York")
 PIP = 0.10
 SRC_HOUR, CALL_HOUR, FLAT_HOUR = 21, 4, 16
-ASIA_START, FILL_DEADLINE = 18, 12
+RANGE_START, RANGE_END = 19, 5      # the 7pm -> 5am range, NY
+FILL_DEADLINE = 12
 LVL1 = 2.0
 
 
@@ -53,7 +54,8 @@ def load(path):
 
 
 class Sess:
-    __slots__ = ("day", "rhigh", "rlow", "rng", "u1", "l2", "lo", "hi", "call", "flat")
+    __slots__ = ("day", "rhigh", "rlow", "rng", "u1", "l2", "lo", "hi", "call", "flat",
+                 "arm", "half")
 
 
 def sessions(bars):
@@ -85,7 +87,15 @@ def sessions(bars):
         s.lo, s.hi = ids[0], ids[-1]
         s.call = next((i for i in ids if bars[i].ny.hour >= CALL_HOUR), None)
         s.flat = next((i for i in ids if bars[i].ny.hour >= FLAT_HOUR), s.hi)
-        if s.call is None:
+        # The 7pm -> 5am range straddles the lane open, and it only CLOSES at
+        # 05:00 - after the 04:00 call - so the levels arm an hour later.
+        s.arm = next((i for i in ids if bars[i].ny.hour >= RANGE_END), None)
+        rs = ls - timedelta(hours=24 - RANGE_START)
+        re_ = ls + timedelta(hours=RANGE_END)
+        win = [k for k in range(max(0, an[-1] - 200), min(len(bars), ids[-1] + 1))
+               if rs <= bars[k].ny < re_]
+        s.half = (max(bars[k].h for k in win) + min(bars[k].l for k in win)) / 2 if win else None
+        if s.call is None or s.arm is None:
             continue
         out.append(s)
     return out
@@ -114,21 +124,19 @@ def trade(bars, S, k, cfg):
     box_edge = s.rlow if side > 0 else s.rhigh
     run = (px - s.rhigh) / s.rng if side > 0 else (s.rlow - px) / s.rng
 
-    if cfg["patient"] and run > cfg["run_thresh"]:
-        a0 = next((i for i in range(s.lo, s.call + 1)
-                   if bars[i].ny.hour >= ASIA_START), s.lo)
-        rh = max(bars[m].h for m in range(a0, s.call + 1))
-        rl = min(bars[m].l for m in range(a0, s.call + 1))
-        cands = [c for c in (vwap_at(bars, s, s.call), box_edge, (rh + rl) / 2)
-                 if (c < px if side > 0 else c > px)]
+    if cfg["patient"] and (cfg["always_wait"] or run > cfg["run_thresh"]):
+        # Levels arm when the 7pm-5am range closes, one hour after the call.
+        apx = bars[s.arm].o
+        cands = [c for c in (vwap_at(bars, s, s.arm), box_edge, s.half)
+                 if c is not None and (c < apx if side > 0 else c > apx)]
         if cands:
-            dead = next((i for i in range(s.call, s.hi + 1)
+            dead = next((i for i in range(s.arm, s.hi + 1)
                          if bars[i].ny.hour >= FILL_DEADLINE), s.flat)
             if cfg["first_touch"]:
                 # Whichever level price reaches first. Within one bar the shallowest
                 # retracement is the one it met on the way, so that is the fill.
                 fb = lvl = None
-                for m in range(s.call, dead + 1):
+                for m in range(s.arm, dead + 1):
                     hit = [c for c in cands
                            if ((bars[m].l <= c) if side > 0 else (bars[m].h >= c))]
                     if hit:
@@ -137,7 +145,7 @@ def trade(bars, S, k, cfg):
                         break
             else:
                 lvl = min(cands, key=lambda c: abs(c - box_edge))
-                fb = next((m for m in range(s.call, dead + 1)
+                fb = next((m for m in range(s.arm, dead + 1)
                            if ((bars[m].l <= lvl) if side > 0 else (bars[m].h >= lvl))), None)
             if fb is None:
                 return None
@@ -170,7 +178,8 @@ def trade(bars, S, k, cfg):
 
 
 BASE = dict(patient=False, run_thresh=0.5, buffer=2.0, stop_mode="box",
-            flat_R=1.25, cap_2to1=True, flat_at_close=True, first_touch=True)
+            flat_R=1.25, cap_2to1=True, flat_at_close=True, first_touch=True,
+            always_wait=True)
 
 
 def cfg(**kw):

@@ -52,17 +52,23 @@ srcHour  = input.int(21, "Source candle hour (NY)", minval = 0, maxval = 23, gro
 readHour = input.int(4, "Direction read hour (NY)", minval = 0, maxval = 23, group = "Method")
 lvl1     = input.float(2.0, "Inner zone edge (R)", step = 0.05, group = "Method")
 
-useWait   = input.bool(true, "Wait for a pullback when price has run", group = "Entry")
-runThresh = input.float(0.5, "    wait when price is this far from the box (R)",
-     step = 0.05, minval = 0.0, group = "Entry",
-     tooltip = "0.5 tested best. A threshold of 0 - always waiting - collapsed to +0.12 R.")
+useWait   = input.bool(true, "Wait for an entry level", group = "Entry")
+alwaysWait = input.bool(true, "    always wait, never enter at the call", group = "Entry",
+     tooltip = "ON is the rule as specified - every day waits for a tap. The data prefers "
+             + "a small gate: waiting only when price has run 0.25 R past the box scored "
+             + "+0.43 R on 45 trades against +0.32 R on 33 for always waiting.")
+runThresh = input.float(0.25, "    if not always, wait only when run past the box exceeds (R)",
+     step = 0.05, minval = 0.0, group = "Entry")
 deadHour  = input.int(12, "    give up waiting at (NY hour)", minval = 0, maxval = 23,
      group = "Entry")
-useVwap   = input.bool(true, "    VWAP as a pullback level", inline = "pl", group = "Entry")
+useVwap   = input.bool(true, "    VWAP", inline = "pl", group = "Entry")
 useBox    = input.bool(true, "    box edge", inline = "pl", group = "Entry")
-useHalf   = input.bool(true, "    50% Asia-London", inline = "pl", group = "Entry")
-asiaHour  = input.int(18, "    Asia range starts (NY hour)", minval = 0, maxval = 23,
+useHalf   = input.bool(true, "    50% of the range", inline = "pl", group = "Entry")
+rangeStart = input.int(19, "Range starts (NY hour)", minval = 0, maxval = 23, inline = "rg",
      group = "Entry")
+rangeEnd   = input.int(5, "ends", minval = 0, maxval = 23, inline = "rg", group = "Entry",
+     tooltip = "The 7pm -> 5am range. It straddles midnight and only CLOSES at 05:00, "
+             + "which is after the 04:00 call - so the levels arm an hour after the call.")
 
 bufDollars = input.float(1.0, "Stop buffer beyond the box ($)", step = 0.10, minval = 0.0,
      group = "Stop & target",
@@ -215,8 +221,12 @@ var float  dnEdge   = na
 var float  boxHi    = na
 var float  boxLo    = na
 var int    laneDay  = na
-var float  alHi     = na          // Asia + London running range
-var float  alLo     = na
+var float  rngHi     = na         // the 7pm -> 5am range, straddling midnight
+var float  rngLo     = na
+var float  halfLvl   = na         // its 50% level, frozen when the range closes
+var bool   rangeOpen = false
+var bool   rangeDone = false
+var bool   pending   = false      // called, waiting for the range to close and arm
 var bool   called   = false
 var bool   armed    = false
 var bool   filled   = false
@@ -267,16 +277,25 @@ if newSrc and (srcHigh - srcLow) > 0
     lvlB    := na
     lvlH    := na
     lvlV    := false
+    pending := false
     fillWhat := ""
     why     := "waiting for " + str.format("{0,number,00}:00", readHour) + " NY"
 
-// Asia -> London range, running from asiaHour up to the read
-if intraday and hour(time, TZ) == asiaHour and hour(time[1], TZ) != asiaHour
-    alHi := high
-    alLo := low
-if intraday and not na(alHi) and not called
-    alHi := math.max(alHi, high)
-    alLo := math.min(alLo, low)
+// The 7pm -> 5am range. It opens the evening BEFORE the lane it serves, runs
+// through midnight, and closes at 05:00 - an hour after the direction call.
+if intraday and hour(time, TZ) == rangeStart and hour(time[1], TZ) != rangeStart
+    rngHi     := high
+    rngLo     := low
+    rangeOpen := true
+    rangeDone := false
+    halfLvl   := na
+if intraday and rangeOpen
+    rngHi := math.max(rngHi, high)
+    rngLo := math.min(rngLo, low)
+    if hour(time, TZ) == rangeEnd
+        rangeOpen := false
+        rangeDone := true
+        halfLvl   := (rngHi + rngLo) / 2
 
 bool inLane = intraday and not na(laneDay) and time >= laneDay and time < laneDay + 86400000
 int  flatMs = flatEnd ? 16 * 3600000 + 55 * 60000 : 86400000
@@ -298,32 +317,35 @@ if laneLive and not called and hour(time, TZ) >= readHour
     float run = side > 0 ? (px - boxHi) / R : (boxLo - px) / R
     float boxEdge = side > 0 ? boxLo : boxHi
 
-    if useWait and run > runThresh
-        // Arm every enabled level that sits on the pullback side. Price takes
-        // whichever it reaches first - they are alternatives, not a ranking.
-        lvlV := useVwap and (side > 0 ? vw < px : vw > px)
-        lvlB := useBox and (side > 0 ? boxEdge < px : boxEdge > px) ? boxEdge : na
-        float half = na(alHi) ? na : (alHi + alLo) / 2
-        lvlH := useHalf and not na(half) and (side > 0 ? half < px : half > px) ? half : na
-
-        if not lvlV and na(lvlB) and na(lvlH)
-            entryPx := px
-            armed   := false
-            filled  := true
-            why := "ran " + str.tostring(run, "#.##") + " R, no level to wait for"
-        else
-            // shallowest of the armed levels, for the panel readout
-            waitLvl := lvlV ? vw : na
-            if not na(lvlB)
-                waitLvl := na(waitLvl) ? lvlB : (side > 0 ? math.max(waitLvl, lvlB) : math.min(waitLvl, lvlB))
-            if not na(lvlH)
-                waitLvl := na(waitLvl) ? lvlH : (side > 0 ? math.max(waitLvl, lvlH) : math.min(waitLvl, lvlH))
-            armed := true
-            why := "ran " + str.tostring(run, "#.##") + " R - waiting for the first tap"
+    if useWait and (alwaysWait or run > runThresh)
+        pending := true
+        why := "called - waiting for the "
+             + str.format("{0,number,00}:00", rangeEnd) + " range close to arm"
     else
         entryPx := px
         filled  := true
-        why := "near the box (" + str.tostring(run, "#.##") + " R)"
+        why := "entered at the call (" + str.tostring(run, "#.##") + " R past the box)"
+
+// ---- arm when the range closes -------------------------------------------
+// Every enabled level that sits on the pullback side goes live at once. Price
+// takes whichever it reaches first - they are alternatives, not a ranking.
+if laneLive and pending and not armed and not filled and rangeDone
+    float apx = open
+    lvlV := useVwap and (side > 0 ? vw < apx : vw > apx)
+    lvlB := useBox and (side > 0 ? boxLo < apx : boxHi > apx) ? (side > 0 ? boxLo : boxHi) : na
+    lvlH := useHalf and not na(halfLvl) and (side > 0 ? halfLvl < apx : halfLvl > apx) ? halfLvl : na
+
+    pending := false
+    if not lvlV and na(lvlB) and na(lvlH)
+        why := "no level on the pullback side - no trade"
+    else
+        waitLvl := lvlV ? vw : na
+        if not na(lvlB)
+            waitLvl := na(waitLvl) ? lvlB : (side > 0 ? math.max(waitLvl, lvlB) : math.min(waitLvl, lvlB))
+        if not na(lvlH)
+            waitLvl := na(waitLvl) ? lvlH : (side > 0 ? math.max(waitLvl, lvlH) : math.min(waitLvl, lvlH))
+        armed := true
+        why := "armed - first tap of VWAP / box edge / 50% wins"
 
 // ---- the pullback fill ----------------------------------------------------
 if laneLive and armed and not filled
@@ -402,7 +424,9 @@ if justFilled and eShow and (didWait or not eWaitOnly)
     f_mark(side, eShape, eUpEmo, eDnEmo, et, side > 0 ? eUpCol : eDnCol,
          eSize, ePlace, eOff, eTxtCol, eTrans)
 
-if justCalled and armed and shWait
+bool justArmed = laneLive and armed and not armed[1]
+
+if justArmed and shWait
     if lvlV
         lnW1 := line.new(bar_index, vw, bar_index + 1, vw, color = cWait,
              style = f_style(sWait), width = 1)
@@ -468,6 +492,7 @@ if barstate.islast and showPanel and intraday
 
     color vc = side > 0 ? dUpCol : side < 0 ? dDnCol : dNoCol
     string vt = not called ? "WAITING" : side == 0 ? "NO TRADE" :
+         pending ? (side > 0 ? "CALLED LONG" : "CALLED SHORT") :
          armed ? (side > 0 ? "ARMED LONG" : "ARMED SHORT") :
          filled ? (side > 0 ? "LONG" : "SHORT") : "NO TRADE"
     color bg = color.new(color.black, 25)
@@ -481,8 +506,9 @@ if barstate.islast and showPanel and intraday
     f_cell(T, 1, 2, na(R) ? "-" : str.tostring(R, format.mintick), bg, fg, sz)
     f_cell(T, 0, 3, "VWAP", bg, fg, sz)
     f_cell(T, 1, 3, na(vw) ? "-" : str.tostring(vw, format.mintick), bg, fg, sz)
-    f_cell(T, 0, 4, "50% Asia-London", bg, fg, sz)
-    f_cell(T, 1, 4, na(alHi) ? "-" : str.tostring((alHi + alLo) / 2, format.mintick), bg, fg, sz)
+    f_cell(T, 0, 4, str.format("50% of {0,number,00}-{1,number,00} range", rangeStart, rangeEnd), bg, fg, sz)
+    f_cell(T, 1, 4, na(halfLvl) ? (rangeOpen ? "range still open" : "-") :
+         str.tostring(halfLvl, format.mintick), bg, fg, sz)
     f_cell(T, 0, 5, armed ? "first tap wins" : ("entry" + (fillWhat == "" ? "" : " (" + fillWhat + ")")), bg, fg, sz)
     f_cell(T, 1, 5, armed ? str.tostring(waitLvl, format.mintick) :
          na(entryPx) ? "-" : str.tostring(entryPx, format.mintick), bg, armed ? cWait : fg, sz)
@@ -499,5 +525,5 @@ if barstate.islast and showPanel and intraday
 
 alertcondition(justCalled and side ==  1, "Direction: UP",   "Direction call: UP")
 alertcondition(justCalled and side == -1, "Direction: DOWN", "Direction call: DOWN")
-alertcondition(justCalled and armed,      "Armed - waiting", "Waiting for the pullback level")
+alertcondition(justArmed,                 "Armed - waiting", "Levels armed - waiting for the first tap")
 alertcondition(justFilled,                "Entry filled",    "Trade filled - stop and target set")
