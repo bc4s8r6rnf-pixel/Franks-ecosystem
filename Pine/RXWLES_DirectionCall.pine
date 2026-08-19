@@ -315,7 +315,6 @@ if laneLive and not called and hour(time, TZ) >= readHour
 
     // how far has price already run past the box in our direction?
     float run = side > 0 ? (px - boxHi) / R : (boxLo - px) / R
-    float boxEdge = side > 0 ? boxLo : boxHi
 
     if useWait and (alwaysWait or run > runThresh)
         pending := true
@@ -367,7 +366,7 @@ if laneLive and armed and not filled
         if not na(lvlH) and ((side > 0 and low <= lvlH) or (side < 0 and high >= lvlH))
             if na(got) or (side > 0 ? lvlH > got : lvlH < got)
                 got := lvlH
-                what := "50% Asia-London"
+                what := "50% range"
         if not na(got)
             entryPx  := got
             filled   := true
