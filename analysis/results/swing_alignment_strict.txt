@@ -1,0 +1,70 @@
+
+==============================================================================
+  XAUUSD   111 sessions   238 swing highs   253 swing lows
+  Mode: STRICT - untouched daily-zone edges only   (up to 44 lines live)
+==============================================================================
+
+------------------------------------------------------------------------------
+ARE SWING EXTREMES CLOSER TO A LEVEL THAN ORDINARY BARS?
+------------------------------------------------------------------------------
+  Distance to the nearest drawn line, in units of that day's 9pm range.
+
+  group                           n   median  within .10  within .25  within .50
+  swing highs                   226    1.734        4.0%        8.8%       13.7%
+  ordinary bar highs           1963    1.852        1.2%        2.9%        5.1%
+  swing lows                    234    1.409        6.0%       12.4%       20.5%
+  ordinary bar lows            1963    1.771        1.1%        2.7%        6.0%
+
+------------------------------------------------------------------------------
+THE VERDICT
+------------------------------------------------------------------------------
+  swing highs    are 3.0x more likely than an ordinary bar to sit within .25 R of a line
+  swing lows     are 4.6x more likely than an ordinary bar to sit within .25 R of a line
+
+  swing highs    vs ordinary bar highs   within .25 R:    8.8% vs   2.9%   edge  +5.9 points
+  swing lows     vs ordinary bar lows    within .25 R:   12.4% vs   2.7%   edge  +9.7 points
+
+  An edge near zero means swing points are no closer to the boxes than any
+  other bar - the alignment is the density of the levels, not a signal.
+  An edge of several points means turning points really do seek the lines.
+
+------------------------------------------------------------------------------
+WHICH LINE DO SWINGS SIT ON?
+------------------------------------------------------------------------------
+  swing highs    zone edge 100%
+  swing lows     zone edge 100%
+
+==============================================================================
+  NAS100   111 sessions   243 swing highs   243 swing lows
+  Mode: STRICT - untouched daily-zone edges only   (up to 44 lines live)
+==============================================================================
+
+------------------------------------------------------------------------------
+ARE SWING EXTREMES CLOSER TO A LEVEL THAN ORDINARY BARS?
+------------------------------------------------------------------------------
+  Distance to the nearest drawn line, in units of that day's 9pm range.
+
+  group                           n   median  within .10  within .25  within .50
+  swing highs                   225    1.691        3.6%       11.6%       16.4%
+  ordinary bar highs           1933    2.084        1.6%        3.6%        6.2%
+  swing lows                    226    1.900        4.0%       10.2%       16.4%
+  ordinary bar lows            1933    2.211        1.8%        3.0%        5.3%
+
+------------------------------------------------------------------------------
+THE VERDICT
+------------------------------------------------------------------------------
+  swing highs    are 3.2x more likely than an ordinary bar to sit within .25 R of a line
+  swing lows     are 3.4x more likely than an ordinary bar to sit within .25 R of a line
+
+  swing highs    vs ordinary bar highs   within .25 R:   11.6% vs   3.6%   edge  +7.9 points
+  swing lows     vs ordinary bar lows    within .25 R:   10.2% vs   3.0%   edge  +7.2 points
+
+  An edge near zero means swing points are no closer to the boxes than any
+  other bar - the alignment is the density of the levels, not a signal.
+  An edge of several points means turning points really do seek the lines.
+
+------------------------------------------------------------------------------
+WHICH LINE DO SWINGS SIT ON?
+------------------------------------------------------------------------------
+  swing highs    zone edge 100%
+  swing lows     zone edge 100%

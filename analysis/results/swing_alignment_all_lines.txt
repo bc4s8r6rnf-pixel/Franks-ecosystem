@@ -1,0 +1,70 @@
+
+==============================================================================
+  XAUUSD   111 sessions   238 swing highs   253 swing lows
+  Mode: ALL lines the indicator draws   (up to 99 lines live)
+==============================================================================
+
+------------------------------------------------------------------------------
+ARE SWING EXTREMES CLOSER TO A LEVEL THAN ORDINARY BARS?
+------------------------------------------------------------------------------
+  Distance to the nearest drawn line, in units of that day's 9pm range.
+
+  group                           n   median  within .10  within .25  within .50
+  swing highs                   226    0.058       70.4%       90.3%       97.8%
+  ordinary bar highs           1963    0.053       69.6%       89.7%       95.5%
+  swing lows                    234    0.057       66.2%       85.5%       92.3%
+  ordinary bar lows            1963    0.054       68.6%       87.2%       92.9%
+
+------------------------------------------------------------------------------
+THE VERDICT
+------------------------------------------------------------------------------
+  swing highs    are 1.0x more likely than an ordinary bar to sit within .25 R of a line
+  swing lows     are 1.0x more likely than an ordinary bar to sit within .25 R of a line
+
+  swing highs    vs ordinary bar highs   within .25 R:   90.3% vs  89.7%   edge  +0.6 points
+  swing lows     vs ordinary bar lows    within .25 R:   85.5% vs  87.2%   edge  -1.7 points
+
+  An edge near zero means swing points are no closer to the boxes than any
+  other bar - the alignment is the density of the levels, not a signal.
+  An edge of several points means turning points really do seek the lines.
+
+------------------------------------------------------------------------------
+WHICH LINE DO SWINGS SIT ON?
+------------------------------------------------------------------------------
+  swing highs    zone edge 44%, enigma edge 27%, enigma EQ 15%, zone EQ 13%
+  swing lows     zone edge 42%, enigma edge 30%, enigma EQ 18%, zone EQ 10%
+
+==============================================================================
+  NAS100   111 sessions   243 swing highs   243 swing lows
+  Mode: ALL lines the indicator draws   (up to 99 lines live)
+==============================================================================
+
+------------------------------------------------------------------------------
+ARE SWING EXTREMES CLOSER TO A LEVEL THAN ORDINARY BARS?
+------------------------------------------------------------------------------
+  Distance to the nearest drawn line, in units of that day's 9pm range.
+
+  group                           n   median  within .10  within .25  within .50
+  swing highs                   227    0.124       44.9%       69.6%       77.5%
+  ordinary bar highs           1958    0.099       50.5%       73.3%       82.1%
+  swing lows                    227    0.108       47.6%       72.2%       82.4%
+  ordinary bar lows            1958    0.099       50.4%       73.0%       82.8%
+
+------------------------------------------------------------------------------
+THE VERDICT
+------------------------------------------------------------------------------
+  swing highs    are 0.9x more likely than an ordinary bar to sit within .25 R of a line
+  swing lows     are 1.0x more likely than an ordinary bar to sit within .25 R of a line
+
+  swing highs    vs ordinary bar highs   within .25 R:   69.6% vs  73.3%   edge  -3.7 points
+  swing lows     vs ordinary bar lows    within .25 R:   72.2% vs  73.0%   edge  -0.7 points
+
+  An edge near zero means swing points are no closer to the boxes than any
+  other bar - the alignment is the density of the levels, not a signal.
+  An edge of several points means turning points really do seek the lines.
+
+------------------------------------------------------------------------------
+WHICH LINE DO SWINGS SIT ON?
+------------------------------------------------------------------------------
+  swing highs    zone edge 54%, enigma edge 27%, enigma EQ 11%, zone EQ 8%
+  swing lows     zone edge 53%, enigma edge 26%, zone EQ 13%, enigma EQ 8%
