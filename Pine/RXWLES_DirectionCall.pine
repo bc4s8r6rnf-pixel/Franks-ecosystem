@@ -207,19 +207,38 @@ f_src() =>
 // STATE
 //=============================================================================
 
-var float R = na, upEdge = na, dnEdge = na, boxHi = na, boxLo = na
-var int   laneDay = na
-var float alHi = na, alLo = na            // Asia + London running range
-var bool  called = false, armed = false, filled = false
-var int   side = 0
-var float gap = na, waitLvl = na, entryPx = na, stopPx = na, tgtPx = na, rrHave = na
-var float lvlB = na, lvlH = na            // box edge and 50% Asia-London triggers
-var bool  lvlV = false                    // VWAP trigger armed (tracked live, it moves)
+// One declaration per line: Pine applies the type keyword only to the first
+// variable in a comma list, so the rest come out untyped and reject `na`.
+var float  R        = na
+var float  upEdge   = na
+var float  dnEdge   = na
+var float  boxHi    = na
+var float  boxLo    = na
+var int    laneDay  = na
+var float  alHi     = na          // Asia + London running range
+var float  alLo     = na
+var bool   called   = false
+var bool   armed    = false
+var bool   filled   = false
+var int    side     = 0
+var float  gap      = na
+var float  waitLvl  = na
+var float  entryPx  = na
+var float  stopPx   = na
+var float  tgtPx    = na
+var float  rrHave   = na
+var float  lvlB     = na          // box edge trigger
+var float  lvlH     = na          // 50% Asia-London trigger
+var bool   lvlV     = false       // VWAP trigger armed (tracked live, it moves)
 var string fillWhat = ""
-var bool  didWait = false
-var string why = ""
-var line lnE = na, lnS = na, lnT = na
-var line lnW1 = na, lnW2 = na, lnW3 = na
+var bool   didWait  = false
+var string why      = ""
+var line   lnE      = na
+var line   lnS      = na
+var line   lnT      = na
+var line   lnW1     = na
+var line   lnW2     = na
+var line   lnW3     = na
 
 bool intraday = not timeframe.isdwm
 bool newSrc = intraday and not na(srcDay) and not na(srcHigh) and (na(laneDay) or srcDay != laneDay)
