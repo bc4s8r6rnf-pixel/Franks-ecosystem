@@ -143,6 +143,7 @@ struct SessionRec
    int      outcome;
    double   maxDevUp, maxDevDn;   // furthest excursion each way, in deviations
    int      laneStartIdx;            // first bar of the 00:00 NY lane
+   double   laneHigh, laneLow;       // the lane's own high and low
    int      upTouchIdx, dnTouchIdx;  // first bar EVER to reach each near edge (-1 = never), searched
                                      // across later sessions too - this is what makes a zone "virgin"
    int      enHiTouchIdx, enLoTouchIdx;   // same, for the Enigma range's own high and low
@@ -312,7 +313,9 @@ int BuildSessions(const MqlRates &r[], const int n, SessionRec &out[])
          if(nyj <  laneStartNY) continue;   // the 22:00 -> 00:00 gap, not part of the lane
          if(nyj >= laneEndNY)   break;
 
-         if(s.laneStartIdx < 0) s.laneStartIdx = j;
+         if(s.laneStartIdx < 0) { s.laneStartIdx = j; s.laneHigh = r[j].high; s.laneLow = r[j].low; }
+         if(r[j].high > s.laneHigh) s.laneHigh = r[j].high;
+         if(r[j].low  < s.laneLow)  s.laneLow  = r[j].low;
          s.endIdx = j;
          barCount++;
          MqlDateTime dj; TimeToStruct(nyj, dj);
@@ -715,6 +718,98 @@ void PrintSequenceTables(const SessionRec &s[], const int ns)
    }
 }
 
+
+
+//==================================================================//
+//  REGIME - the anchor candle's size decides the whole day          //
+//==================================================================//
+// This falls straight out of the geometry, before any data is involved.
+// The zones sit at srcHigh + 2r and srcLow - 2r, so the distance from the
+// lower zone's near edge to the upper zone's near edge is:
+//
+//     r  +  2r  +  2r  =  5r
+//
+// To touch BOTH zones in a day, price must travel at least five times the
+// 21:00 candle's range - and to fill both, six times it. That is not a
+// behavioural question, it is arithmetic. It means the size of the anchor
+// candle alone decides which regime the day is in:
+//
+//   small 9pm candle  -> zones sit close  -> both sides reachable -> rotation
+//   large 9pm candle  -> zones sit far    -> neither reached      -> inside day
+//
+// Which would explain, without any further mechanism, why some days tag both
+// zones, some tag one, and some tag neither.
+void PrintRegimeTables(const SessionRec &s[], const int ns)
+{
+   Out("");
+   Rule();
+   Out("REGIME - how far the day must expand, and how often it does");
+   Out(StringFormat("Near edge to near edge = %.1f R. Far edge to far edge = %.1f R.",
+                    1.0 + 2.0 * InpDevNear, 1.0 + 2.0 * InpDevFar));
+   Rule();
+   {
+      double sumExp = 0.0; int cnt = 0, reachBoth = 0, reachOne = 0;
+      double needBoth = 1.0 + 2.0 * InpDevNear;
+      double needOne  = InpDevNear;   // from the far side of the range outward
+      for(int i = 0; i < ns; i++)
+      {
+         if(s[i].range <= 0.0) continue;
+         double exp = (s[i].laneHigh - s[i].laneLow) / s[i].range;
+         sumExp += exp; cnt++;
+         if(exp >= needBoth) reachBoth++;
+         if(exp >= needOne)  reachOne++;
+      }
+      Out(StringFormat("  Mean day expansion:                       %.2f R", (cnt > 0) ? sumExp / cnt : 0.0));
+      Out(StringFormat("  Days big enough to reach BOTH zones:      %5.1f%%   (need >= %.1f R)",
+                       Pct(reachBoth, cnt), needBoth));
+      Out(StringFormat("  Days big enough to reach ONE zone:        %5.1f%%   (need >= %.1f R)",
+                       Pct(reachOne, cnt), needOne));
+      Out("");
+      Out("  Compare 'big enough to reach both' against the BOTH-zones base rate above.");
+      Out("  A large gap between them means price had the room and chose not to - that is");
+      Out("  a real behavioural finding. A small gap means the whole thing is volatility,");
+      Out("  and the sequence you are hunting is just the anchor candle's size.");
+   }
+
+   // Outcome mix by how big tonight's anchor candle is relative to recent ones.
+   Out("");
+   Rule();
+   Out("OUTCOME BY ANCHOR-CANDLE SIZE (rank against the previous 20 anchors)");
+   Rule();
+   Out("  anchor size      both%   one%   none%   mean expansion     n");
+   {
+      string names[5] = {"smallest 20%", "2nd quintile", "middle 20%  ", "4th quintile", "largest 20% "};
+      for(int q = 0; q < 5; q++)
+      {
+         int nB = 0, nO = 0, nN = 0, cnt = 0;
+         double sumExp = 0.0;
+         for(int i = 20; i < ns; i++)
+         {
+            if(s[i].range <= 0.0) continue;
+            int rank = 0;
+            for(int k = i - 20; k < i; k++) if(s[k].range < s[i].range) rank++;
+            int bucket = rank / 4;             // 0..20 -> 0..5
+            if(bucket > 4) bucket = 4;
+            if(bucket != q) continue;
+
+            cnt++;
+            sumExp += (s[i].laneHigh - s[i].laneLow) / s[i].range;
+            if(s[i].outcome == OC_UP_THEN_DN || s[i].outcome == OC_DN_THEN_UP) nB++;
+            else if(s[i].outcome == OC_NONE)                                   nN++;
+            else                                                               nO++;
+         }
+         Out(StringFormat("  %s    %5.1f%%  %5.1f%%  %5.1f%%       %6.2f R      %4d",
+                          names[q], Pct(nB, cnt), Pct(nO, cnt), Pct(nN, cnt),
+                          (cnt > 0) ? sumExp / cnt : 0.0, cnt));
+      }
+      Out("");
+      Out("  Expect 'both' to fall and 'none' to climb as the anchor candle gets bigger.");
+      Out("  If that gradient is steep, the tradable rule is: measure the 21:00 candle");
+      Out("  against its recent range first, and only expect a two-sided rotation day");
+      Out("  when it comes in small. A big anchor candle is a day to stand down, or to");
+      Out("  trade the older untouched levels instead of today's unreachable ones.");
+   }
+}
 
 //==================================================================//
 //  CARRY-FORWARD ZONES                                             //
@@ -1525,6 +1620,7 @@ bool AnalyseSymbol(const string sym, Summary &sum)
 
    MapZoneTouches(r, n, s, ns);
    PrintSequenceTables(s, ns);
+   PrintRegimeTables(s, ns);
    PrintCarryTables(r, s, ns);
    AnalyseZoneBook(r, n, s, ns);
 
