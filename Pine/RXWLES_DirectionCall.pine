@@ -12,10 +12,13 @@
 // against the chart rather than against a reading of the source.
 //
 //   DIRECTION  04:00 NY. Whichever inner zone edge (2.0 R) is closer. Every day.
-//   ENTRY      At the call if price is still near the 9pm box. If it has already
-//              run more than the threshold, wait and take whichever of VWAP, the
-//              9pm box edge or the 50% Asia-London level price TAPS FIRST. They
-//              are alternatives, not a ranking. No tap by the deadline, no trade.
+//              The call is drawn immediately; the trade waits.
+//   RANGE      19:00 -> 05:00 NY. It straddles midnight and only CLOSES an hour
+//              after the call, which is why arming happens at 05:00, not 04:00.
+//   ENTRY      At 05:00 three levels go live together - VWAP, the 9pm box edge,
+//              and the 50% of that range. Price takes whichever it TAPS FIRST;
+//              they are alternatives, not a ranking. No tap by the deadline
+//              means no trade that day.
 //   STOP       Behind the 9pm box plus a small buffer. Tight: at 15m the win
 //              rate was flat from a zero buffer all the way to $12, so a wide
 //              stop rescues nothing and only inflates risk.
@@ -23,18 +26,21 @@
 //   EXIT       Flat at the lane close (midnight NY). Closing at 16:55 tested
 //              worse on both bar sizes.
 //
-// Why waiting matters, on the 59-session 15m sample:
+// On the 59-session 15m sample, with the 19:00-05:00 range:
 //
-//   enter at the call        +0.32 R   59 trades   average risk $36.25
-//   first tap, run > 0.5 R   +0.37 R   53 trades   average risk $31.27
-//   rank levels, nearest box +0.31 R   42 trades   average risk $25.51
+//   enter at the 04:00 call   +0.32 R   59 trades   average risk $36.25
+//   always wait, first tap    +0.32 R   33 trades   average risk $22.90
+//   wait only if run > 0.25R  +0.43 R   45 trades   average risk $26.18
 //
-// Taking whichever level arrives first beats ranking them, in trade count as
-// much as in expectancy. Waiting unconditionally is a different trade again -
-// it gives up 12 of 59 sessions - so the threshold stays at 0.5 R.
+// Always waiting is the default because it is the rule as specified. It is
+// worth knowing that it costs 26 of 59 sessions to no fill, and that the same
+// expectancy is available at the call - what it buys is a stop 37% smaller,
+// so the same money at risk carries more size. The small gate is better on
+// both counts, and is one toggle away.
 //
-// Honest numbers: splitting those 59 sessions in half gives +0.26 R then
-// +0.61 R. Recent weeks flatter this badly. Size off +0.26, not +0.46.
+// Honest numbers: split those 33 always-wait trades in half and you get
+// -0.25 R then +0.95 R. That is a 17-trade sample per half. Treat every
+// figure here as a direction of travel, not a forecast.
 // XAUUSD only - NAS100 never reproduced the direction edge.
 // ============================================================================
 
