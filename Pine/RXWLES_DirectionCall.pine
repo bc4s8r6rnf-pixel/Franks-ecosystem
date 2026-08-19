@@ -70,13 +70,33 @@ tblTxt    = input.color(color.new(color.white, 0), "Text", group = "Panel")
 //=============================================================================
 
 showLabel = input.bool(true, "Mark the call on the chart", group = "Call marker")
-lblText   = input.string("Arrow only", "Marker text", group = "Call marker",
-     options = ["Arrow only", "Arrow + direction", "Arrow + direction + R", "None"])
-lblSize   = input.string("Tiny", "Marker size", options = ["Tiny", "Small", "Normal", "Large"],
+
+// Shapes marked "auto" flip with the call - up calls point up, down calls point
+// down. The rest keep the same shape whichever way the call goes.
+mkShape = input.string("Triangle (auto)", "Shape", group = "Call marker",
+     options = ["Triangle (auto)", "Arrow (auto)", "Speech bubble (auto)",
+                "Circle", "Square", "Diamond", "Flag", "Cross", "X", "Text only"])
+
+mkSize  = input.string("Tiny", "Size", options = ["Tiny", "Small", "Normal", "Large", "Huge"],
      group = "Call marker")
-lblStyle  = input.string("Triangle", "Marker style", group = "Call marker",
-     options = ["Triangle", "Arrow", "Label", "Circle", "Flag"])
-lblTxtCol = input.color(color.white, "Marker text colour", group = "Call marker")
+
+mkUpCol = input.color(#26a69a, "Up marker",   inline = "mc", group = "Call marker")
+mkDnCol = input.color(#ef5350, "Down marker", inline = "mc", group = "Call marker")
+mkNoCol = input.color(color.gray, "No trade", inline = "mc", group = "Call marker")
+mkTrans = input.int(0, "Marker transparency", minval = 0, maxval = 100, group = "Call marker")
+
+mkText  = input.string("None", "Text on the marker", group = "Call marker",
+     options = ["None", "Direction", "Direction + R", "Direction + gap", "R only"])
+mkTxtCol = input.color(color.white, "Text colour", group = "Call marker")
+
+mkPlace = input.string("Auto", "Placement", group = "Call marker",
+     options = ["Auto", "Above the bar", "Below the bar", "At the entry price"],
+     tooltip = "Auto puts an up call under the bar and a down call over it.")
+mkOffset = input.float(0.15, "Offset from the bar (R)", step = 0.05, minval = 0.0,
+     group = "Call marker",
+     tooltip = "How far to nudge the marker clear of the candle, in units of R. "
+             + "Ignored for above/below placement.")
+
 showNoTrade = input.bool(false, "Also mark no-trade days", group = "Call marker")
 
 //=============================================================================
@@ -105,9 +125,11 @@ showZones = input.bool(false, "Also plot the 2.0 R inner edges", group = "Levels
 zoneCol   = input.color(color.new(color.gray, 60), "", group = "Levels")
 priceTags = input.bool(false, "Price tag on each line", group = "Levels")
 
-upCol = input.color(color.new(#26a69a, 0), "Up call", inline = "v", group = "Levels")
-dnCol = input.color(color.new(#ef5350, 0), "Down call", inline = "v", group = "Levels")
-noCol = input.color(color.new(color.gray, 0), "No trade", inline = "v", group = "Levels")
+// Used by the verdict panel's header row, kept separate from the marker colours
+// so the panel and the chart can be styled independently.
+upCol = input.color(color.new(#26a69a, 0), "Panel: up", inline = "v", group = "Levels")
+dnCol = input.color(color.new(#ef5350, 0), "Panel: down", inline = "v", group = "Levels")
+noCol = input.color(color.new(color.gray, 0), "Panel: no trade", inline = "v", group = "Levels")
 
 //=============================================================================
 // HELPERS
@@ -117,13 +139,19 @@ f_style(string s) =>
     s == "Dashed" ? line.style_dashed : s == "Dotted" ? line.style_dotted : line.style_solid
 
 f_size(string s) =>
-    s == "Tiny" ? size.tiny : s == "Normal" ? size.normal : s == "Large" ? size.large : size.small
+    s == "Tiny" ? size.tiny : s == "Normal" ? size.normal : s == "Large" ? size.large :
+     s == "Huge" ? size.huge : size.small
 
 f_lblStyle(string s, int dir) =>
-    s == "Arrow"    ? (dir > 0 ? label.style_arrowup : label.style_arrowdown) :
-     s == "Label"   ? (dir > 0 ? label.style_label_up : label.style_label_down) :
-     s == "Circle"  ? label.style_circle :
-     s == "Flag"    ? label.style_flag :
+    s == "Arrow (auto)"          ? (dir > 0 ? label.style_arrowup : label.style_arrowdown) :
+     s == "Speech bubble (auto)" ? (dir > 0 ? label.style_label_up : label.style_label_down) :
+     s == "Circle"               ? label.style_circle :
+     s == "Square"               ? label.style_square :
+     s == "Diamond"              ? label.style_diamond :
+     s == "Flag"                 ? label.style_flag :
+     s == "Cross"                ? label.style_cross :
+     s == "X"                    ? label.style_xcross :
+     s == "Text only"            ? label.style_none :
      (dir > 0 ? label.style_triangleup : label.style_triangledown)
 
 f_midnight(int t) =>
@@ -220,13 +248,26 @@ color vCol = verdict == 1 ? upCol : verdict == -1 ? dnCol : noCol
 //=============================================================================
 
 if justCalled and showLabel and (live or showNoTrade)
-    string txt = lblText == "None" or lblText == "Arrow only" ? "" :
-         lblText == "Arrow + direction" ? (verdict == 1 ? "UP" : verdict == -1 ? "DOWN" : "—") :
-         (verdict == 1 ? "UP" : verdict == -1 ? "DOWN" : "—") + "  R " + str.tostring(R, format.mintick)
-    label.new(bar_index, verdict == 1 ? low : high, txt,
-         style = f_lblStyle(lblStyle, verdict == 0 ? 1 : verdict),
-         color = vCol, textcolor = lblTxtCol, size = f_size(lblSize),
-         yloc = yloc.price)
+    string dirTxt = verdict == 1 ? "UP" : verdict == -1 ? "DOWN" : "—"
+    string txt = mkText == "None"           ? "" :
+         mkText == "Direction"              ? dirTxt :
+         mkText == "R only"                 ? "R " + str.tostring(R, format.mintick) :
+         mkText == "Direction + gap"        ? dirTxt + "  " + str.tostring(gap, "#.##") + " R" :
+         dirTxt + "  R " + str.tostring(R, format.mintick)
+
+    color mkCol = verdict == 1 ? mkUpCol : verdict == -1 ? mkDnCol : mkNoCol
+
+    // Above/below placement lets TradingView position it; the other two need a
+    // price, nudged clear of the candle by the offset.
+    string yl = mkPlace == "Above the bar" ? yloc.abovebar :
+         mkPlace == "Below the bar" ? yloc.belowbar : yloc.price
+    float yv = mkPlace == "At the entry price" ? entryPx :
+         verdict == 1 ? low - mkOffset * R : high + mkOffset * R
+
+    label.new(bar_index, yv, txt,
+         style = f_lblStyle(mkShape, verdict == 0 ? 1 : verdict),
+         color = color.new(mkCol, mkTrans), textcolor = mkTxtCol,
+         size = f_size(mkSize), yloc = yl)
 
 if justCalled and live
     if showEntry
