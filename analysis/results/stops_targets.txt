@@ -1,0 +1,94 @@
+
+==============================================================================
+  XAUUSD   50 signals at 08:00 NY, gap >= 1.5 R
+  Reached the target zone: 32 (64.0%)
+==============================================================================
+
+------------------------------------------------------------------------------
+A SAFE STOP - how far price went AGAINST the winners before paying
+------------------------------------------------------------------------------
+  Measured on the trades that did reach the zone. A stop inside these
+  numbers would have thrown the winner away.
+
+    median     0.63 R
+    75th pct   0.89 R
+    90th pct   1.12 R
+    95th pct   1.67 R
+    worst      3.83 R
+
+  survives   stop needed
+      50%      0.63 R
+      60%      0.68 R
+      70%      0.81 R
+      80%      0.91 R
+      90%      1.12 R
+      95%      1.67 R
+     100%      3.83 R
+
+------------------------------------------------------------------------------
+A TARGET THAT HITS - how often each one is actually reached
+------------------------------------------------------------------------------
+  target                    reached   median bars to get there
+    the zone edge itself      64.0%     2
+    0.50 R from entry         92.0%
+    0.75 R from entry         86.0%
+    1.00 R from entry         74.0%
+    1.25 R from entry         64.0%
+    1.50 R from entry         58.0%
+    2.00 R from entry         44.0%
+
+  Distance to the zone edge: median 1.28 R, 25th 0.94 R, 75th 1.45 R
+
+------------------------------------------------------------------------------
+EXPECTANCY GRID - average R per trade
+------------------------------------------------------------------------------
+  stop \ target      0.50R    0.75R    1.00R    1.25R    1.50R    2.00R     zone
+   0.25 R           -0.34    -0.20    -0.36    -0.36    -0.26    -0.35    -0.32
+   0.50 R           -0.04    +0.05    +0.06    +0.08    +0.15    +0.15    +0.08
+   0.75 R           +0.07    +0.18    +0.18    +0.22    +0.21    +0.30    +0.16
+   1.00 R           +0.15    +0.25    +0.23    +0.24    +0.25    +0.32    +0.23
+   1.25 R           +0.22    +0.31    +0.32    +0.33    +0.39    +0.44    +0.30
+   1.50 R           +0.16    +0.23    +0.24    +0.25    +0.30    +0.35    +0.23
+   2.00 R           +0.14    +0.21    +0.23    +0.22    +0.25    +0.27    +0.18
+
+  best: stop 1.25 R, target 2.00 R  ->  +0.44 R per trade, 60.0% win, n=50
+
+------------------------------------------------------------------------------
+OUT OF SAMPLE - the best cell on each half
+------------------------------------------------------------------------------
+  first half    n=20   win  55.0%  avgR  +0.35  totR    +6.9
+  second half   n=30   win  63.3%  avgR  +0.50  totR   +14.9
+
+------------------------------------------------------------------------------
+SENSIBLE CHOICES - not the peak of the grid, the robust neighbourhood
+------------------------------------------------------------------------------
+  stop 1.00 R, target the zone edge      n=50   win  56.0%  avgR  +0.23  totR   +11.3
+  stop 1.25 R, target the zone edge      n=50   win  68.0%  avgR  +0.30  totR   +15.0
+  stop 1.00 R, target 1.00 R             n=50   win  60.0%  avgR  +0.23  totR   +11.3
+  stop 1.25 R, target 1.50 R             n=50   win  62.0%  avgR  +0.39  totR   +19.5
+  stop 1.50 R, target the zone edge      n=50   win  68.0%  avgR  +0.23  totR   +11.7
+
+
+------------------------------------------------------------------------------
+SCALING OUT - bank half at the zone edge, stop to entry, run the rest
+------------------------------------------------------------------------------
+  The zone edge is reached in a median of 2 bars, so the partial comes fast.
+
+  stop   bank   runner    n    win     avgR     totR
+  1.00R   50%    2.0R     50   56.0%   +0.26    +13.0
+  1.00R   50%    3.0R     50   56.0%   +0.30    +14.8
+  1.00R   70%    2.0R     50   56.0%   +0.25    +12.3
+  1.00R   70%    3.0R     50   56.0%   +0.27    +13.4
+  1.25R   50%    2.0R     50   68.0%   +0.35    +17.5
+  1.25R   50%    3.0R     50   68.0%   +0.36    +18.2
+  1.25R   70%    2.0R     50   68.0%   +0.33    +16.5
+  1.25R   70%    3.0R     50   68.0%   +0.34    +16.9
+  1.50R   50%    2.0R     50   68.0%   +0.28    +13.8
+  1.50R   50%    3.0R     50   68.0%   +0.29    +14.4
+  1.50R   70%    2.0R     50   68.0%   +0.26    +13.0
+  1.50R   70%    3.0R     50   68.0%   +0.27    +13.3
+
+  For scale: median R on signal days = 26.95 (25th 19.1, 75th 34.2)
+
+  Costs are not modelled. Pick from the middle of a good region, never the
+  single best cell - that cell is where the noise happened to land.
