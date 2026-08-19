@@ -6,7 +6,10 @@
 //
 // v1.0 called the direction and drew a symmetric 1.5 R stop and target.
 // v1.1 keeps the call and rebuilds the trade around it, from the tests in
-// analysis/ - 111 H1 sessions plus 30 sessions of 15m with the real VWAP.
+// analysis/ - 111 H1 sessions plus 59 sessions of 15m with the real VWAP. The
+// 15m export carries the indicator's own plotted zone edges, and my computed
+// edges match them on all 59 sessions to $0.0000, so the geometry is verified
+// against the chart rather than against a reading of the source.
 //
 //   DIRECTION  04:00 NY. Whichever inner zone edge (2.0 R) is closer. Every day.
 //   ENTRY      At the call if price is still near the 9pm box. If it has already
@@ -20,13 +23,18 @@
 //   EXIT       Flat at the lane close (midnight NY). Closing at 16:55 tested
 //              worse on both bar sizes.
 //
-// Why patient entry is the change that matters: it left expectancy alone and
-// cut average risk from $36.83 to $22.97 with RR up from 1.29 to 1.66. Same
-// edge, ~40% more size for the same money at risk. Waiting unconditionally is
-// NOT the same trade - at a zero threshold it collapsed to +0.12 R.
+// Why waiting matters, on the 59-session 15m sample:
 //
-// Honest numbers: the full 111-session sample scores +0.28 R on this trade.
-// The July-August window scores +0.53 R. Size off the first one.
+//   enter at the call        +0.32 R   59 trades   average risk $36.25
+//   first tap, run > 0.5 R   +0.37 R   53 trades   average risk $31.27
+//   rank levels, nearest box +0.31 R   42 trades   average risk $25.51
+//
+// Taking whichever level arrives first beats ranking them, in trade count as
+// much as in expectancy. Waiting unconditionally is a different trade again -
+// it gives up 12 of 59 sessions - so the threshold stays at 0.5 R.
+//
+// Honest numbers: splitting those 59 sessions in half gives +0.26 R then
+// +0.61 R. Recent weeks flatter this badly. Size off +0.26, not +0.46.
 // XAUUSD only - NAS100 never reproduced the direction edge.
 // ============================================================================
 
