@@ -1,0 +1,66 @@
+
+================================================================================================
+  XAUUSD   111 sessions   call 04:00 NY, flat 16:55 NY
+================================================================================================
+
+--- 1. STOP BUFFER BEHIND THE 9PM BOX (entry at the call) ---
+  variant                                   n     win    avgR     totR     RR    risk$  waited
+  box - $0.00  (0 pips)                   104   52.9%   +0.24    +25.2   1.45    38.50    0.0%
+  box - $0.50  (5 pips)                   104   52.9%   +0.24    +24.7   1.44    39.00    0.0%
+  box - $1.00  (10 pips)                  104   53.8%   +0.26    +27.2   1.43    39.50    0.0%
+  box - $2.00  (20 pips)                  104   53.8%   +0.26    +26.6   1.41    40.50    0.0%
+  box - $3.00  (30 pips)                  104   53.8%   +0.24    +25.0   1.39    41.50    0.0%
+  box - $5.00  (50 pips)                  101   54.5%   +0.25    +25.2   1.37    43.17    0.0%
+  box - $8.00  (80 pips)                  101   54.5%   +0.21    +21.0   1.30    46.17    0.0%
+  box - $12.00  (120 pips)                100   56.0%   +0.19    +19.2   1.22    49.97    0.0%
+  box - $20.00  (200 pips)                 93   59.1%   +0.20    +18.2   1.10    57.37    0.0%
+  reference:
+  flat 1.5 R stop                         111   57.7%   +0.22    +24.2   1.23    45.44    0.0%
+  flat 1.25 R stop                        111   55.9%   +0.26    +28.7   1.45    37.87    0.0%
+
+--- 2. PATIENT ENTRY (wait for VWAP / box edge / 50% Asia-London) ---
+  variant                                   n     win    avgR     totR     RR    risk$  waited
+  enter at the call                       104   53.8%   +0.26    +26.6   1.41    40.50    0.0%
+  wait when run > 0.25 R                   69   42.0%   +0.20    +13.9   1.88    25.05   13.0%
+  wait when run > 0.50 R                   78   47.4%   +0.26    +20.3   1.75    29.12    6.4%
+  wait when run > 0.75 R                   89   50.6%   +0.26    +22.8   1.61    32.59    3.4%
+  wait when run > 1.00 R                   93   50.5%   +0.25    +23.6   1.56    33.86    3.2%
+  wait when run > 1.50 R                  100   52.0%   +0.25    +24.8   1.45    39.36    1.0%
+
+--- 3. FLAT AT 16:55 vs HOLD TO MIDNIGHT ---
+  variant                                   n     win    avgR     totR     RR    risk$  waited
+  at call, flat 16:55                     104   53.8%   +0.26    +26.6   1.41    40.50    0.0%
+  at call, to midnight                    104   54.8%   +0.28    +28.9   1.41    40.50    0.0%
+  patient, flat 16:55                      78   47.4%   +0.26    +20.3   1.75    29.12    6.4%
+  patient, to midnight                     78   47.4%   +0.29    +22.7   1.75    29.12    6.4%
+
+--- 4. TARGET RULE ---
+  variant                                   n     win    avgR     totR     RR    risk$  waited
+  box target, capped at 2:1                78   47.4%   +0.26    +20.3   1.75    29.12    6.4%
+  box target, uncapped                     78   46.2%   +0.23    +18.0   6.24    29.12    6.4%
+
+--- 6. THE WICK QUESTION - how far past the box edge do winners dip? ---
+  44 trades reached target. Buffer needed to keep this share of them:
+      50%   $    0.00  (     0 pips)
+      70%   $    0.00  (     0 pips)
+      80%   $    0.00  (     0 pips)
+      90%   $    0.63  (     6 pips)
+      95%   $   14.43  (   144 pips)
+     100%   $   32.74  (   327 pips)
+
+  buffer         n   stopped   would have hit target later     net avgR
+  $ 0.00 (  0p)  111     37        11  (29.7%)              +0.23
+  $ 1.00 ( 10p)  111     35        10  (28.6%)              +0.25
+  $ 2.00 ( 20p)  111     34         9  (26.5%)              +0.25
+  $ 5.00 ( 50p)  111     32         6  (18.8%)              +0.23
+  $12.00 (120p)  111     29         4  (13.8%)              +0.18
+  $20.00 (200p)  111     21         2  ( 9.5%)              +0.17
+  $35.00 (350p)  111     12         0  ( 0.0%)              +0.16
+
+--- 5. MAX RISK FILTER (skip when the box is too far) ---
+  variant                                   n     win    avgR     totR     RR    risk$  waited
+  max risk 1.0 R                           42   40.5%   +0.22     +9.3   2.00    20.78   11.9%
+  max risk 1.5 R                           75   46.7%   +0.26    +19.3   1.78    29.09    6.7%
+  max risk 2.0 R                           78   47.4%   +0.26    +20.3   1.75    29.12    6.4%
+  max risk 3.0 R                           78   47.4%   +0.26    +20.3   1.75    29.12    6.4%
+  max risk none R                          78   47.4%   +0.26    +20.3   1.75    29.12    6.4%
