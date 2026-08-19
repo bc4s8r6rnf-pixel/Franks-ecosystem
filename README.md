@@ -560,6 +560,8 @@ Strong alternates: **GBP/USD** (bigger range, slightly lower win rate) and
 | `Experts/InstitutionalBlxckMirror.mq5` | The EA |
 | `presets/EURUSD.set` · `presets/GBPUSD.set` | Tuned input presets (load via Inputs → Load) |
 | `docs/OPTIMIZATION.md` | Strategy Tester & optimization walkthrough |
+| `Scripts/CandleRangeZoneSequence.mq5` | 9pm anchor-candle deviation-zone sequence analyser (research tool, not the EA) |
+| `docs/CANDLE_RANGE_ZONES.md` | How to run it and how to read every table it prints |
 
 ## Install
 
