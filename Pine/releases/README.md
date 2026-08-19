@@ -8,6 +8,19 @@ version is worth keeping, it gets copied here under a new number and tagged.
 To restore a frozen version, copy it back over the working file. Never edit a
 file in this folder, and never renumber one.
 
+### A note on tags
+
+Annotated tags were the intended second anchor, but this sandbox's git proxy
+accepts branch refs only — every tag push returns "the remote end hung up
+unexpectedly" while the branch push succeeds. The tag therefore exists in local
+history and not on GitHub.
+
+That costs nothing important. The frozen file is committed and pushed, so it is
+recoverable from the remote by path or by commit SHA. If you want the tag on
+GitHub as well, create it once from the web UI: **Releases → Draft a new
+release → Choose a tag → create `direction-call-v1.0` → target the freeze
+commit above**. A future session on a normal remote can push tags directly.
+
 ---
 
 ## v1.0 — RXWLES Direction Call
@@ -15,7 +28,8 @@ file in this folder, and never renumber one.
 | | |
 |---|---|
 | File | `RXWLES_DirectionCall_v1.0.pine` |
-| Git tag | `direction-call-v1.0` |
+| Freeze commit | `9b9871e` — `git show 9b9871e:Pine/releases/RXWLES_DirectionCall_v1.0.pine` |
+| Git tag | `direction-call-v1.0` — **exists locally only, see note below** |
 | Lines | 356 |
 | SHA-256 | `8589ccd405da5f8f74b06b02ba5e433f54ce82e4c1a3d803cfe9bd541cb9be14` |
 | Frozen | 2026-08-19 |
