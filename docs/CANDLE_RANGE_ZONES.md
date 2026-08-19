@@ -26,10 +26,14 @@ piece of the idea or kills it.
    history — the script can only read bars the terminal actually has. A year
    of H1 is ~6,000 bars; check Tools → Options → Charts → "Max bars in chart".
 3. Drag the script onto the chart. Inputs appear.
-4. Set `InpServerToNYOffset` first. **Get this wrong and every table is
-   garbage.** Broker GMT+3, NY on EDT (GMT−4) → NY = server − 7 → enter `-7`.
-   Same convention as the EA.
-5. Set `InpZoneMode` to match your RXWLES boxes (see below).
+4. Set the clock. `InpTimeMode = 0` (default) reproduces RXWLES PRO's
+   `America/New_York` handling including daylight saving — you only tell it
+   your broker's **winter** GMT offset (`InpServerGMTWinter`, 2 for EET
+   brokers) and whether the broker clock shifts with European DST. A flat
+   offset drifts an hour twice a year and silently reads the 20:00 or 22:00
+   candle for months, so mode 0 is strongly preferred; mode 1 is there only
+   for exotic brokers.
+5. `InpZoneMode` defaults to `2`, which is what RXWLES PRO draws.
 6. Run. Output goes to the Experts log, plus
    `MQL5/Files/zone_sequence_report.txt` and a per-session CSV.
 
@@ -45,13 +49,37 @@ indicator projects from. All three are supported:
 | `InpZoneMode` | Upper zone | Lower zone |
 |---|---|---|
 | 0 `MIDPOINT` | `mid + N·R` | `mid − N·R` |
-| 1 `OPPOSITE` (default) | `low + N·R` | `high − N·R` |
-| 2 `BOUNDARY` | `high + N·R` | `low − N·R` |
+| 1 `OPPOSITE` | `low + N·R` | `high − N·R` |
+| 2 `BOUNDARY` **(RXWLES PRO)** | `high + N·R` | `low − N·R` |
 
-Verify before trusting anything: open the CSV, take the first row, and compare
-`u1`/`u2`/`l2`/`l1` against the boxes your indicator drew on that date. If they
-don't line up, change the mode and re-run. Everything downstream depends on
-this.
+Mode 2 is confirmed against the indicator source (`reference/README.md`):
+
+```pine
+Daily Zone Upper = srcHigh + r*2.5 .. srcHigh + r*2.0
+Daily Zone Lower = srcLow  - r*2.0 .. srcLow  - r*2.5
+```
+
+The other modes are kept only so a differently-anchored indicator could be
+matched. Still worth one sanity check: open the CSV, take the first row, and
+compare `u1`/`u2`/`l2`/`l1` against the boxes on your chart for that date.
+
+### The day, and the two-hour gap
+
+RXWLES PRO anchors every zone to **00:00 New York of the following day** and
+ends it at the next midnight. The 21:00 source candle closes at 22:00, but its
+zones do not exist until 00:00 — a two-hour gap that belongs to neither day.
+The analyser reproduces that lane exactly (`InpSessionStartHourNY = 0`,
+`InpSessionHours = 24`). Set the start hour to `22` if you'd rather count taps
+in the gap; it changes which sessions read as "never reached", so don't switch
+it halfway through comparing results.
+
+### Zones expire on the chart, not in the market
+
+The indicator deletes each lane at midnight. The *price level* doesn't stop
+existing — which is exactly what "respected the upper zone from two days ago"
+describes: a level whose box was no longer drawn. The carry-forward and zone
+book analyses below are built on that distinction, and it's the main thing the
+indicator's own display can't show you.
 
 ## Reading the output
 

@@ -43,18 +43,34 @@ input group "=== The anchor candle (ALL hours are NEW YORK time, 24h) ==="
 // Same convention as the EA: broker GMT+3, NY EDT = GMT-4  =>  NY = server - 7.
 // Get this wrong and every session is shifted an hour - check the first few
 // rows of the CSV against your chart before you trust any of the numbers.
-input int    InpServerToNYOffset = -7;   // Hours to ADD to SERVER time to get NY time
-input int    InpAnchorHourNY     = 21;   // Anchor H1 candle hour (9pm = 21)
+// RXWLES PRO resolves in America/New_York with DST. Mode 0 reproduces that
+// from the broker's clock; mode 1 is a flat offset if your broker is exotic.
+input int    InpTimeMode         = 0;    // 0 = auto (US+EU daylight saving), 1 = fixed offset
+input int    InpServerGMTWinter  = 2;    // Broker GMT offset in WINTER (EET brokers = 2)
+input bool   InpServerEuroDST    = true; // Broker clock shifts with European daylight saving
+input int    InpServerToNYOffset = -7;   // Fixed offset, mode 1 only: hours to ADD to server time
+
+input int    InpAnchorHourNY     = 21;   // Enigma source hour (RXWLES default 21 = 9pm)
 input int    InpNYRefHourNY      = 9;    // "NY open" reference hour for the proximity read
-input int    InpSessionEndHourNY = 16;   // Session ends at this NY hour the FOLLOWING day
+// RXWLES PRO draws each day's zones from 00:00 NY to 00:00 NY the next day -
+// the lane opens two hours AFTER the 21:00 source candle closes, and the 22:00
+// -> 00:00 gap is not part of it. Set the start hour to 22 to include that gap.
+input int    InpSessionStartHourNY = 0;  // Zone lane opens at this NY hour, the day after the anchor
+input int    InpSessionHours       = 24; // Lane length in hours (RXWLES = 24)
 
 input group "=== Zone geometry - match this to your RXWLES boxes ==="
+// Mode 2 is what RXWLES PRO draws, confirmed against the indicator source:
+//   Daily Zone Upper  = srcHigh + r*2.0  ..  srcHigh + r*2.5
+//   Daily Zone Lower  = srcLow  - r*2.0  ..  srcLow  - r*2.5
+// where r is the 21:00 candle's own range. The other two modes are kept only
+// so a differently-anchored indicator can be matched.
 // 0 = MIDPOINT : up = mid  + N*R,  dn = mid  - N*R
-// 1 = OPPOSITE : up = low  + N*R,  dn = high - N*R   (classic deviation projection)
-// 2 = BOUNDARY : up = high + N*R,  dn = low  - N*R
-input int    InpZoneMode         = 1;    // Zone anchor mode (0 mid / 1 opposite / 2 boundary)
-input double InpDevNear          = 2.0;  // Near edge of each zone, in deviations
-input double InpDevFar           = 2.5;  // Far edge of each zone, in deviations
+// 1 = OPPOSITE : up = low  + N*R,  dn = high - N*R
+// 2 = BOUNDARY : up = high + N*R,  dn = low  - N*R   <-- RXWLES PRO
+input int    InpZoneMode         = 2;    // Zone anchor mode (2 = RXWLES PRO)
+input double InpDevNear          = 2.0;  // Zone Level 1 - inner boundary, in deviations
+input double InpDevFar           = 2.5;  // Zone Level 2 - outer boundary, in deviations
+input bool   InpBookIncludeEnigma = true; // Also treat the Enigma range (the 21:00 candle high/low) as levels
 
 input group "=== Carry-forward zones (older days' zones stay live) ==="
 // A zone that was never reached on its own session does not expire at the
@@ -126,8 +142,10 @@ struct SessionRec
    bool     preNYHit;        // a zone was already tapped before the NY reference hour
    int      outcome;
    double   maxDevUp, maxDevDn;   // furthest excursion each way, in deviations
+   int      laneStartIdx;            // first bar of the 00:00 NY lane
    int      upTouchIdx, dnTouchIdx;  // first bar EVER to reach each near edge (-1 = never), searched
                                      // across later sessions too - this is what makes a zone "virgin"
+   int      enHiTouchIdx, enLoTouchIdx;   // same, for the Enigma range's own high and low
 };
 
 struct SimRes
@@ -161,16 +179,75 @@ void Out(const string s)
 
 void Rule() { Out("------------------------------------------------------------------------------"); }
 
+//------------------------------------------------------------------
+// The indicator resolves everything in America/New_York with daylight
+// saving included. A fixed hour offset does not - it drifts an hour twice a
+// year, which silently picks the 20:00 or 22:00 candle instead of the 21:00
+// one for months at a time. So the DST rules are implemented properly here.
+//------------------------------------------------------------------
+int DaysInMonth(const int y, const int m)
+{
+   int d[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+   if(m == 2 && ((y % 4 == 0 && y % 100 != 0) || y % 400 == 0)) return 29;
+   return d[m - 1];
+}
+
+// Midnight UTC of the nth given weekday of a month (dow: 0 = Sunday).
+datetime NthDow(const int y, const int m, const int dow, const int nth)
+{
+   datetime first = StringToTime(StringFormat("%04d.%02d.01 00:00", y, m));
+   MqlDateTime d; TimeToStruct(first, d);
+   int delta = (dow - d.day_of_week + 7) % 7;
+   return (datetime)((long)first + (long)(delta + (nth - 1) * 7) * 86400);
+}
+
+datetime LastDow(const int y, const int m, const int dow)
+{
+   datetime last = StringToTime(StringFormat("%04d.%02d.%02d 00:00", y, m, DaysInMonth(y, m)));
+   MqlDateTime d; TimeToStruct(last, d);
+   int back = (d.day_of_week - dow + 7) % 7;
+   return (datetime)((long)last - (long)back * 86400);
+}
+
+// US: second Sunday of March 02:00 EST (07:00 UTC) -> first Sunday of
+// November 02:00 EDT (06:00 UTC).
+bool IsUSDST(const datetime utc)
+{
+   MqlDateTime d; TimeToStruct(utc, d);
+   datetime s = (datetime)((long)NthDow(d.year, 3, 0, 2) + 7 * 3600);
+   datetime e = (datetime)((long)NthDow(d.year, 11, 0, 1) + 6 * 3600);
+   return (utc >= s && utc < e);
+}
+
+// EU: last Sunday of March 01:00 UTC -> last Sunday of October 01:00 UTC.
+bool IsEUDST(const datetime utc)
+{
+   MqlDateTime d; TimeToStruct(utc, d);
+   datetime s = (datetime)((long)LastDow(d.year, 3,  0) + 3600);
+   datetime e = (datetime)((long)LastDow(d.year, 10, 0) + 3600);
+   return (utc >= s && utc < e);
+}
+
+datetime NYTime(const datetime serverTime)
+{
+   if(InpTimeMode == 1)   // manual override
+      return (datetime)((long)serverTime + (long)InpServerToNYOffset * 3600);
+
+   datetime utc = (datetime)((long)serverTime - (long)InpServerGMTWinter * 3600);
+   if(InpServerEuroDST && IsEUDST(utc)) utc = (datetime)((long)utc - 3600);
+   return (datetime)((long)utc + (IsUSDST(utc) ? -4 : -5) * 3600);
+}
+
 int NYHour(const datetime serverTime)
 {
    MqlDateTime dt;
-   TimeToStruct((datetime)((long)serverTime + (long)InpServerToNYOffset * 3600), dt);
+   TimeToStruct(NYTime(serverTime), dt);
    return dt.hour;
 }
 
 string NYStamp(const datetime serverTime)
 {
-   return TimeToString((datetime)((long)serverTime + (long)InpServerToNYOffset * 3600), TIME_DATE | TIME_MINUTES);
+   return TimeToString(NYTime(serverTime), TIME_DATE | TIME_MINUTES);
 }
 
 double Pct(const int part, const int whole)
@@ -186,9 +263,6 @@ double Pct(const int part, const int whole)
 // the zones it projects, and everything price did with them afterwards.
 int BuildSessions(const MqlRates &r[], const int n, SessionRec &out[])
 {
-   int span = InpSessionEndHourNY - InpAnchorHourNY;
-   if(span <= 0) span += 24;   // 9pm -> 4pm next day = 19 hours
-
    ArrayResize(out, 0);
    int count = 0;
 
@@ -217,18 +291,32 @@ int BuildSessions(const MqlRates &r[], const int n, SessionRec &out[])
       s.l2 = baseDn - InpDevNear * s.range;
       s.l1 = baseDn - InpDevFar  * s.range;
 
-      datetime endT = (datetime)((long)r[i].time + (long)span * 3600);
+      // The lane the indicator actually draws: 00:00 NY of the day AFTER the
+      // anchor candle, running 24 hours to the following midnight.
+      datetime nyAnchor = NYTime(r[i].time);
+      MqlDateTime da; TimeToStruct(nyAnchor, da);
+      datetime nyMidnight  = (datetime)((long)nyAnchor - (long)(da.hour * 3600 + da.min * 60 + da.sec) + 86400);
+      datetime laneStartNY = (datetime)((long)nyMidnight  + (long)InpSessionStartHourNY * 3600);
+      datetime laneEndNY   = (datetime)((long)laneStartNY + (long)InpSessionHours * 3600);
+
       s.endIdx      = i;
+      s.laneStartIdx = -1;
       s.maxDevUp    = -99.0;
       s.maxDevDn    = -99.0;
       int barCount  = 0;
 
-      // Scan the session bar by bar, in time order.
-      for(int j = i + 1; j < n && r[j].time < endT; j++)
+      // Scan the lane bar by bar, in time order.
+      for(int j = i + 1; j < n; j++)
       {
+         datetime nyj = NYTime(r[j].time);
+         if(nyj <  laneStartNY) continue;   // the 22:00 -> 00:00 gap, not part of the lane
+         if(nyj >= laneEndNY)   break;
+
+         if(s.laneStartIdx < 0) s.laneStartIdx = j;
          s.endIdx = j;
          barCount++;
-         int hr   = NYHour(r[j].time);
+         MqlDateTime dj; TimeToStruct(nyj, dj);
+         int hr = dj.hour;
 
          // The proximity read, taken once, at the NY reference hour.
          if(!s.hasNY && hr == InpNYRefHourNY)
@@ -290,7 +378,7 @@ int BuildSessions(const MqlRates &r[], const int n, SessionRec &out[])
       // edge of the chart would otherwise be recorded as "neither zone reached"
       // and quietly poison every base rate below.
       if(barCount < 8) continue;
-      if(r[s.endIdx].time < endT - 7200) continue;   // history ends mid-session
+      if(NYTime(r[s.endIdx].time) < laneEndNY - 7200) continue;   // history ends mid-lane
 
       if(s.firstHit == 0)                        s.outcome = OC_NONE;
       else if(s.secondHit == 0)                  s.outcome = (s.firstHit > 0) ? OC_UP_ONLY : OC_DN_ONLY;
@@ -685,24 +773,33 @@ void MapZoneTouches(const MqlRates &r[], const int n, SessionRec &s[], const int
 {
    for(int i = 0; i < ns; i++)
    {
-      s[i].upTouchIdx = -1;
-      s[i].dnTouchIdx = -1;
+      s[i].upTouchIdx   = -1;
+      s[i].dnTouchIdx   = -1;
+      s[i].enHiTouchIdx = -1;
+      s[i].enLoTouchIdx = -1;
       int horizon = (InpBookDays > InpCarryDays) ? InpBookDays : InpCarryDays;
       int last = (i + horizon < ns - 1) ? i + horizon : ns - 1;
       int stop = s[last].endIdx;
-      for(int j = s[i].anchorIdx + 1; j <= stop && j < n; j++)
+      int scanFrom = (s[i].laneStartIdx > 0) ? s[i].laneStartIdx : s[i].anchorIdx + 1;
+      for(int j = scanFrom; j <= stop && j < n; j++)
       {
-         if(s[i].upTouchIdx < 0 && r[j].high >= s[i].u1) s[i].upTouchIdx = j;
-         if(s[i].dnTouchIdx < 0 && r[j].low  <= s[i].l2) s[i].dnTouchIdx = j;
-         if(s[i].upTouchIdx >= 0 && s[i].dnTouchIdx >= 0) break;
+         if(s[i].upTouchIdx   < 0 && r[j].high >= s[i].u1)    s[i].upTouchIdx   = j;
+         if(s[i].dnTouchIdx   < 0 && r[j].low  <= s[i].l2)    s[i].dnTouchIdx   = j;
+         if(s[i].enHiTouchIdx < 0 && r[j].high >= s[i].rHigh) s[i].enHiTouchIdx = j;
+         if(s[i].enLoTouchIdx < 0 && r[j].low  <= s[i].rLow)  s[i].enLoTouchIdx = j;
+         if(s[i].upTouchIdx >= 0 && s[i].dnTouchIdx >= 0 &&
+            s[i].enHiTouchIdx >= 0 && s[i].enLoTouchIdx >= 0) break;
       }
    }
 }
 
 // Is the zone created by session `j` still untouched when session `i` begins?
-bool IsVirgin(const SessionRec &s[], const int j, const int i, const int dir)
+// kind 0 = the 2.0-2.5 daily zone, kind 1 = the Enigma range's own boundary.
+bool IsVirgin(const SessionRec &s[], const int j, const int i, const int dir, const int kind)
 {
-   int t = (dir > 0) ? s[j].upTouchIdx : s[j].dnTouchIdx;
+   int t;
+   if(kind == 1) t = (dir > 0) ? s[j].enHiTouchIdx : s[j].enLoTouchIdx;
+   else          t = (dir > 0) ? s[j].upTouchIdx   : s[j].dnTouchIdx;
    return (t < 0 || t > s[i].anchorIdx);
 }
 
@@ -727,7 +824,7 @@ void PrintCarryTables(const MqlRates &r[], const SessionRec &s[], const int ns)
          for(int d = -1; d <= 1; d += 2)
          {
             // Age 0 is today's own zone, which is virgin by definition at the open.
-            if(age > 0 && !IsVirgin(s, j, i, d)) continue;
+            if(age > 0 && !IsVirgin(s, j, i, d, 0)) continue;
             double nearE = (d > 0) ? s[j].u1 : s[j].l2;
             double farE  = (d > 0) ? s[j].u2 : s[j].l1;
             int res = EvalZoneInSession(r, s[i], nearE, farE, d, s[j].range);
@@ -771,7 +868,7 @@ void PrintCarryTables(const MqlRates &r[], const SessionRec &s[], const int ns)
             {
                int j = i - age;
                if(j < 0) break;
-               if(!IsVirgin(s, j, i, d)) continue;
+               if(!IsVirgin(s, j, i, d, 0)) continue;
                double lvl = (d > 0) ? s[j].u1 : s[j].l2;
                if(d > 0 && lvl <= farE) continue;   // must sit beyond the zone just broken
                if(d < 0 && lvl >= farE) continue;
@@ -837,7 +934,7 @@ SimRes RunCarryBreakModel(const MqlRates &r[], const SessionRec &s[], const int 
          {
             int j2 = i - age;
             if(j2 < 0) break;
-            if(!IsVirgin(s, j2, i, d)) continue;
+            if(!IsVirgin(s, j2, i, d, 0)) continue;
             double lvl = (d > 0) ? s[j2].u1 : s[j2].l2;
             if(d > 0 && lvl <= farE) continue;
             if(d < 0 && lvl >= farE) continue;
@@ -915,6 +1012,7 @@ string RuleName(const int k)
 struct BookZone
 {
    int    sess;        // session it belongs to
+   int    kind;        // 0 = the 2.0-2.5 daily zone, 1 = the Enigma range boundary
    int    age;         // sessions old (0 = tonight's anchor)
    int    side;        // +1 upper, -1 lower
    double nearE, farE, range;
@@ -972,19 +1070,36 @@ int BuildBook(const MqlRates &r[], const SessionRec &s[], const int ns, const in
    {
       int j = i - age;
       if(j < 0) break;
+      for(int kind = 0; kind <= 1; kind++)
+      {
+      if(kind == 1 && !InpBookIncludeEnigma) continue;
+      // Tonight's own Enigma range is where price already is - it sits inches
+      // away and would win every proximity contest for trivial reasons. Only
+      // older, still-untouched Enigma ranges are real standing levels.
+      if(kind == 1 && age == 0) continue;
+
       for(int d = -1; d <= 1; d += 2)
       {
          // Age 0 is tonight's own zone and is live by definition. Older zones
          // only count while price has still never reached them.
-         if(age > 0 && !IsVirgin(s, j, i, d)) continue;
+         if(age > 0 && !IsVirgin(s, j, i, d, kind)) continue;
 
          BookZone z;
          ZeroMemory(z);
          z.sess  = j;
+         z.kind  = kind;
          z.age   = age;
          z.side  = d;
-         z.nearE = (d > 0) ? s[j].u1 : s[j].l2;
-         z.farE  = (d > 0) ? s[j].u2 : s[j].l1;
+         if(kind == 1)
+         {
+            z.nearE = (d > 0) ? s[j].rHigh : s[j].rLow;
+            z.farE  = (d > 0) ? s[j].rHigh + 0.25 * s[j].range : s[j].rLow - 0.25 * s[j].range;
+         }
+         else
+         {
+            z.nearE = (d > 0) ? s[j].u1 : s[j].l2;
+            z.farE  = (d > 0) ? s[j].u2 : s[j].l1;
+         }
          z.range = s[j].range;
 
          // A zone already on the wrong side of price is not a level price is
@@ -999,6 +1114,7 @@ int BuildBook(const MqlRates &r[], const SessionRec &s[], const int ns, const in
          ArrayResize(book, nb + 1);
          book[nb] = z;
          nb++;
+      }
       }
    }
    if(nb == 0) return 0;
@@ -1046,7 +1162,7 @@ int BuildBook(const MqlRates &r[], const SessionRec &s[], const int ns, const in
 void AnalyseZoneBook(const MqlRates &r[], const int n, const SessionRec &s[], const int ns)
 {
    // Flat storage so the weight search can sweep every candidate cheaply.
-   int    fSess[];  int    fAge[];   int    fSide[];  int fClust[]; int fOrder[];
+   int    fSess[];  int    fAge[];   int    fSide[];  int fClust[]; int fOrder[]; int fKind[];
    double fDistT[]; double fDistO[]; double fRange[];
    int    sStart[]; int    sCount[]; int    sFirst[]; int sAnchorDir[];
    ArrayResize(sStart, ns); ArrayResize(sCount, ns);
@@ -1057,7 +1173,7 @@ void AnalyseZoneBook(const MqlRates &r[], const int n, const SessionRec &s[], co
    int cap = ns * (InpBookDays + 1) * 2;
    ArrayResize(fSess, 0, cap);  ArrayResize(fAge,   0, cap); ArrayResize(fSide,  0, cap);
    ArrayResize(fClust, 0, cap); ArrayResize(fOrder, 0, cap); ArrayResize(fDistT, 0, cap);
-   ArrayResize(fDistO, 0, cap); ArrayResize(fRange, 0, cap);
+   ArrayResize(fDistO, 0, cap); ArrayResize(fRange, 0, cap); ArrayResize(fKind, 0, cap);
 
    int total = 0, lastSide = 0;
    int lastSideArr[];
@@ -1087,6 +1203,7 @@ void AnalyseZoneBook(const MqlRates &r[], const int n, const SessionRec &s[], co
          ArrayResize(fSide,  total + 1); ArrayResize(fClust, total + 1);
          ArrayResize(fOrder, total + 1); ArrayResize(fDistT, total + 1);
          ArrayResize(fDistO, total + 1); ArrayResize(fRange, total + 1);
+         ArrayResize(fKind,  total + 1); fKind[total] = book[a].kind;
          fSess[total]  = book[a].sess;  fAge[total]   = book[a].age;
          fSide[total]  = book[a].side;  fClust[total] = book[a].cluster;
          fOrder[total] = book[a].order; fDistT[total] = book[a].distToday;
@@ -1190,6 +1307,31 @@ void AnalyseZoneBook(const MqlRates &r[], const int n, const SessionRec &s[], co
       Out("  cluster size of the zone taken first:");
       for(int k = 1; k < 16; k++)
          if(clH[k] > 0) Out(StringFormat("    %d stacked   %5d   %5.1f%%", k, clH[k], Pct(clH[k], tot)));
+   }
+
+   // --- which drawn object actually gets traded to --------------------
+   Out("");
+   Rule();
+   Out("LEVEL TYPE - which of the indicator's objects is the one price goes to?");
+   Rule();
+   {
+      int firstK[2], availK[2];
+      ArrayInitialize(firstK, 0); ArrayInitialize(availK, 0);
+      for(int i = 0; i < ns; i++)
+      {
+         if(sCount[i] < 2) continue;
+         for(int a = sStart[i]; a < sStart[i] + sCount[i]; a++)
+            if(fKind[a] >= 0 && fKind[a] < 2) availK[fKind[a]]++;
+         if(sFirst[i] >= 0 && fKind[sFirst[i]] < 2) firstK[fKind[sFirst[i]]]++;
+      }
+      Out("  level type              taken first   times live   taken-first rate");
+      Out(StringFormat("  Daily Zone (2.0-2.5)    %6d       %7d      %5.1f%%",
+                       firstK[0], availK[0], Pct(firstK[0], availK[0])));
+      Out(StringFormat("  Enigma range boundary   %6d       %7d      %5.1f%%",
+                       firstK[1], availK[1], Pct(firstK[1], availK[1])));
+      Out("");
+      Out("  If old Enigma boundaries out-rate the Daily Zones, the 2.0-2.5 projections");
+      Out("  are not the magnets - the untouched 9pm candle ranges themselves are.");
    }
 
    // --- the tournament ---------------------------------------------
