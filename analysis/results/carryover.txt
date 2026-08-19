@@ -1,0 +1,35 @@
+
+==============================================================================
+  XAUUSD   50 signals at 08:00 NY, gap >= 1.5 R
+  Reached the zone same day: 32    Did not: 18
+==============================================================================
+
+------------------------------------------------------------------------------
+1. THE OLD LEVEL - does the next day reach the price it pointed at?
+------------------------------------------------------------------------------
+  reached the called level the NEXT day        6/18  (33.3%)
+  reached it within TWO days                   5/18  (27.8%)
+  went the other way to the opposite level     6/18  (33.3%)
+
+------------------------------------------------------------------------------
+2. THE NEXT DAY'S CALL - does the direction repeat?
+------------------------------------------------------------------------------
+  next day produced a signal at all            9/18
+    same direction as the missed call          3  (33.3%)
+    opposite direction                         6  (66.7%)
+    of the repeats, reached the zone           3/3  (100.0%)
+
+------------------------------------------------------------------------------
+3. HOLDING ON - same 1.25 R stop, but do not flatten at midnight
+------------------------------------------------------------------------------
+  held for      n    win     avgR     totR      (target = the zone edge)
+  the day only   50   68.0%   +0.30    +15.0
+  +1 day         50   72.0%   +0.36    +18.1
+  +2 days        50   70.0%   +0.30    +15.1
+
+  Same, on the subset that missed on day one:
+  +1 day         18   33.3%   -0.27     -4.8
+  +2 days        18   27.8%   -0.43     -7.8
+
+  A flat or negative line here means midnight is the right place to quit -
+  the level goes stale and holding just pays for the extra risk.
