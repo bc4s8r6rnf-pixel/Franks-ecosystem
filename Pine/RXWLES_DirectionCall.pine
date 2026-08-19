@@ -2,29 +2,29 @@
 
 //@version=6
 // ============================================================================
-// RXWLES DIRECTION CALL
+// RXWLES DIRECTION CALL  v2
 //
-// Answers one question each day: is this a trade day, and which way?
+// One call per day: which way, with the stop and target drawn.
 //
-// The method, measured over 111 XAUUSD sessions:
+//   R      = the height of the 21:00 New York candle.
+//   Read   = 04:00 New York. Whichever inner zone edge (2.0 R) is closer is
+//            the direction. Every day gets a call - no gap filter by default.
+//   Trade  = enter at the read, stop and target both 1.5 R from entry, flat at
+//            midnight when the zones expire.
 //
-//   1. R = the height of the 21:00 New York candle. That is the ruler.
-//   2. At 08:00 New York, measure how far price is from the INNER edge of the
-//      upper zone (src.high + 2.0R) and from the inner edge of the lower zone
-//      (src.low - 2.0R). Express both in units of R.
-//   3. If one side is at least 1.5 R closer than the other, that is the call.
-//      Otherwise stand aside.
+// Measured on 111 XAUUSD sessions:
 //
-// On gold, when a zone is tagged that day, the side called this way was right
-// 96% of the time (25 right, 1 wrong out of 50 signals at 08:00). The honest
-// other half of that: on 24 of those 50 days no zone was ever tagged. Being
-// wrong is rare. Nothing happening is not. Those are scratches, not losses -
-// but do not force a trade on them.
+//   04:00, 1.5 R    59W / 31L / 21 flat    65.6%    holds at 67.4% / 63.6%
+//   04:00, 2.0 R    56W / 22L / 33 flat    71.8%    holds at 75.6% / 67.6%
+//   09:00, 1.0 R    63W / 38L / 10 flat    62.4%    the most winning days
 //
-// It does NOT hold on NAS100 (63-75% at every hour and threshold). Gold's
-// average day travels 4.05 R against a 5 R gap between the zones, so once it
-// commits it cannot turn around. NAS100 travels 7.41 R and whips between both.
-// Check any new symbol before trusting this on it.
+// 40 of 55 hour-by-target cells tested positive, so the edge is the surface,
+// not one lucky cell. Three things that did NOT help, all tested: VWAP/TWAP in
+// any combination, a minimum-gap filter, and waiting for a pullback to enter.
+//
+// XAUUSD only. NAS100 reaches 59% at its best cell but only 27 of 55 cells are
+// positive and the median is exactly 50.0% - a flat surface with a lucky
+// corner. Test any new symbol before trusting it.
 // ============================================================================
 
 indicator("RXWLES Direction Call", "Direction Call", overlay = true,
@@ -33,33 +33,98 @@ indicator("RXWLES Direction Call", "Direction Call", overlay = true,
 const string TZ = "America/New_York"
 
 //=============================================================================
-// INPUTS
+// METHOD
 //=============================================================================
 
 srcHour  = input.int(21, "Source candle hour (NY)", minval = 0, maxval = 23, group = "Method",
      tooltip = "Must match RXWLES PRO's Enigma Source Hour. 21 = the 9pm candle.")
-readHour = input.int(8, "Read the chart at (NY hour)", minval = 0, maxval = 23, group = "Method",
-     tooltip = "05:00-09:00 all test well on gold. 08:00 gives the most signals at 96%.")
-lvl1     = input.float(2.0, "Inner zone edge", step = 0.05, group = "Method",
-     tooltip = "The line the call is measured to. Matches RXWLES Zone Level 1.")
-gapMin   = input.float(1.5, "Minimum gap to call it (R)", step = 0.1, group = "Method",
-     tooltip = "One side must be this much closer than the other. Lower = more signals, "
-             + "less accuracy. 1.0 gives ~91% on gold, 1.5 gives ~96%, 2.0 gives ~95%.")
+readHour = input.int(4, "Read the chart at (NY hour)", minval = 0, maxval = 23, group = "Method",
+     tooltip = "04:00 tested best for direction. 09:00 gives the most winning days "
+             + "at a slightly lower hit rate.")
+lvl1     = input.float(2.0, "Inner zone edge (R)", step = 0.05, group = "Method",
+     tooltip = "The line the direction is measured to. Matches RXWLES Zone Level 1.")
+raceR    = input.float(1.5, "Stop and target distance (R)", step = 0.25, minval = 0.25,
+     group = "Method",
+     tooltip = "Symmetric. 1.5 R = 65.6% and 59 winning days. 2.0 R = 71.8% but "
+             + "12 more days end flat.")
 
-showTable  = input.bool(true,  "Show the verdict panel", group = "Display")
-showLabels = input.bool(true,  "Mark the call on the chart", group = "Display")
-showLines  = input.bool(true,  "Draw the target edge", group = "Display")
-tblPos     = input.string("Top right", "Panel position",
-     options = ["Top right", "Top left", "Bottom right", "Bottom left", "Middle right"],
-     group = "Display")
-
-upCol   = input.color(color.new(#26a69a, 0), "Up call", inline = "c", group = "Display")
-dnCol   = input.color(color.new(#ef5350, 0), "Down call", inline = "c", group = "Display")
-noCol   = input.color(color.new(color.gray, 0), "No trade", inline = "c", group = "Display")
+useGap   = input.bool(false, "Require a minimum gap", group = "Method",
+     tooltip = "OFF is what tested best. Filtering by gap cut winning days from 63 "
+             + "to 37 without improving accuracy.")
+gapMin   = input.float(1.5, "    minimum gap (R)", step = 0.1, group = "Method")
 
 //=============================================================================
-// CALENDAR
+// APPEARANCE - panel
 //=============================================================================
+
+showTable = input.bool(true, "Show verdict panel", group = "Panel")
+tblPos    = input.string("Top right", "Position", group = "Panel",
+     options = ["Top right", "Top left", "Bottom right", "Bottom left", "Middle right"])
+tblSize   = input.string("Small", "Text size", options = ["Tiny", "Small", "Normal"],
+     group = "Panel")
+tblBg     = input.color(color.new(color.black, 25), "Background", group = "Panel")
+tblTxt    = input.color(color.new(color.white, 0), "Text", group = "Panel")
+
+//=============================================================================
+// APPEARANCE - the call marker
+//=============================================================================
+
+showLabel = input.bool(true, "Mark the call on the chart", group = "Call marker")
+lblText   = input.string("Arrow only", "Marker text", group = "Call marker",
+     options = ["Arrow only", "Arrow + direction", "Arrow + direction + R", "None"])
+lblSize   = input.string("Tiny", "Marker size", options = ["Tiny", "Small", "Normal", "Large"],
+     group = "Call marker")
+lblStyle  = input.string("Triangle", "Marker style", group = "Call marker",
+     options = ["Triangle", "Arrow", "Label", "Circle", "Flag"])
+lblTxtCol = input.color(color.white, "Marker text colour", group = "Call marker")
+showNoTrade = input.bool(false, "Also mark no-trade days", group = "Call marker")
+
+//=============================================================================
+// APPEARANCE - entry, stop and target
+//=============================================================================
+
+showEntry = input.bool(true,  "Entry line",  inline = "e", group = "Levels")
+entryCol  = input.color(color.new(color.gray, 20), "", inline = "e", group = "Levels")
+entryStyle = input.string("Dotted", "", options = ["Solid", "Dashed", "Dotted"],
+     inline = "e", group = "Levels")
+entryW    = input.int(1, "", minval = 1, maxval = 4, inline = "e", group = "Levels")
+
+showStop  = input.bool(true,  "Stop line",   inline = "s", group = "Levels")
+stopCol   = input.color(color.new(#ef5350, 0), "", inline = "s", group = "Levels")
+stopStyle = input.string("Dashed", "", options = ["Solid", "Dashed", "Dotted"],
+     inline = "s", group = "Levels")
+stopW     = input.int(1, "", minval = 1, maxval = 4, inline = "s", group = "Levels")
+
+showTgt   = input.bool(true,  "Target line", inline = "t", group = "Levels")
+tgtCol    = input.color(color.new(#26a69a, 0), "", inline = "t", group = "Levels")
+tgtStyle  = input.string("Dashed", "", options = ["Solid", "Dashed", "Dotted"],
+     inline = "t", group = "Levels")
+tgtW      = input.int(1, "", minval = 1, maxval = 4, inline = "t", group = "Levels")
+
+showZones = input.bool(false, "Also plot the 2.0 R inner edges", group = "Levels")
+zoneCol   = input.color(color.new(color.gray, 60), "", group = "Levels")
+priceTags = input.bool(false, "Price tag on each line", group = "Levels")
+
+upCol = input.color(color.new(#26a69a, 0), "Up call", inline = "v", group = "Levels")
+dnCol = input.color(color.new(#ef5350, 0), "Down call", inline = "v", group = "Levels")
+noCol = input.color(color.new(color.gray, 0), "No trade", inline = "v", group = "Levels")
+
+//=============================================================================
+// HELPERS
+//=============================================================================
+
+f_style(string s) =>
+    s == "Dashed" ? line.style_dashed : s == "Dotted" ? line.style_dotted : line.style_solid
+
+f_size(string s) =>
+    s == "Tiny" ? size.tiny : s == "Normal" ? size.normal : s == "Large" ? size.large : size.small
+
+f_lblStyle(string s, int dir) =>
+    s == "Arrow"    ? (dir > 0 ? label.style_arrowup : label.style_arrowdown) :
+     s == "Label"   ? (dir > 0 ? label.style_label_up : label.style_label_down) :
+     s == "Circle"  ? label.style_circle :
+     s == "Flag"    ? label.style_flag :
+     (dir > 0 ? label.style_triangleup : label.style_triangledown)
 
 f_midnight(int t) =>
     timestamp(TZ, year(t, TZ), month(t, TZ), dayofmonth(t, TZ), 0, 0, 0)
@@ -69,8 +134,8 @@ f_nextMidnight(int t) =>
     f_midnight(f_midnight(t) + 26 * 3600000)
 
 //=============================================================================
-// SOURCE CANDLE - read from the hourly series, as RXWLES PRO does, so the
-// numbers are identical no matter what timeframe the chart is on.
+// SOURCE CANDLE - from the hourly series, as RXWLES PRO reads it, so the
+// numbers match on any chart timeframe.
 //=============================================================================
 
 f_sourceCandle() =>
@@ -90,100 +155,119 @@ f_sourceCandle() =>
 // STATE
 //=============================================================================
 
-var float R      = na
-var float upEdge = na       // src.high + lvl1 * R
-var float dnEdge = na       // src.low  - lvl1 * R
+var float R = na
+var float upEdge = na
+var float dnEdge = na
 var int   laneDay = na
-var bool  laneOpen = false
-
-var bool  tagUp = false     // a zone was already reached before the reading
-var bool  tagDn = false
 var bool  called = false
-
-var int   verdict = 0       // 0 = waiting, 1 = up, -1 = down, 2 = no trade
+var int   verdict = 0            // 0 waiting, 1 up, -1 down, 2 no trade
 var float gUp = na
 var float gDn = na
 var float gap = na
+var float entryPx = na
+var float stopPx = na
+var float tgtPx = na
 var string why = ""
 
-bool intraday = not timeframe.isdwm
+var line lnE = na
+var line lnS = na
+var line lnT = na
 
-// ---- a new source candle has closed: reset the day ------------------------
+bool intraday = not timeframe.isdwm
 bool newSrc = intraday and not na(srcDay) and not na(srcHigh) and (na(laneDay) or srcDay != laneDay)
 
 if newSrc and (srcHigh - srcLow) > 0
-    laneDay  := srcDay
-    R        := srcHigh - srcLow
-    upEdge   := srcHigh + lvl1 * R
-    dnEdge   := srcLow  - lvl1 * R
-    tagUp    := false
-    tagDn    := false
-    called   := false
-    laneOpen := false
-    verdict  := 0
-    gUp      := na
-    gDn      := na
-    gap      := na
-    why      := "waiting for " + str.tostring(readHour) + ":00 NY"
+    laneDay := srcDay
+    R       := srcHigh - srcLow
+    upEdge  := srcHigh + lvl1 * R
+    dnEdge  := srcLow  - lvl1 * R
+    called  := false
+    verdict := 0
+    gUp     := na
+    gDn     := na
+    gap     := na
+    entryPx := na
+    stopPx  := na
+    tgtPx   := na
+    why     := "waiting for " + str.format("{0,number,00}:00", readHour) + " NY"
 
-// ---- inside the lane ------------------------------------------------------
 bool inLane = intraday and not na(laneDay) and time >= laneDay and time < laneDay + 86400000
 
-if inLane
-    laneOpen := true
+// ---- the reading --------------------------------------------------------
+if inLane and not called and hour(time, TZ) >= readHour
+    called  := true
+    entryPx := open
+    gUp     := (upEdge - entryPx) / R
+    gDn     := (entryPx - dnEdge) / R
+    gap     := math.abs(gUp - gDn)
 
-    // Has a zone already been reached? If so there is nothing left to call.
-    if high >= upEdge
-        tagUp := true
-    if low <= dnEdge
-        tagDn := true
+    if useGap and gap < gapMin
+        verdict := 2
+        why := "gap " + str.tostring(gap, "#.##") + " R under " + str.tostring(gapMin, "#.#")
+    else
+        verdict := gUp < gDn ? 1 : -1
+        why := (gUp < gDn ? "upper" : "lower") + " edge is "
+             + str.tostring(gap, "#.##") + " R closer"
+        stopPx := entryPx - verdict * raceR * R
+        tgtPx  := entryPx + verdict * raceR * R
 
-    // The reading. First bar at or after the read hour, so this works on any
-    // intraday timeframe, not just 1H.
-    if not called and hour(time, TZ) >= readHour
-        called := true
-        float px = open
-        gUp := (upEdge - px) / R
-        gDn := (px - dnEdge) / R
-        gap := math.abs(gUp - gDn)
-
-        if tagUp or tagDn
-            verdict := 2
-            why := "a zone was already tagged before the read"
-        else if gap < gapMin
-            verdict := 2
-            why := "gap " + str.tostring(gap, "#.##") + " R is under " + str.tostring(gapMin, "#.#")
-        else
-            verdict := gUp < gDn ? 1 : -1
-            why := "gap " + str.tostring(gap, "#.##") + " R"
+bool justCalled = inLane and called and not called[1]
+bool live = verdict == 1 or verdict == -1
+color vCol = verdict == 1 ? upCol : verdict == -1 ? dnCol : noCol
 
 //=============================================================================
 // DRAWING
 //=============================================================================
 
-bool justCalled = inLane and called and not called[1]
-
-if showLabels and justCalled
-    string txt = verdict == 1 ? "▲ UP\n" + str.tostring(gap, "#.##") + " R" :
-         verdict == -1 ? "▼ DOWN\n" + str.tostring(gap, "#.##") + " R" : "— no trade"
-    color col = verdict == 1 ? upCol : verdict == -1 ? dnCol : noCol
+if justCalled and showLabel and (live or showNoTrade)
+    string txt = lblText == "None" or lblText == "Arrow only" ? "" :
+         lblText == "Arrow + direction" ? (verdict == 1 ? "UP" : verdict == -1 ? "DOWN" : "—") :
+         (verdict == 1 ? "UP" : verdict == -1 ? "DOWN" : "—") + "  R " + str.tostring(R, format.mintick)
     label.new(bar_index, verdict == 1 ? low : high, txt,
-         style = verdict == 1 ? label.style_label_up : verdict == -1 ? label.style_label_down
-              : label.style_label_center,
-         color = color.new(col, 15), textcolor = color.white, size = size.small)
+         style = f_lblStyle(lblStyle, verdict == 0 ? 1 : verdict),
+         color = vCol, textcolor = lblTxtCol, size = f_size(lblSize),
+         yloc = yloc.price)
 
-if showLines and justCalled and (verdict == 1 or verdict == -1)
-    line.new(bar_index, verdict == 1 ? upEdge : dnEdge,
-         bar_index + 24, verdict == 1 ? upEdge : dnEdge,
-         color = verdict == 1 ? upCol : dnCol, width = 2, style = line.style_dashed)
+if justCalled and live
+    if showEntry
+        lnE := line.new(bar_index, entryPx, bar_index + 1, entryPx, color = entryCol,
+             style = f_style(entryStyle), width = entryW)
+    if showStop
+        lnS := line.new(bar_index, stopPx, bar_index + 1, stopPx, color = stopCol,
+             style = f_style(stopStyle), width = stopW)
+    if showTgt
+        lnT := line.new(bar_index, tgtPx, bar_index + 1, tgtPx, color = tgtCol,
+             style = f_style(tgtStyle), width = tgtW)
+    if priceTags
+        if showStop
+            label.new(bar_index, stopPx, "SL " + str.tostring(stopPx, format.mintick),
+                 style = label.style_label_left, color = color.new(stopCol, 80),
+                 textcolor = stopCol, size = size.tiny)
+        if showTgt
+            label.new(bar_index, tgtPx, "TP " + str.tostring(tgtPx, format.mintick),
+                 style = label.style_label_left, color = color.new(tgtCol, 80),
+                 textcolor = tgtCol, size = size.tiny)
+
+// The levels expire with the lane, so the lines stop at midnight.
+if inLane and live
+    if not na(lnE)
+        line.set_x2(lnE, bar_index)
+    if not na(lnS)
+        line.set_x2(lnS, bar_index)
+    if not na(lnT)
+        line.set_x2(lnT, bar_index)
+
+plot(showZones and inLane ? upEdge : na, "Upper 2.0 R edge", color = zoneCol,
+     style = plot.style_linebr)
+plot(showZones and inLane ? dnEdge : na, "Lower 2.0 R edge", color = zoneCol,
+     style = plot.style_linebr)
 
 //=============================================================================
 // PANEL
 //=============================================================================
 
-f_cell(table t, int col, int rw, string txt, color bg, color fg, bool bold) =>
-    table.cell(t, col, rw, txt, bgcolor = bg, text_color = fg,
-         text_size = bold ? size.normal : size.small,
+f_cell(table t, int col, int rw, string txt, color bg, color fg, string sz) =>
+    table.cell(t, col, rw, txt, bgcolor = bg, text_color = fg, text_size = sz,
          text_halign = col == 0 ? text.align_left : text.align_right)
 
 var table T = na
@@ -193,60 +277,39 @@ if barstate.islast and showTable and intraday
          tblPos == "Bottom right" ? position.bottom_right :
          tblPos == "Bottom left" ? position.bottom_left :
          tblPos == "Middle right" ? position.middle_right : position.top_right
+    string sz = f_size(tblSize)
 
     if not na(T)
         table.delete(T)
     T := table.new(pos, 2, 8, border_width = 1, frame_width = 1,
-         frame_color = color.new(color.gray, 50), border_color = color.new(color.gray, 75))
+         frame_color = color.new(color.gray, 55), border_color = color.new(color.gray, 80))
 
-    color vCol = verdict == 1 ? upCol : verdict == -1 ? dnCol : noCol
     string vTxt = verdict == 1 ? "TRADE UP" : verdict == -1 ? "TRADE DOWN" :
          verdict == 2 ? "NO TRADE" : "WAITING"
 
-    color bg = color.new(color.black, 20)
-    color fg = color.new(color.white, 0)
-
-    f_cell(T, 0, 0, "VERDICT", color.new(vCol, 60), fg, true)
-    f_cell(T, 1, 0, vTxt, color.new(vCol, 60), fg, true)
-
-    f_cell(T, 0, 1, why, bg, color.new(color.silver, 20), false)
-    f_cell(T, 1, 1, "", bg, fg, false)
-
-    f_cell(T, 0, 2, "R (9pm candle)", bg, fg, false)
-    f_cell(T, 1, 2, na(R) ? "-" : str.tostring(R, format.mintick), bg, fg, false)
-
-    f_cell(T, 0, 3, "to upper 2.0 edge", bg, fg, false)
-    f_cell(T, 1, 3, na(gUp) ? "-" : str.tostring(gUp, "#.##") + " R", bg,
-         verdict == 1 ? upCol : fg, false)
-
-    f_cell(T, 0, 4, "to lower 2.0 edge", bg, fg, false)
-    f_cell(T, 1, 4, na(gDn) ? "-" : str.tostring(gDn, "#.##") + " R", bg,
-         verdict == -1 ? dnCol : fg, false)
-
-    f_cell(T, 0, 5, "gap (need " + str.tostring(gapMin, "#.#") + " R)", bg, fg, false)
-    f_cell(T, 1, 5, na(gap) ? "-" : str.tostring(gap, "#.##") + " R", bg,
-         na(gap) ? fg : (gap >= gapMin ? upCol : noCol), false)
-
-    f_cell(T, 0, 6, "target", bg, fg, false)
-    f_cell(T, 1, 6, verdict == 1 ? str.tostring(upEdge, format.mintick) :
-         verdict == -1 ? str.tostring(dnEdge, format.mintick) : "-", bg, vCol, false)
-
-    f_cell(T, 0, 7, "read at", bg, color.new(color.silver, 20), false)
-    f_cell(T, 1, 7, str.format("{0,number,00}:00 NY", readHour), bg,
-         color.new(color.silver, 20), false)
+    f_cell(T, 0, 0, "VERDICT", color.new(vCol, 55), tblTxt, sz)
+    f_cell(T, 1, 0, vTxt,      color.new(vCol, 55), tblTxt, sz)
+    f_cell(T, 0, 1, why, tblBg, color.new(tblTxt, 35), sz)
+    f_cell(T, 1, 1, "",  tblBg, tblTxt, sz)
+    f_cell(T, 0, 2, "R (9pm candle)", tblBg, tblTxt, sz)
+    f_cell(T, 1, 2, na(R) ? "-" : str.tostring(R, format.mintick), tblBg, tblTxt, sz)
+    f_cell(T, 0, 3, "to upper edge", tblBg, tblTxt, sz)
+    f_cell(T, 1, 3, na(gUp) ? "-" : str.tostring(gUp, "#.##") + " R", tblBg,
+         verdict == 1 ? upCol : tblTxt, sz)
+    f_cell(T, 0, 4, "to lower edge", tblBg, tblTxt, sz)
+    f_cell(T, 1, 4, na(gDn) ? "-" : str.tostring(gDn, "#.##") + " R", tblBg,
+         verdict == -1 ? dnCol : tblTxt, sz)
+    f_cell(T, 0, 5, "entry", tblBg, tblTxt, sz)
+    f_cell(T, 1, 5, na(entryPx) ? "-" : str.tostring(entryPx, format.mintick), tblBg, tblTxt, sz)
+    f_cell(T, 0, 6, "stop", tblBg, tblTxt, sz)
+    f_cell(T, 1, 6, na(stopPx) ? "-" : str.tostring(stopPx, format.mintick), tblBg, stopCol, sz)
+    f_cell(T, 0, 7, "target", tblBg, tblTxt, sz)
+    f_cell(T, 1, 7, na(tgtPx) ? "-" : str.tostring(tgtPx, format.mintick), tblBg, tgtCol, sz)
 
 //=============================================================================
 // ALERTS
 //=============================================================================
 
-alertcondition(justCalled and verdict == 1,  "Direction call: UP",
-     "Zone direction call: UP - the upper 2.0 edge is the target")
-alertcondition(justCalled and verdict == -1, "Direction call: DOWN",
-     "Zone direction call: DOWN - the lower 2.0 edge is the target")
-alertcondition(justCalled and verdict == 2,  "Direction call: no trade",
-     "No zone direction call today")
-
-plot(showLines ? upEdge : na, "Upper 2.0 edge", color = color.new(upCol, 55),
-     style = plot.style_linebr)
-plot(showLines ? dnEdge : na, "Lower 2.0 edge", color = color.new(dnCol, 55),
-     style = plot.style_linebr)
+alertcondition(justCalled and verdict == 1,  "Direction: UP",   "Direction call: UP")
+alertcondition(justCalled and verdict == -1, "Direction: DOWN", "Direction call: DOWN")
+alertcondition(justCalled and verdict == 2,  "Direction: none", "No direction call today")
