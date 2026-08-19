@@ -1,0 +1,36 @@
+============================================================================================
+  SAME ENGINE, SAME DATES (2026-07-08 -> 2026-08-18)
+  Sample and period are identical, so any gap between the rows is bar size.
+============================================================================================
+
+  enter at call, box-$2 stop
+  variant                               n     win    avgR    totR     RR    risk$  waited
+     coarse                            24   66.7%   +0.40    +9.6   1.26    38.52    0.0%
+     fine                              30   66.7%   +0.41   +12.4   1.29    36.83    0.0%
+
+  patient, run > 0.5 R
+  variant                               n     win    avgR    totR     RR    risk$  waited
+     coarse                            16   62.5%   +0.56    +9.0   1.60    23.47   12.5%
+     fine                              20   60.0%   +0.53   +10.6   1.66    22.97   10.0%
+
+  patient, run > 0.25 R
+  variant                               n     win    avgR    totR     RR    risk$  waited
+     coarse                            12   50.0%   +0.43    +5.1   1.83    16.05   25.0%
+     fine                              16   50.0%   +0.43    +6.9   1.85    17.29   18.8%
+
+  at call, hold to midnight
+  variant                               n     win    avgR    totR     RR    risk$  waited
+     coarse                            24   66.7%   +0.48   +11.5   1.26    38.52    0.0%
+     fine                              30   66.7%   +0.48   +14.5   1.29    36.83    0.0%
+
+  patient, hold to midnight
+  variant                               n     win    avgR    totR     RR    risk$  waited
+     coarse                            16   62.5%   +0.63   +10.0   1.60    23.47   12.5%
+     fine                              20   60.0%   +0.59   +11.9   1.66    22.97   10.0%
+
+============================================================================================
+  THE FULL COARSE SAMPLE FOR CONTEXT - is the window flattering us?
+============================================================================================
+  variant                               n     win    avgR    totR     RR    risk$  waited
+  at call, box-$2                      89   57.3%   +0.25   +22.3   1.37    43.91    0.0%
+  patient run > 0.5 R                  61   49.2%   +0.28   +17.0   1.73    28.49    6.6%
