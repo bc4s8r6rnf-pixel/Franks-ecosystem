@@ -1,0 +1,72 @@
+
+==============================================================================
+  XAUUSD   111 sessions
+==============================================================================
+
+------------------------------------------------------------------------------
+FULL ORDER - is the book consumed nearest-first, all the way down?
+------------------------------------------------------------------------------
+  all pairs, nearest-first      95.3%   n=211   (inflated - see below)
+  OPPOSITE-SIDE pairs only      50.0%   n=20   <- the real test, 50% = nothing
+  first TWO in the right order  59.6%   n=47
+  first THREE in right order    37.9%   n=29
+
+------------------------------------------------------------------------------
+DIRECTION - once it starts, does it keep eating levels the same side?
+------------------------------------------------------------------------------
+  first 2 consumptions all one side    91.5%   n=47
+  first 3 consumptions all one side    86.2%   n=29
+  first 4 consumptions all one side    76.9%   n=13
+
+------------------------------------------------------------------------------
+TWO-SIDED DAYS - when both zones do get tagged, which goes first?
+------------------------------------------------------------------------------
+  sessions tagging both zones: 2
+    nearest at NY open led     50.0%   n=2
+    9pm candle's own side led  50.0%   n=2
+    opposite of yesterday led  50.0%   n=2
+    (small n - read these as a direction to test, not a result)
+
+------------------------------------------------------------------------------
+SMALL-ANCHOR DAYS ONLY - the regime where both zones are reachable
+------------------------------------------------------------------------------
+  sessions in the smallest anchor quintile: 20
+    tagged both zones           10.0%
+    nearest zone led            94.1%   n=17
+    9pm candle's own side led   58.8%   n=17
+
+==============================================================================
+  NAS100   111 sessions
+==============================================================================
+
+------------------------------------------------------------------------------
+FULL ORDER - is the book consumed nearest-first, all the way down?
+------------------------------------------------------------------------------
+  all pairs, nearest-first      92.3%   n=142   (inflated - see below)
+  OPPOSITE-SIDE pairs only      60.7%   n=28   <- the real test, 50% = nothing
+  first TWO in the right order  44.8%   n=58
+  first THREE in right order    31.8%   n=22
+
+------------------------------------------------------------------------------
+DIRECTION - once it starts, does it keep eating levels the same side?
+------------------------------------------------------------------------------
+  first 2 consumptions all one side    72.4%   n=58
+  first 3 consumptions all one side    77.3%   n=22
+  first 4 consumptions all one side    62.5%   n=8
+
+------------------------------------------------------------------------------
+TWO-SIDED DAYS - when both zones do get tagged, which goes first?
+------------------------------------------------------------------------------
+  sessions tagging both zones: 19
+    nearest at NY open led     73.7%   n=19
+    9pm candle's own side led  42.1%   n=19
+    opposite of yesterday led  30.8%   n=13
+    (small n - read these as a direction to test, not a result)
+
+------------------------------------------------------------------------------
+SMALL-ANCHOR DAYS ONLY - the regime where both zones are reachable
+------------------------------------------------------------------------------
+  sessions in the smallest anchor quintile: 18
+    tagged both zones           55.6%
+    nearest zone led            72.2%   n=18
+    9pm candle's own side led   38.9%   n=18
