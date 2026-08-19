@@ -69,7 +69,7 @@ def load(path):
 
 
 class Session:
-    __slots__ = ("day", "anchor_dir", "rhigh", "rlow", "rng", "u1", "u2", "l1", "l2",
+    __slots__ = ("day", "anchor_idx", "anchor_dir", "rhigh", "rlow", "rng", "u1", "u2", "l1", "l2",
                  "lo_idx", "hi_idx", "lane_hi", "lane_lo", "first", "first_hr",
                  "second", "ny_px", "near", "gap", "outcome", "ambiguous",
                  "touch_u1", "touch_l2", "touch_eh", "touch_el")
@@ -102,6 +102,7 @@ def build_sessions(bars):
 
         s = Session()
         s.day, s.rhigh, s.rlow, s.rng = lane_start, b.h, b.l, rng
+        s.anchor_idx = i
         s.anchor_dir = 1 if b.c >= b.o else -1
         s.u1, s.u2 = b.h + LVL1 * rng, b.h + LVL2 * rng
         s.l2, s.l1 = b.l - LVL1 * rng, b.l - LVL2 * rng
