@@ -63,6 +63,11 @@ input group "=== Carry-forward zones (older days' zones stay live) ==="
 input int    InpCarryDays         = 5;    // How many prior sessions' zones stay in play
 input double InpReactR            = 1.00; // Retrace from the tap extreme that counts as a "respect", in range multiples
 
+input group "=== Zone book (the multi-day ordering engine) ==="
+input int    InpBookDays          = 10;   // How many prior sessions of untouched zones form the live book
+input double InpClusterTolR       = 0.25; // Zones within this (range multiples) count as one stacked cluster
+input int    InpBookRefPoint      = 0;    // Reference price: 0 = 9pm anchor close, 1 = NY reference bar open
+
 input group "=== Entry models (all pre-specified, none fitted to the data) ==="
 input double InpStopR            = 1.0;  // Models 1/3/4/5 stop, in range multiples
 input double InpFadeStopR        = 0.25; // Model 2 stop beyond the far edge of the tapped zone
@@ -682,7 +687,8 @@ void MapZoneTouches(const MqlRates &r[], const int n, SessionRec &s[], const int
    {
       s[i].upTouchIdx = -1;
       s[i].dnTouchIdx = -1;
-      int last = (i + InpCarryDays < ns - 1) ? i + InpCarryDays : ns - 1;
+      int horizon = (InpBookDays > InpCarryDays) ? InpBookDays : InpCarryDays;
+      int last = (i + horizon < ns - 1) ? i + horizon : ns - 1;
       int stop = s[last].endIdx;
       for(int j = s[i].anchorIdx + 1; j <= stop && j < n; j++)
       {
@@ -853,6 +859,491 @@ SimRes RunCarryBreakModel(const MqlRates &r[], const SessionRec &s[], const int 
 }
 
 //==================================================================//
+//  ZONE BOOK - deciphering the ORDER in which zones are consumed    //
+//==================================================================//
+// Everything above treats today's zone as the object of interest. That is
+// almost certainly the wrong frame. What actually exists at any moment is a
+// BOOK of live levels: every zone from the last N sessions that price has
+// never reached. Price works through that book. "Blasted through today's
+// upper zone and respected the one from two days ago" is not an anomaly -
+// it is the book being consumed in an order that today's zone does not
+// determine.
+//
+// So the question becomes: given the live book at the start of a session,
+// what rule picks the zone that gets consumed FIRST? This block builds the
+// book, watches the real consumption order, and then puts eleven candidate
+// ordering rules in a tournament against each other and against chance.
+// Finally it grid-searches a weighted formula over the same features, fit
+// on the first half of history and scored on the second, so the number you
+// end up trusting is one the search never saw.
+
+#define MAXBOOK   64
+#define NRULES    11
+
+#define RL_NEAR_PRICE  0
+#define RL_NEAR_OWN    1
+#define RL_OLDEST      2
+#define RL_NEWEST      3
+#define RL_BIG_ANCHOR  4
+#define RL_SMALL_ANCH  5
+#define RL_CLUSTER     6
+#define RL_CLUST_NEAR  7
+#define RL_ANCHOR_BIAS 8
+#define RL_ROTATE      9
+#define RL_CONTINUE    10
+
+string RuleName(const int k)
+{
+   switch(k)
+   {
+      case RL_NEAR_PRICE:  return "nearest in price";
+      case RL_NEAR_OWN:    return "nearest, scaled by the zone's own range";
+      case RL_OLDEST:      return "oldest untouched first (FIFO queue)";
+      case RL_NEWEST:      return "newest first (LIFO)";
+      case RL_BIG_ANCHOR:  return "widest anchor candle wins";
+      case RL_SMALL_ANCH:  return "tightest anchor candle wins";
+      case RL_CLUSTER:     return "biggest cluster of stacked zones";
+      case RL_CLUST_NEAR:  return "cluster first, nearest as tiebreak";
+      case RL_ANCHOR_BIAS: return "side the 9pm candle closed toward";
+      case RL_ROTATE:      return "opposite side to the last zone consumed";
+      case RL_CONTINUE:    return "same side as the last zone consumed";
+   }
+   return "?";
+}
+
+// One live zone in the book, flattened so the grid search can sweep it fast.
+struct BookZone
+{
+   int    sess;        // session it belongs to
+   int    age;         // sessions old (0 = tonight's anchor)
+   int    side;        // +1 upper, -1 lower
+   double nearE, farE, range;
+   double distToday;   // |nearE - reference| in units of TODAY's range
+   double distOwn;     // ...in units of the zone's OWN anchor range
+   int    cluster;     // live zones stacked within tolerance of this one
+   int    order;       // consumption order this session: 0 = never, 1 = first, ...
+   int    bar;         // bar index of consumption
+};
+
+double RuleScore(const int rule, const BookZone &z, const int anchorDir, const int lastSide)
+{
+   switch(rule)
+   {
+      case RL_NEAR_PRICE:  return -z.distToday;
+      case RL_NEAR_OWN:    return -z.distOwn;
+      case RL_OLDEST:      return  z.age * 10.0 - z.distToday;
+      case RL_NEWEST:      return -z.age * 10.0 - z.distToday;
+      case RL_BIG_ANCHOR:  return  z.range;
+      case RL_SMALL_ANCH:  return -z.range;
+      case RL_CLUSTER:     return  z.cluster;
+      case RL_CLUST_NEAR:  return  z.cluster * 10.0 - z.distToday;
+      case RL_ANCHOR_BIAS: return ((z.side == anchorDir) ? 10.0 : 0.0) - z.distToday;
+      case RL_ROTATE:      return ((lastSide != 0 && z.side == -lastSide) ? 10.0 : 0.0) - z.distToday;
+      case RL_CONTINUE:    return ((lastSide != 0 && z.side ==  lastSide) ? 10.0 : 0.0) - z.distToday;
+   }
+   return 0.0;
+}
+
+// The four features the weighted formula search sweeps. All normalised to
+// roughly 0..1 so the weights are comparable to each other.
+void ZoneFeatures(const BookZone &z, const int anchorDir, double &f[])
+{
+   double d = z.distToday; if(d > 6.0) d = 6.0;
+   f[0] = 1.0 - d / 6.0;                                   // proximity
+   f[1] = (double)z.age / (double)InpBookDays;             // staleness
+   double c = (double)(z.cluster - 1); if(c > 3.0) c = 3.0;
+   f[2] = c / 3.0;                                         // confluence
+   f[3] = (z.side == anchorDir) ? 1.0 : 0.0;               // anchor-candle bias
+}
+
+//------------------------------------------------------------------
+// Build the live book for session i and watch the order it is consumed in.
+//------------------------------------------------------------------
+int BuildBook(const MqlRates &r[], const SessionRec &s[], const int ns, const int i,
+              BookZone &book[])
+{
+   int nb = 0;
+   ArrayResize(book, 0);
+
+   double refPrice = (InpBookRefPoint == 1 && s[i].hasNY) ? s[i].nyPrice : r[s[i].anchorIdx].close;
+   int    startBar = (InpBookRefPoint == 1 && s[i].hasNY) ? s[i].nyIdx   : s[i].anchorIdx + 1;
+
+   for(int age = 0; age <= InpBookDays; age++)
+   {
+      int j = i - age;
+      if(j < 0) break;
+      for(int d = -1; d <= 1; d += 2)
+      {
+         // Age 0 is tonight's own zone and is live by definition. Older zones
+         // only count while price has still never reached them.
+         if(age > 0 && !IsVirgin(s, j, i, d)) continue;
+
+         BookZone z;
+         ZeroMemory(z);
+         z.sess  = j;
+         z.age   = age;
+         z.side  = d;
+         z.nearE = (d > 0) ? s[j].u1 : s[j].l2;
+         z.farE  = (d > 0) ? s[j].u2 : s[j].l1;
+         z.range = s[j].range;
+
+         // A zone already on the wrong side of price is not a level price is
+         // travelling toward - it is behind it. Drop it from the book.
+         if(d > 0 && z.nearE <= refPrice) continue;
+         if(d < 0 && z.nearE >= refPrice) continue;
+
+         z.distToday = MathAbs(z.nearE - refPrice) / s[i].range;
+         z.distOwn   = MathAbs(z.nearE - refPrice) / z.range;
+
+         if(nb >= MAXBOOK) continue;
+         ArrayResize(book, nb + 1);
+         book[nb] = z;
+         nb++;
+      }
+   }
+   if(nb == 0) return 0;
+
+   // Confluence: how many live zones stack within tolerance of each one.
+   // Price does not care which day a level came from, so this counts by price
+   // only, not by side.
+   double tol = InpClusterTolR * s[i].range;
+   for(int a = 0; a < nb; a++)
+   {
+      book[a].cluster = 0;
+      for(int b = 0; b < nb; b++)
+         if(MathAbs(book[a].nearE - book[b].nearE) <= tol) book[a].cluster++;
+   }
+
+   // Watch the session and stamp the real consumption order.
+   int ord = 0;
+   for(int j2 = startBar; j2 <= s[i].endIdx; j2++)
+   {
+      // Several zones can be taken out by one bar. Order them by how far they
+      // sit from that bar's open - the nearest is reached first on the way.
+      for(;;)
+      {
+         int    pick = -1;
+         double best = 0.0;
+         for(int a = 0; a < nb; a++)
+         {
+            if(book[a].order != 0) continue;
+            bool hit = (book[a].side > 0) ? (r[j2].high >= book[a].nearE)
+                                          : (r[j2].low  <= book[a].nearE);
+            if(!hit) continue;
+            double dd = MathAbs(book[a].nearE - r[j2].open);
+            if(pick < 0 || dd < best) { pick = a; best = dd; }
+         }
+         if(pick < 0) break;
+         ord++;
+         book[pick].order = ord;
+         book[pick].bar   = j2;
+      }
+   }
+   return nb;
+}
+
+//------------------------------------------------------------------
+void AnalyseZoneBook(const MqlRates &r[], const int n, const SessionRec &s[], const int ns)
+{
+   // Flat storage so the weight search can sweep every candidate cheaply.
+   int    fSess[];  int    fAge[];   int    fSide[];  int fClust[]; int fOrder[];
+   double fDistT[]; double fDistO[]; double fRange[];
+   int    sStart[]; int    sCount[]; int    sFirst[]; int sAnchorDir[];
+   ArrayResize(sStart, ns); ArrayResize(sCount, ns);
+   ArrayResize(sFirst, ns); ArrayResize(sAnchorDir, ns);
+
+   // Reserve up front - growing eight arrays one element at a time is the
+   // difference between this finishing instantly and it crawling.
+   int cap = ns * (InpBookDays + 1) * 2;
+   ArrayResize(fSess, 0, cap);  ArrayResize(fAge,   0, cap); ArrayResize(fSide,  0, cap);
+   ArrayResize(fClust, 0, cap); ArrayResize(fOrder, 0, cap); ArrayResize(fDistT, 0, cap);
+   ArrayResize(fDistO, 0, cap); ArrayResize(fRange, 0, cap);
+
+   int total = 0, lastSide = 0;
+   int lastSideArr[];
+   ArrayResize(lastSideArr, ns);
+
+   int sizeHist[MAXBOOK];
+   ArrayInitialize(sizeHist, 0);
+   int consumedHist[MAXBOOK];
+   ArrayInitialize(consumedHist, 0);
+
+   for(int i = 0; i < ns; i++)
+   {
+      sStart[i] = total; sCount[i] = 0; sFirst[i] = -1;
+      sAnchorDir[i]  = (r[s[i].anchorIdx].close >= r[s[i].anchorIdx].open) ? 1 : -1;
+      lastSideArr[i] = lastSide;
+
+      BookZone book[];
+      int nb = BuildBook(r, s, ns, i, book);
+      if(nb <= 0) continue;
+
+      if(nb < MAXBOOK) sizeHist[nb]++;
+      int consumed = 0, lastOrd = 0, lastS = 0;
+
+      for(int a = 0; a < nb; a++)
+      {
+         ArrayResize(fSess,  total + 1); ArrayResize(fAge,   total + 1);
+         ArrayResize(fSide,  total + 1); ArrayResize(fClust, total + 1);
+         ArrayResize(fOrder, total + 1); ArrayResize(fDistT, total + 1);
+         ArrayResize(fDistO, total + 1); ArrayResize(fRange, total + 1);
+         fSess[total]  = book[a].sess;  fAge[total]   = book[a].age;
+         fSide[total]  = book[a].side;  fClust[total] = book[a].cluster;
+         fOrder[total] = book[a].order; fDistT[total] = book[a].distToday;
+         fDistO[total] = book[a].distOwn; fRange[total] = book[a].range;
+         if(book[a].order == 1) sFirst[i] = total;
+         if(book[a].order > 0)
+         {
+            consumed++;
+            if(book[a].order > lastOrd) { lastOrd = book[a].order; lastS = book[a].side; }
+         }
+         total++; sCount[i]++;
+      }
+      if(consumed < MAXBOOK) consumedHist[consumed]++;
+      if(lastS != 0) lastSide = lastS;
+   }
+
+   Out("");
+   Out("==============================================================================");
+   Out("  ZONE BOOK - the order the live levels are consumed in");
+   Out("==============================================================================");
+   Out(StringFormat("  Book depth %d sessions, cluster tolerance %.2f R, reference = %s",
+                    InpBookDays, InpClusterTolR,
+                    (InpBookRefPoint == 1) ? "NY reference bar open" : "9pm anchor candle close"));
+
+   // --- how big is the book, and how much of it gets eaten ---------
+   Out("");
+   Rule();
+   Out("BOOK SIZE - live untouched zones at the start of a session, and how many go");
+   Rule();
+   Out("  live zones   sessions        consumed   sessions");
+   for(int k = 0; k < 20; k++)
+   {
+      if(sizeHist[k] == 0 && consumedHist[k] == 0) continue;
+      Out(StringFormat("  %6d      %5d  (%5.1f%%)    %6d     %5d  (%5.1f%%)",
+                       k, sizeHist[k], Pct(sizeHist[k], ns), k, consumedHist[k], Pct(consumedHist[k], ns)));
+   }
+
+   // --- THE key descriptive table ----------------------------------
+   // If the first zone consumed is almost always the nearest one, the ordering
+   // rule is just proximity and there is nothing else to find. If it is spread
+   // across ranks, something other than distance is driving the choice.
+   Out("");
+   Rule();
+   Out("WHERE THE FIRST-CONSUMED ZONE SAT IN THE NEAREST-FIRST ORDERING");
+   Out("Rank 1 = it was the closest live zone. Spread across ranks = distance is not the rule.");
+   Rule();
+   {
+      int rankHist[MAXBOOK];
+      ArrayInitialize(rankHist, 0);
+      int tot = 0;
+      for(int i = 0; i < ns; i++)
+      {
+         if(sFirst[i] < 0 || sCount[i] < 2) continue;
+         int rank = 1;
+         for(int a = sStart[i]; a < sStart[i] + sCount[i]; a++)
+            if(fDistT[a] < fDistT[sFirst[i]]) rank++;
+         if(rank < MAXBOOK) { rankHist[rank]++; tot++; }
+      }
+      for(int k = 1; k < 12; k++)
+         if(rankHist[k] > 0)
+         {
+            int bars = (int)MathRound(Pct(rankHist[k], tot) / 2.0);
+            string bar = "";
+            for(int z = 0; z < bars; z++) bar += "#";
+            Out(StringFormat("  rank %2d   %5.1f%%  %4d  %s", k, Pct(rankHist[k], tot), rankHist[k], bar));
+         }
+      Out(StringFormat("  (%d sessions with a real choice to make)", tot));
+   }
+
+   // --- age and cluster profile of what gets taken first -----------
+   Out("");
+   Rule();
+   Out("AGE AND CONFLUENCE OF THE FIRST ZONE CONSUMED");
+   Rule();
+   {
+      int ageH[32], clH[16];
+      ArrayInitialize(ageH, 0); ArrayInitialize(clH, 0);
+      int tot = 0;
+      // Availability, so a rate can be computed rather than a raw count -
+      // age 0 is present every session, age 7 is not.
+      int ageAvail[32];
+      ArrayInitialize(ageAvail, 0);
+      for(int i = 0; i < ns; i++)
+      {
+         if(sCount[i] < 2) continue;
+         for(int a = sStart[i]; a < sStart[i] + sCount[i]; a++)
+            if(fAge[a] < 32) ageAvail[fAge[a]]++;
+         if(sFirst[i] < 0) continue;
+         if(fAge[sFirst[i]]   < 32) ageH[fAge[sFirst[i]]]++;
+         if(fClust[sFirst[i]] < 16) clH[fClust[sFirst[i]]]++;
+         tot++;
+      }
+      Out("  age   taken first   times live   taken-first rate");
+      for(int k = 0; k <= InpBookDays && k < 32; k++)
+         Out(StringFormat("  %3d   %5d        %6d       %5.1f%%",
+                          k, ageH[k], ageAvail[k], Pct(ageH[k], ageAvail[k])));
+      Out("");
+      Out("  If the taken-first RATE is flat across ages, age is irrelevant and only");
+      Out("  proximity matters. If it climbs with age, the book really is a queue.");
+      Out("");
+      Out("  cluster size of the zone taken first:");
+      for(int k = 1; k < 16; k++)
+         if(clH[k] > 0) Out(StringFormat("    %d stacked   %5d   %5.1f%%", k, clH[k], Pct(clH[k], tot)));
+   }
+
+   // --- the tournament ---------------------------------------------
+   Out("");
+   Rule();
+   Out("RULE TOURNAMENT - which ordering rule predicts the first zone consumed?");
+   Out("MRR is mean reciprocal rank: 1.00 = always ranked it first, 0.50 = typically second.");
+   Out("Beat the CHANCE row by a wide margin or the rule is decoration.");
+   Rule();
+   Out("  rule                                              top-1     MRR      n");
+
+   double chance = 0.0; int chanceN = 0;
+   for(int i = 0; i < ns; i++)
+   {
+      if(sFirst[i] < 0 || sCount[i] < 2) continue;
+      chance += 1.0 / (double)sCount[i];
+      chanceN++;
+   }
+
+   for(int rule = 0; rule < NRULES; rule++)
+   {
+      int hits = 0, cnt = 0;
+      double mrr = 0.0;
+      for(int i = 0; i < ns; i++)
+      {
+         if(sFirst[i] < 0 || sCount[i] < 2) continue;
+         BookZone za; ZeroMemory(za);
+         int rank = 1, bestIdx = -1; double bestSc = 0.0;
+         // score of the actual winner
+         BookZone zw; ZeroMemory(zw);
+         zw.age = fAge[sFirst[i]]; zw.side = fSide[sFirst[i]]; zw.cluster = fClust[sFirst[i]];
+         zw.distToday = fDistT[sFirst[i]]; zw.distOwn = fDistO[sFirst[i]]; zw.range = fRange[sFirst[i]];
+         double scW = RuleScore(rule, zw, sAnchorDir[i], lastSideArr[i]);
+         for(int a = sStart[i]; a < sStart[i] + sCount[i]; a++)
+         {
+            za.age = fAge[a]; za.side = fSide[a]; za.cluster = fClust[a];
+            za.distToday = fDistT[a]; za.distOwn = fDistO[a]; za.range = fRange[a];
+            double sc = RuleScore(rule, za, sAnchorDir[i], lastSideArr[i]);
+            if(sc > scW) rank++;
+            if(bestIdx < 0 || sc > bestSc) { bestSc = sc; bestIdx = a; }
+         }
+         if(bestIdx == sFirst[i]) hits++;
+         mrr += 1.0 / (double)rank;
+         cnt++;
+      }
+      Out(StringFormat("  %-48s %5.1f%%   %5.3f   %4d",
+                       RuleName(rule), Pct(hits, cnt), (cnt > 0) ? mrr / cnt : 0.0, cnt));
+   }
+   Out(StringFormat("  %-48s %5.1f%%       -    %4d", "CHANCE (random pick from the book)",
+                    (chanceN > 0) ? 100.0 * chance / chanceN : 0.0, chanceN));
+
+   // --- the formula search -----------------------------------------
+   // Fit on the first half, score on the second. The train number will always
+   // look good; only the test number means anything.
+   Out("");
+   Rule();
+   Out("FORMULA SEARCH - score = w0*proximity + w1*staleness + w2*confluence + w3*anchor-bias");
+   Out("Weights swept on the FIRST half of history, then scored on the SECOND half,");
+   Out("which the search never saw. Trust the test column and nothing else.");
+   Rule();
+
+   int split = ns / 2;
+   double grid[5] = {-1.0, -0.5, 0.0, 0.5, 1.0};
+   double bw[4]; ArrayInitialize(bw, 0.0);
+   double bestTrain = -1.0;
+
+   for(int a0 = 0; a0 < 5; a0++)
+   for(int a1 = 0; a1 < 5; a1++)
+   for(int a2 = 0; a2 < 5; a2++)
+   for(int a3 = 0; a3 < 5; a3++)
+   {
+      double w[4]; w[0] = grid[a0]; w[1] = grid[a1]; w[2] = grid[a2]; w[3] = grid[a3];
+      if(w[0] == 0.0 && w[1] == 0.0 && w[2] == 0.0 && w[3] == 0.0) continue;
+
+      int hits = 0, cnt = 0;
+      for(int i = 0; i < split; i++)
+      {
+         if(sFirst[i] < 0 || sCount[i] < 2) continue;
+         int bestIdx = -1; double bestSc = 0.0;
+         for(int a = sStart[i]; a < sStart[i] + sCount[i]; a++)
+         {
+            BookZone z; ZeroMemory(z);
+            z.age = fAge[a]; z.side = fSide[a]; z.cluster = fClust[a]; z.distToday = fDistT[a];
+            double f[4]; ZoneFeatures(z, sAnchorDir[i], f);
+            double sc = w[0]*f[0] + w[1]*f[1] + w[2]*f[2] + w[3]*f[3];
+            if(bestIdx < 0 || sc > bestSc) { bestSc = sc; bestIdx = a; }
+         }
+         if(bestIdx == sFirst[i]) hits++;
+         cnt++;
+      }
+      double acc = (cnt > 0) ? (double)hits / cnt : 0.0;
+      if(acc > bestTrain) { bestTrain = acc; bw[0]=w[0]; bw[1]=w[1]; bw[2]=w[2]; bw[3]=w[3]; }
+   }
+
+   int hits2 = 0, cnt2 = 0;
+   double chance2 = 0.0;
+   for(int i = split; i < ns; i++)
+   {
+      if(sFirst[i] < 0 || sCount[i] < 2) continue;
+      int bestIdx = -1; double bestSc = 0.0;
+      for(int a = sStart[i]; a < sStart[i] + sCount[i]; a++)
+      {
+         BookZone z; ZeroMemory(z);
+         z.age = fAge[a]; z.side = fSide[a]; z.cluster = fClust[a]; z.distToday = fDistT[a];
+         double f[4]; ZoneFeatures(z, sAnchorDir[i], f);
+         double sc = bw[0]*f[0] + bw[1]*f[1] + bw[2]*f[2] + bw[3]*f[3];
+         if(bestIdx < 0 || sc > bestSc) { bestSc = sc; bestIdx = a; }
+      }
+      if(bestIdx == sFirst[i]) hits2++;
+      chance2 += 1.0 / (double)sCount[i];
+      cnt2++;
+   }
+
+   Out(StringFormat("  best weights:  proximity %+.1f   staleness %+.1f   confluence %+.1f   anchor-bias %+.1f",
+                    bw[0], bw[1], bw[2], bw[3]));
+   Out(StringFormat("  train (first half)  %5.1f%%   n=%d", 100.0 * bestTrain, split));
+   Out(StringFormat("  TEST  (second half) %5.1f%%   n=%d", Pct(hits2, cnt2), cnt2));
+   Out(StringFormat("  chance on test      %5.1f%%", (cnt2 > 0) ? 100.0 * chance2 / cnt2 : 0.0));
+   Out("");
+   Out("  Test barely above chance => there is no stable formula, and the order the");
+   Out("  zones get taken in is mostly path-dependent noise. Test clearly above chance");
+   Out("  AND close to train => the weights are the thing you were looking for.");
+
+   // --- what follows what ------------------------------------------
+   Out("");
+   Rule();
+   Out("SECOND ZONE, GIVEN THE FIRST - does the book get worked in a readable order?");
+   Rule();
+   {
+      int sameSide = 0, oppSide = 0, olderNext = 0, newerNext = 0, tot = 0;
+      for(int i = 0; i < ns; i++)
+      {
+         if(sFirst[i] < 0) continue;
+         int second = -1;
+         for(int a = sStart[i]; a < sStart[i] + sCount[i]; a++)
+            if(fOrder[a] == 2) second = a;
+         if(second < 0) continue;
+         tot++;
+         if(fSide[second] == fSide[sFirst[i]]) sameSide++; else oppSide++;
+         if(fAge[second]  >  fAge[sFirst[i]])  olderNext++;
+         if(fAge[second]  <  fAge[sFirst[i]])  newerNext++;
+      }
+      Out(StringFormat("  sessions with a 2nd consumption:  %d", tot));
+      Out(StringFormat("    same side as the first:   %5.1f%%", Pct(sameSide, tot)));
+      Out(StringFormat("    opposite side:            %5.1f%%", Pct(oppSide, tot)));
+      Out(StringFormat("    an OLDER zone next:       %5.1f%%", Pct(olderNext, tot)));
+      Out(StringFormat("    a NEWER zone next:        %5.1f%%", Pct(newerNext, tot)));
+      Out("");
+      Out("  Same-side dominance means price runs the book outward in one direction");
+      Out("  before turning. Opposite-side dominance is the bounce you already see.");
+   }
+}
+
+//==================================================================//
 //  PER-SYMBOL DRIVER                                               //
 //==================================================================//
 bool AnalyseSymbol(const string sym, Summary &sum)
@@ -893,6 +1384,7 @@ bool AnalyseSymbol(const string sym, Summary &sum)
    MapZoneTouches(r, n, s, ns);
    PrintSequenceTables(s, ns);
    PrintCarryTables(r, s, ns);
+   AnalyseZoneBook(r, n, s, ns);
 
    Out("");
    Rule();
