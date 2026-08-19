@@ -1,0 +1,169 @@
+
+==============================================================================
+  NAS100   111 sessions   2026-03-17 -> 2026-08-18
+  Zones: src.high + 2.0r..2.5r  /  src.low - 2.0r..2.5r   (r = the 21:00 NY candle)
+==============================================================================
+
+------------------------------------------------------------------------------
+BASE RATES
+------------------------------------------------------------------------------
+  neither        13    11.7%
+  UP only        39    35.1%
+  DOWN only      40    36.0%
+  UP then DN     10     9.0%
+  DN then UP      9     8.1%
+
+  BOTH zones tagged        19    17.1%
+  ONE zone only            79    71.2%
+  NEITHER reached          13    11.7%
+  (0 sessions tagged both inside one H1 bar - order inferred)
+
+------------------------------------------------------------------------------
+REGIME - a day must expand 5.0 R to tag both zones
+------------------------------------------------------------------------------
+  Mean day expansion:                  7.41 R
+  Days with the room to tag both:       64.9%
+  Days that actually tagged both:       17.1%
+  Gap (had the room, did not use it):   47.7 points
+
+  Outcome by anchor-candle size (ranked against the previous 20):
+    anchor size     both%   one%  none%   mean expansion    n
+    smallest 20%     55.6%   44.4%    0.0%      11.27 R        18
+    2nd quintile     21.4%   78.6%    0.0%       8.52 R        14
+    middle 20%       5.3%   84.2%   10.5%       6.64 R        19
+    4th quintile      5.3%   68.4%   26.3%       5.59 R        19
+    largest 20%       0.0%   81.0%   19.0%       4.64 R        21
+
+------------------------------------------------------------------------------
+HYPOTHESIS 1 - after a one-sided day, does the OTHER side go first?
+------------------------------------------------------------------------------
+  Other side first: 32 / 69 = 46.4%   (coin flip = 50.0%)
+
+------------------------------------------------------------------------------
+HYPOTHESIS 2 - does price go to the zone it was nearest at the NY open?
+------------------------------------------------------------------------------
+  Nearest zone tagged first: 79 / 98 = 80.6%
+
+  Split by how lopsided the proximity read was:
+    gap band          nearest first     n
+    0.00 - 0.25 R         50.0%          6
+    0.25 - 0.75 R         50.0%         10
+    0.75 - 1.50 R         84.6%         13
+    1.50 - 99.00 R         87.0%         69
+
+------------------------------------------------------------------------------
+SEQUENCE - yesterday's outcome (row) vs today's first tap
+------------------------------------------------------------------------------
+  yesterday ->      UP first   DN first   neither      n
+  neither        23.1%     69.2%      7.7%      13
+  UP only        48.7%     33.3%     17.9%      39
+  DOWN only      48.7%     46.2%      5.1%      39
+  UP then DN     20.0%     60.0%     20.0%      10
+  DN then UP     66.7%     22.2%     11.1%       9
+
+------------------------------------------------------------------------------
+TIMING - NY hour of the first tap
+------------------------------------------------------------------------------
+  00:00 NY    5.1%     5  ###
+  01:00 NY    3.1%     3  ##
+  02:00 NY    3.1%     3  ##
+  03:00 NY    7.1%     7  ####
+  04:00 NY   11.2%    11  ######
+  05:00 NY    6.1%     6  ###
+  06:00 NY    4.1%     4  ##
+  07:00 NY    6.1%     6  ###
+  08:00 NY    9.2%     9  #####
+  09:00 NY   16.3%    16  ########
+  10:00 NY    9.2%     9  #####
+  11:00 NY    5.1%     5  ###
+  13:00 NY    6.1%     6  ###
+  14:00 NY    2.0%     2  #
+  16:00 NY    2.0%     2  #
+  18:00 NY    2.0%     2  #
+  20:00 NY    2.0%     2  #
+
+------------------------------------------------------------------------------
+CARRY-FORWARD - respect rate by age of the untouched level
+------------------------------------------------------------------------------
+  age   met   respected   blown   stalled    respect rate
+    0    113       15       97        1       13.3%
+    1     34        5       27        2       14.7%
+    2     14        1       13        0        7.1%
+    3      9        1        7        1       11.1%
+    4      6        0        6        0        0.0%
+    5      4        1        3        0       25.0%
+    6      2        0        2        0        0.0%
+
+------------------------------------------------------------------------------
+TAKEN FIRST - by age, as a rate against how often that age was live
+------------------------------------------------------------------------------
+  age   taken first   times live   taken-first rate
+    0       82            218        37.6%
+    1       10            125         8.0%
+    2        4             89         4.5%
+    3        4             74         5.4%
+    4        0             64         0.0%
+    5        1             58         1.7%
+    6        0             54         0.0%
+
+------------------------------------------------------------------------------
+LEVEL TYPE - which drawn object does price actually travel to?
+------------------------------------------------------------------------------
+  Daily Zone (2.0-2.5)     taken first    94   live    737    12.8%
+  Enigma range boundary    taken first     8   live    123     6.5%
+
+------------------------------------------------------------------------------
+FIRST LEVEL TAKEN - its rank in the nearest-first ordering
+------------------------------------------------------------------------------
+  rank  1    62.7%    64  ###############################   <- pure proximity
+  rank  2    29.4%    30  ###############
+  rank  3     5.9%     6  ###
+  rank  5     2.0%     2  #
+  (102 sessions where the book offered a real choice)
+
+------------------------------------------------------------------------------
+ORDERING RULES - which predicts the level taken first?
+------------------------------------------------------------------------------
+  rule                                          top-1     MRR      n
+  nearest in price                              62.4%   0.796    101
+  nearest, scaled by its own range              52.5%   0.735    101
+  oldest untouched first (FIFO)                  3.0%   0.205    101
+  newest first (LIFO)                           49.5%   0.702    101
+  widest anchor candle wins                      4.0%   0.348    101
+  tightest anchor candle wins                   21.8%   0.517    101
+  biggest cluster                               35.6%   0.809    101
+  cluster first, nearest as tiebreak            52.5%   0.699    101
+  side the 9pm candle closed toward             59.4%   0.725    101
+  opposite side to last consumed                47.5%   0.635    101
+  same side as last consumed                    54.5%   0.702    101
+  CHANCE (random pick from the book)            14.2%       -     101
+
+------------------------------------------------------------------------------
+FORMULA SEARCH - fit on the first half, scored on the second
+------------------------------------------------------------------------------
+  best weights:  proximity +0.5   staleness +0.0   confluence +0.0   anchor-bias +0.0
+  train (first half)    61.2%   n=49
+  TEST  (second half)   63.5%   n=52
+  chance on test        12.8%
+
+------------------------------------------------------------------------------
+SECOND LEVEL, GIVEN THE FIRST
+------------------------------------------------------------------------------
+  sessions with a 2nd consumption: 58
+    same side as the first:   72.4%
+    opposite side:            27.6%
+    an OLDER level next:      56.9%
+    a NEWER level next:       20.7%
+
+------------------------------------------------------------------------------
+ENTRY MODELS - pre-specified, costs NOT modelled
+------------------------------------------------------------------------------
+  1  NY open -> nearest zone                   n=79   win  36.7%  avgR  -0.14  totR    -11.5
+  2  fade the first tap -> opposite zone       n=98   win  14.3%  avgR  -0.37  totR    -36.1
+  3  nearest AND opposite of yesterday         n=28   win  25.0%  avgR  -0.48  totR    -13.5
+  4  nearest AND decisive proximity gap        n=67   win  38.8%  avgR  -0.14  totR     -9.6
+  5  opposite of yesterday, ignoring proximity n=66   win  22.7%  avgR  -0.25  totR    -16.3
+  6  break of today's zone -> old virgin level n=72   win  12.5%  avgR  -0.73  totR    -52.7
+
+  Model 5 is the control for model 3. If 3 does not beat 5, the proximity
+  read adds nothing. Subtract spread and commission before believing any of it.
