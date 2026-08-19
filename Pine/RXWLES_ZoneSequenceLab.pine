@@ -1,0 +1,638 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+
+//@version=6
+// ============================================================================
+// RXWLES ZONE SEQUENCE LAB
+//
+// Measures what RXWLES PRO draws. It does not draw anything itself - it reads
+// the same 21:00 New York candle, projects the same zones, then watches every
+// session in your chart's history and reports what price actually did with
+// them. Results render as a table.
+//
+// It answers, on your own data:
+//   - how often a day tags both zones, one, or neither
+//   - whether the anchor candle's own size decides that before the day starts
+//   - after a one-sided day, does the other side go first tomorrow
+//   - does price go to the zone it was nearest at the New York open
+//   - are OLD untouched zones respected more than today's fresh one
+//   - which of six ordering rules best predicts the zone taken first
+//
+// Run it on the same chart and symbol you trade. Any intraday timeframe works;
+// 1H or finer is best, because touches are detected on the chart's own bars.
+// Scroll back to load history - the tables only cover bars that are loaded.
+// ============================================================================
+
+indicator("RXWLES Zone Sequence Lab", "Zone Lab", overlay = true)
+
+const string TZ = "America/New_York"
+
+//=============================================================================
+// INPUTS
+//=============================================================================
+
+srcHour = input.int(21, "Enigma source hour (NY)", minval = 0, maxval = 23, group = "Geometry",
+     tooltip = "Must match RXWLES PRO's Enigma Source Hour.")
+lvl1    = input.float(2.0, "Zone Level 1 (inner)", step = 0.05, group = "Geometry")
+lvl2    = input.float(2.5, "Zone Level 2 (outer)", step = 0.05, group = "Geometry")
+refHour = input.int(9, "NY reference hour", minval = 0, maxval = 23, group = "Geometry",
+     tooltip = "The hour the proximity read is taken. 9 = the 09:00 bar's open.")
+
+bookDays   = input.int(10,   "Book depth (days)", minval = 1, maxval = 20, group = "Zone book")
+clusterTol = input.float(0.25, "Cluster tolerance (R)", step = 0.05, group = "Zone book",
+     tooltip = "Live zones within this many source-ranges of each other count as one stacked level.")
+reactR     = input.float(1.0, "Respect retrace (R)", step = 0.1, group = "Zone book",
+     tooltip = "Retrace from the tap extreme that counts as the level being respected.")
+useEnigma  = input.bool(true, "Include old Enigma ranges as levels", group = "Zone book")
+
+logRows  = input.bool(false, "Log one CSV row per session", group = "Output",
+     tooltip = "Writes each session to the Pine Logs pane so the raw data can be pulled out.")
+tblPos   = input.string("Top right", "Table position",
+     options = ["Top right", "Top left", "Bottom right", "Bottom left", "Middle right"], group = "Output")
+
+//=============================================================================
+// CALENDAR
+//=============================================================================
+
+f_midnight(int t) =>
+    timestamp(TZ, year(t, TZ), month(t, TZ), dayofmonth(t, TZ), 0, 0, 0)
+
+// 26 hours clears both daylight-saving switches, then we snap back to midnight.
+f_nextMidnight(int t) =>
+    f_midnight(f_midnight(t) + 26 * 3600000)
+
+//=============================================================================
+// TYPES
+//=============================================================================
+
+type Session
+    int   day        = 0        // 00:00 NY of the day this session governs
+    float rHigh      = na
+    float rLow       = na
+    float rng        = na
+    float u1         = na       // upper zone, inner edge (reached first)
+    float u2         = na       // upper zone, outer edge
+    float l2         = na       // lower zone, inner edge
+    float l1         = na       // lower zone, outer edge
+    float laneHi     = na
+    float laneLo     = na
+    int   first      = 0        // +1 upper first, -1 lower first, 0 neither
+    int   firstHr    = -1
+    int   second     = 0
+    bool  upT        = false    // ever touched, from this lane onward
+    bool  dnT        = false
+    bool  enHiT      = false
+    bool  enLoT      = false
+    float nyPx       = na
+    int   near       = 0
+    float gap        = na
+    bool  opened     = false
+    bool  done       = false
+    int   outcome    = 0
+
+type Level
+    int   sess    = 0
+    int   kind    = 0           // 0 = daily zone, 1 = Enigma range boundary
+    int   age     = 0
+    int   side    = 0           // +1 above price, -1 below
+    float nearE   = na
+    float farE    = na
+    float rng     = na
+    int   cluster = 1
+    float dist    = na          // distance to nearE, in units of today's range
+    bool  touched = false
+    float extreme = na
+    int   result  = 0           // 0 untouched, 1 respected, 2 blown through
+
+//=============================================================================
+// SOURCE CANDLE — read from the hourly series, exactly as RXWLES PRO does
+//=============================================================================
+
+f_sourceCandle() =>
+    var float sH = na
+    var float sL = na
+    var int   sD = na
+    if hour(time[1], TZ) == srcHour
+        sH := high[1]
+        sL := low[1]
+        sD := f_nextMidnight(time[1])
+    [sH, sL, sD]
+
+[srcHigh, srcLow, srcDay] = request.security(syminfo.tickerid, "60", f_sourceCandle(),
+     lookahead = barmerge.lookahead_off)
+
+//=============================================================================
+// STATE
+//=============================================================================
+
+var array<Session> S = array.new<Session>()
+var array<Level>   B = array.new<Level>()
+
+const int NRULES = 6
+var array<int> predIdx = array.new_int(NRULES, -1)
+var array<int> ruleHit = array.new_int(NRULES, 0)
+var int ruleN      = 0
+var int actualIdx  = -1
+var int actualRank = 0
+
+var int activeIdx = -1
+var int lastDay   = na
+var int lastSide  = 0
+
+// outcome counters
+var int cBoth = 0
+var int cUp   = 0
+var int cDn   = 0
+var int cNone = 0
+
+// hypotheses
+var int rotTot  = 0
+var int rotOpp  = 0
+var int proxTot = 0
+var int proxHit = 0
+
+// regime
+var float expSum   = 0.0
+var int   expN     = 0
+var int   expEnough = 0
+var array<int>   qN    = array.new_int(5, 0)
+var array<int>   qBoth = array.new_int(5, 0)
+var array<int>   qNone = array.new_int(5, 0)
+var array<float> qExp  = array.new_float(5, 0.0)
+
+// carry-forward, indexed by zone age
+var array<int> ageMet   = array.new_int(21, 0)
+var array<int> ageResp  = array.new_int(21, 0)
+var array<int> ageBlown = array.new_int(21, 0)
+var array<int> ageFirst = array.new_int(21, 0)
+var array<int> ageLive  = array.new_int(21, 0)
+
+// timing, and where the winner ranked on pure distance
+var array<int> hourHist = array.new_int(24, 0)
+var array<int> rankHist = array.new_int(26, 0)
+
+//=============================================================================
+// RULE SCORING
+//   0 nearest   1 oldest first   2 newest first
+//   3 biggest cluster, nearest as tiebreak
+//   4 opposite side to the last level consumed   5 same side
+//=============================================================================
+
+f_score(int rule, Level L, int lastS) =>
+    float sc = -L.dist
+    if rule == 1
+        sc := L.age * 10.0 - L.dist
+    else if rule == 2
+        sc := -L.age * 10.0 - L.dist
+    else if rule == 3
+        sc := L.cluster * 10.0 - L.dist
+    else if rule == 4
+        sc := (lastS != 0 and L.side == -lastS ? 10.0 : 0.0) - L.dist
+    else if rule == 5
+        sc := (lastS != 0 and L.side == lastS ? 10.0 : 0.0) - L.dist
+    sc
+
+f_ruleName(int r) =>
+    r == 0 ? "nearest in price" :
+     r == 1 ? "oldest untouched first" :
+     r == 2 ? "newest first" :
+     r == 3 ? "biggest cluster, then nearest" :
+     r == 4 ? "opposite side to last consumed" : "same side as last consumed"
+
+//=============================================================================
+// ENGINE
+//=============================================================================
+
+bool intraday = not timeframe.isdwm
+
+// ---- 1. close out a lane that has expired -----------------------------------
+if intraday and activeIdx >= 0
+    Session c = array.get(S, activeIdx)
+    if time >= c.day + 86400000
+        c.done := true
+
+        c.outcome := c.first == 0 ? 0 : c.second == 0 ? (c.first > 0 ? 1 : 2) : (c.first > 0 ? 3 : 4)
+
+        if c.outcome == 0
+            cNone += 1
+        else if c.outcome == 1
+            cUp += 1
+        else if c.outcome == 2
+            cDn += 1
+        else
+            cBoth += 1
+
+        if c.first != 0 and c.firstHr >= 0 and c.firstHr < 24
+            array.set(hourHist, c.firstHr, array.get(hourHist, c.firstHr) + 1)
+
+        // --- rotation: after a one-sided day, does the other side go first? ---
+        int n = array.size(S)
+        if n >= 2
+            Session p = array.get(S, n - 2)
+            if p.done and (p.outcome == 1 or p.outcome == 2) and c.first != 0
+                rotTot += 1
+                int pSide = p.outcome == 1 ? 1 : -1
+                if c.first == -pSide
+                    rotOpp += 1
+
+        // --- proximity at the NY reference hour ------------------------------
+        if not na(c.nyPx) and c.first != 0
+            proxTot += 1
+            if c.first == c.near
+                proxHit += 1
+
+        // --- regime: required expansion vs realised --------------------------
+        if not na(c.laneHi) and not na(c.laneLo) and c.rng > 0
+            float expansion = (c.laneHi - c.laneLo) / c.rng
+            expSum += expansion
+            expN   += 1
+            if expansion >= 1.0 + 2.0 * lvl1
+                expEnough += 1
+
+            // rank tonight's anchor candle against the previous 20
+            if n >= 21
+                int rank = 0
+                for k = 2 to 21
+                    Session q = array.get(S, n - k)
+                    if q.rng < c.rng
+                        rank += 1
+                int q5 = math.min(4, int(rank / 4))
+                array.set(qN,   q5, array.get(qN, q5) + 1)
+                array.set(qExp, q5, array.get(qExp, q5) + expansion)
+                if c.outcome == 3 or c.outcome == 4
+                    array.set(qBoth, q5, array.get(qBoth, q5) + 1)
+                if c.outcome == 0
+                    array.set(qNone, q5, array.get(qNone, q5) + 1)
+
+        // --- carry-forward: what happened at each level in the book ----------
+        if array.size(B) > 0
+            for bi = 0 to array.size(B) - 1
+                Level L = array.get(B, bi)
+                int ai = math.min(20, L.age)
+                array.set(ageLive, ai, array.get(ageLive, ai) + 1)
+                if L.result != 0
+                    array.set(ageMet, ai, array.get(ageMet, ai) + 1)
+                    if L.result == 1
+                        array.set(ageResp, ai, array.get(ageResp, ai) + 1)
+                    else
+                        array.set(ageBlown, ai, array.get(ageBlown, ai) + 1)
+
+        // --- rule tournament -------------------------------------------------
+        if actualIdx >= 0 and array.size(B) >= 2
+            ruleN += 1
+            Level W = array.get(B, actualIdx)
+            int aw = math.min(20, W.age)
+            array.set(ageFirst, aw, array.get(ageFirst, aw) + 1)
+            if actualRank >= 0 and actualRank < 26
+                array.set(rankHist, actualRank, array.get(rankHist, actualRank) + 1)
+            for r = 0 to NRULES - 1
+                if array.get(predIdx, r) == actualIdx
+                    array.set(ruleHit, r, array.get(ruleHit, r) + 1)
+            lastSide := W.side
+
+        if logRows
+            log.info(str.format("{0},{1},{2},{3},{4},{5},{6},{7},{8},{9}",
+                 str.format_time(c.day, "yyyy-MM-dd", TZ), c.rHigh, c.rLow,
+                 c.laneHi, c.laneLo, c.first, c.firstHr, c.second,
+                 na(c.nyPx) ? 0 : c.nyPx, c.outcome))
+
+        activeIdx := -1
+
+// ---- 2. a new source candle has closed: register the geometry ---------------
+bool newSource = intraday and not na(srcDay) and not na(srcHigh) and (na(lastDay) or srcDay != lastDay)
+
+if newSource
+    lastDay := srcDay
+    float r = srcHigh - srcLow
+    if r > 0
+        Session ns = Session.new()
+        ns.day   = srcDay
+        ns.rHigh = srcHigh
+        ns.rLow  = srcLow
+        ns.rng   = r
+        ns.u1    = srcHigh + r * lvl1
+        ns.u2    = srcHigh + r * lvl2
+        ns.l2    = srcLow  - r * lvl1
+        ns.l1    = srcLow  - r * lvl2
+        array.push(S, ns)
+        // Keep memory bounded. Dropping the front renumbers everything, and the
+        // lane in progress is addressed by index - so it has to move with it.
+        if array.size(S) > bookDays + 40
+            array.shift(S)
+            if activeIdx >= 0
+                activeIdx := activeIdx - 1
+
+// ---- 3. open the lane at 00:00 NY, and build the live book ------------------
+if intraday and activeIdx < 0 and array.size(S) > 0
+    int li = array.size(S) - 1
+    Session L0 = array.get(S, li)
+    if not L0.opened and not L0.done and time >= L0.day and time < L0.day + 86400000
+        L0.opened := true
+        L0.laneHi := high
+        L0.laneLo := low
+        activeIdx := li
+        actualIdx := -1
+        actualRank := 0
+
+        array.clear(B)
+        float px = open
+
+        for age = 0 to bookDays
+            int si = li - age
+            if si < 0
+                break
+            Session Z = array.get(S, si)
+            if na(Z.rng) or Z.rng <= 0
+                continue
+            for kind = 0 to 1
+                if kind == 1 and (not useEnigma or age == 0)
+                    continue
+                for sd = -1 to 1 by 2
+                    // Older levels only count while price has never reached them.
+                    bool virgin = true
+                    if age > 0
+                        virgin := kind == 1 ? (sd > 0 ? not Z.enHiT : not Z.enLoT)
+                             : (sd > 0 ? not Z.upT : not Z.dnT)
+                    if not virgin
+                        continue
+                    float ne = kind == 1 ? (sd > 0 ? Z.rHigh : Z.rLow) : (sd > 0 ? Z.u1 : Z.l2)
+                    float fe = kind == 1 ? (sd > 0 ? Z.rHigh + 0.25 * Z.rng : Z.rLow - 0.25 * Z.rng)
+                         : (sd > 0 ? Z.u2 : Z.l1)
+                    // A level price has already passed is behind it, not a target.
+                    if sd > 0 and ne <= px
+                        continue
+                    if sd < 0 and ne >= px
+                        continue
+                    Level nl = Level.new()
+                    nl.sess  = si
+                    nl.kind  = kind
+                    nl.age   = age
+                    nl.side  = sd
+                    nl.nearE = ne
+                    nl.farE  = fe
+                    nl.rng   = Z.rng
+                    nl.dist  = math.abs(ne - px) / L0.rng
+                    array.push(B, nl)
+
+        // confluence: how many live levels stack within tolerance, by price alone
+        int nb = array.size(B)
+        if nb > 0
+            float tol = clusterTol * L0.rng
+            for a = 0 to nb - 1
+                Level La = array.get(B, a)
+                int c2 = 0
+                for b = 0 to nb - 1
+                    if math.abs(La.nearE - array.get(B, b).nearE) <= tol
+                        c2 += 1
+                La.cluster := c2
+
+            // each rule's pick for the level that goes first
+            for r = 0 to NRULES - 1
+                int best = -1
+                float bestSc = 0.0
+                for a = 0 to nb - 1
+                    float sc = f_score(r, array.get(B, a), lastSide)
+                    if best < 0 or sc > bestSc
+                        bestSc := sc
+                        best   := a
+                array.set(predIdx, r, best)
+
+// ---- 4. live updates inside the lane ---------------------------------------
+if intraday and activeIdx >= 0
+    Session c = array.get(S, activeIdx)
+    c.laneHi := na(c.laneHi) ? high : math.max(c.laneHi, high)
+    c.laneLo := na(c.laneLo) ? low  : math.min(c.laneLo, low)
+
+    int hr = hour(time, TZ)
+
+    // the proximity read, taken once
+    if na(c.nyPx) and hr == refHour
+        c.nyPx := open
+        float dUp = (c.u1 - c.nyPx) / c.rng
+        float dDn = (c.nyPx - c.l2) / c.rng
+        c.near := dUp < dDn ? 1 : -1
+        c.gap  := math.abs(dUp - dDn)
+
+    // this session's own zones: which went first, did the other follow
+    bool tUp = high >= c.u1
+    bool tDn = low  <= c.l2
+    if c.first == 0
+        if tUp and tDn
+            // one bar reached both - infer the order from the candle's direction
+            c.first  := close >= open ? -1 : 1
+            c.second := -c.first
+            c.firstHr := hr
+        else if tUp or tDn
+            c.first   := tUp ? 1 : -1
+            c.firstHr := hr
+    else if c.second == 0 and ((c.first > 0 and tDn) or (c.first < 0 and tUp))
+        c.second := -c.first
+
+    // book levels: consumption order, and whether each was respected
+    int nb = array.size(B)
+    if nb > 0
+        for a = 0 to nb - 1
+            Level L = array.get(B, a)
+            bool hit = L.side > 0 ? high >= L.nearE : low <= L.nearE
+            if not L.touched
+                if hit
+                    L.touched := true
+                    L.extreme := L.side > 0 ? high : low
+                    L.result  := 1
+                    if actualIdx < 0
+                        actualIdx := a
+                        // where the winner ranked on pure distance
+                        int rk = 1
+                        for b = 0 to nb - 1
+                            if array.get(B, b).dist < L.dist
+                                rk += 1
+                        actualRank := rk
+            if L.touched and L.result != 2
+                if L.side > 0
+                    L.extreme := math.max(L.extreme, high)
+                    if high >= L.farE
+                        L.result := 2
+                    else if L.extreme - low >= reactR * L.rng
+                        L.result := 1
+                else
+                    L.extreme := math.min(L.extreme, low)
+                    if low <= L.farE
+                        L.result := 2
+                    else if high - L.extreme >= reactR * L.rng
+                        L.result := 1
+
+    // virginity flags for every session still inside the book window
+    int ns2 = array.size(S)
+    int from = math.max(0, ns2 - (bookDays + 2))
+    for k = from to ns2 - 1
+        Session Z = array.get(S, k)
+        if Z.opened or Z.done
+            if high >= Z.u1
+                Z.upT := true
+            if low  <= Z.l2
+                Z.dnT := true
+            if high >= Z.rHigh
+                Z.enHiT := true
+            if low  <= Z.rLow
+                Z.enLoT := true
+
+//=============================================================================
+// REPORT
+//
+// Pine will not let a function be declared inside a block, or assign to
+// anything outside itself, so the table writers take the table and the row
+// number as arguments and the caller advances the counter.
+//=============================================================================
+
+f_pct(int part, int whole) =>
+    whole <= 0 ? 0.0 : 100.0 * part / whole
+
+f_head(table t, int rw, string txt) =>
+    if rw < 80
+        table.cell(t, 0, rw, txt, text_color = color.white, bgcolor = color.new(color.blue, 55),
+             text_size = size.small, text_halign = text.align_left)
+        table.cell(t, 1, rw, "", bgcolor = color.new(color.blue, 55))
+        table.cell(t, 2, rw, "", bgcolor = color.new(color.blue, 55))
+        table.cell(t, 3, rw, "", bgcolor = color.new(color.blue, 55))
+
+f_row(table t, int rw, string a, string b, string c, string d) =>
+    if rw < 80
+        table.cell(t, 0, rw, a, text_color = color.new(color.white, 10), text_size = size.small,
+             text_halign = text.align_left)
+        table.cell(t, 1, rw, b, text_color = color.new(color.white, 10), text_size = size.small,
+             text_halign = text.align_right)
+        table.cell(t, 2, rw, c, text_color = color.new(color.white, 10), text_size = size.small,
+             text_halign = text.align_right)
+        table.cell(t, 3, rw, d, text_color = color.new(color.silver, 20), text_size = size.small,
+             text_halign = text.align_right)
+
+var table T = na
+
+if barstate.islast and intraday
+    int sessions = cBoth + cUp + cDn + cNone
+
+    string pos = tblPos == "Top left" ? position.top_left :
+         tblPos == "Bottom right" ? position.bottom_right :
+         tblPos == "Bottom left" ? position.bottom_left :
+         tblPos == "Middle right" ? position.middle_right : position.top_right
+
+    if not na(T)
+        table.delete(T)
+    T := table.new(pos, 4, 80, border_width = 1, frame_width = 1,
+         frame_color = color.new(color.gray, 40), border_color = color.new(color.gray, 70))
+
+    int rw = 0
+
+    // ---- base rates ---------------------------------------------------------
+    f_head(T, rw, str.format("{0}  -  {1} SESSIONS MEASURED", syminfo.ticker, sessions))
+    rw += 1
+    f_row(T, rw, "outcome", "count", "share", "")
+    rw += 1
+    f_row(T, rw, "both zones tagged", str.tostring(cBoth), str.format("{0,number,#.#}%", f_pct(cBoth, sessions)), "")
+    rw += 1
+    f_row(T, rw, "upper only", str.tostring(cUp), str.format("{0,number,#.#}%", f_pct(cUp, sessions)), "")
+    rw += 1
+    f_row(T, rw, "lower only", str.tostring(cDn), str.format("{0,number,#.#}%", f_pct(cDn, sessions)), "")
+    rw += 1
+    f_row(T, rw, "neither reached", str.tostring(cNone), str.format("{0,number,#.#}%", f_pct(cNone, sessions)), "")
+    rw += 1
+
+    // ---- regime -------------------------------------------------------------
+    f_head(T, rw, str.format("REGIME - a day must expand {0,number,#.#} R to tag both zones", 1.0 + 2.0 * lvl1))
+    rw += 1
+    f_row(T, rw, "mean day expansion", str.format("{0,number,#.##} R", expN > 0 ? expSum / expN : 0), "", "")
+    rw += 1
+    f_row(T, rw, "days with room for both", str.format("{0,number,#.#}%", f_pct(expEnough, expN)),
+         str.format("{0,number,#.#}% actual", f_pct(cBoth, sessions)), "gap = choice")
+    rw += 1
+    f_row(T, rw, "anchor candle size", "both%", "none%", "expansion")
+    rw += 1
+    for q = 0 to 4
+        string nm = q == 0 ? "  smallest 20%" : q == 1 ? "  2nd quintile" : q == 2 ? "  middle 20%" :
+             q == 3 ? "  4th quintile" : "  largest 20%"
+        int qn = array.get(qN, q)
+        f_row(T, rw, nm, str.format("{0,number,#.#}%", f_pct(array.get(qBoth, q), qn)),
+             str.format("{0,number,#.#}%", f_pct(array.get(qNone, q), qn)),
+             str.format("{0,number,#.##} R  n={1}", qn > 0 ? array.get(qExp, q) / qn : 0, qn))
+        rw += 1
+
+    // ---- hypotheses ---------------------------------------------------------
+    f_head(T, rw, "HYPOTHESES - 50% is a coin flip")
+    rw += 1
+    f_row(T, rw, "after a one-sided day, the", "", "", "")
+    rw += 1
+    f_row(T, rw, "  other side goes first", str.format("{0,number,#.#}%", f_pct(rotOpp, rotTot)),
+         str.format("n={0}", rotTot), "")
+    rw += 1
+    f_row(T, rw, "the zone nearest at NY open", "", "", "")
+    rw += 1
+    f_row(T, rw, "  is the one tagged first", str.format("{0,number,#.#}%", f_pct(proxHit, proxTot)),
+         str.format("n={0}", proxTot), "")
+    rw += 1
+
+    // ---- carry-forward ------------------------------------------------------
+    f_head(T, rw, "CARRY-FORWARD - respect rate by age of the untouched zone")
+    rw += 1
+    f_row(T, rw, "age", "met", "respected", "blown")
+    rw += 1
+    for a = 0 to math.min(6, bookDays)
+        int met = array.get(ageMet, a)
+        if met > 0
+            f_row(T, rw, str.format("  {0} day(s)", a), str.tostring(met),
+                 str.format("{0,number,#.#}%", f_pct(array.get(ageResp, a), met)),
+                 str.format("{0,number,#.#}%", f_pct(array.get(ageBlown, a), met)))
+            rw += 1
+
+    f_head(T, rw, "TAKEN FIRST - by age, as a rate against how often it was live")
+    rw += 1
+    for a = 0 to math.min(6, bookDays)
+        int lv = array.get(ageLive, a)
+        if lv > 0
+            f_row(T, rw, str.format("  {0} day(s)", a), str.tostring(array.get(ageFirst, a)),
+                 str.format("{0,number,#.#}%", f_pct(array.get(ageFirst, a), lv)),
+                 str.format("live {0}", lv))
+            rw += 1
+
+    // ---- was it simply the closest? -----------------------------------------
+    f_head(T, rw, "FIRST LEVEL TAKEN - its rank in the nearest-first ordering")
+    rw += 1
+    int rankTot = 0
+    for k = 1 to 25
+        rankTot += array.get(rankHist, k)
+    for k = 1 to 5
+        if array.get(rankHist, k) > 0
+            f_row(T, rw, str.format("  rank {0}", k), str.tostring(array.get(rankHist, k)),
+                 str.format("{0,number,#.#}%", f_pct(array.get(rankHist, k), rankTot)),
+                 k == 1 ? "pure proximity" : "")
+            rw += 1
+
+    // ---- the tournament -----------------------------------------------------
+    f_head(T, rw, str.format("ORDERING RULES - which predicts the level taken first?  n={0}", ruleN))
+    rw += 1
+    for r = 0 to NRULES - 1
+        f_row(T, rw, "  " + f_ruleName(r), str.tostring(array.get(ruleHit, r)),
+             str.format("{0,number,#.#}%", f_pct(array.get(ruleHit, r), ruleN)), "")
+        rw += 1
+
+    // ---- timing -------------------------------------------------------------
+    // Work on a copy: this pass consumes the histogram, and on a live bar the
+    // block re-runs every tick.
+    f_head(T, rw, "TIMING - NY hour the first zone was tagged (top 6)")
+    rw += 1
+    array<int> hh = array.copy(hourHist)
+    int tTot = 0
+    for h = 0 to 23
+        tTot += array.get(hh, h)
+    for slot = 0 to 5
+        int bestH = -1
+        int bestV = 0
+        for h = 0 to 23
+            if array.get(hh, h) > bestV
+                bestV := array.get(hh, h)
+                bestH := h
+        if bestH >= 0
+            f_row(T, rw, str.format("  {0,number,00}:00 NY", bestH), str.tostring(bestV),
+                 str.format("{0,number,#.#}%", f_pct(bestV, tTot)), "")
+            rw += 1
+            array.set(hh, bestH, 0)
+
+plot(na, "", display = display.none)
