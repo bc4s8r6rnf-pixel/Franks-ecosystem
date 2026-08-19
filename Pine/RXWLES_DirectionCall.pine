@@ -38,7 +38,7 @@
 // XAUUSD only - NAS100 never reproduced the direction edge.
 // ============================================================================
 
-indicator("RXWLES Direction Call", "Direction Call", overlay = true,
+indicator("RXWLES Direction Call", "DirCall", overlay = true,
      max_labels_count = 500, max_lines_count = 500)
 
 const string TZ = "America/New_York"
@@ -77,10 +77,8 @@ flatEnd  = input.bool(false, "Flat at 16:55 NY instead of midnight", group = "St
 // APPEARANCE - shared
 //=============================================================================
 
-SHAPES = ["Triangle (auto)", "Arrow (auto)", "Speech bubble (auto)", "Circle", "Square",
-          "Diamond", "Flag", "Cross", "X", "Text only", "Emoji"]
-SIZES  = ["Tiny", "Small", "Normal", "Large", "Huge"]
-PLACES = ["Auto", "Above the bar", "Below the bar", "At the price"]
+// Pine has no array literals outside an input's own `options`, so the shape,
+// size and placement lists are written out at each input rather than shared.
 
 f_style(string s) =>
     s == "Dashed" ? line.style_dashed : s == "Dotted" ? line.style_dotted : line.style_solid
@@ -107,12 +105,15 @@ f_shape(string s, int dir) =>
 //=============================================================================
 
 dShow  = input.bool(true, "Show direction marker", group = "Direction marker")
-dShape = input.string("Triangle (auto)", "Shape", options = SHAPES, group = "Direction marker")
+dShape = input.string("Triangle (auto)", "Shape", group = "Direction marker",
+     options = ["Triangle (auto)", "Arrow (auto)", "Speech bubble (auto)", "Circle", "Square",
+                "Diamond", "Flag", "Cross", "X", "Text only", "Emoji"])
 dUpEmo = input.string("🔼", "Emoji up", inline = "de", group = "Direction marker",
      tooltip = "Used when Shape is Emoji. Paste any emoji you like.")
 dDnEmo = input.string("🔽", "down", inline = "de", group = "Direction marker")
 dNoEmo = input.string("⚪", "no trade", inline = "de", group = "Direction marker")
-dSize  = input.string("Tiny", "Size", options = SIZES, group = "Direction marker")
+dSize  = input.string("Tiny", "Size", group = "Direction marker",
+     options = ["Tiny", "Small", "Normal", "Large", "Huge"])
 dUpCol = input.color(#26a69a, "Up", inline = "dc", group = "Direction marker")
 dDnCol = input.color(#ef5350, "Down", inline = "dc", group = "Direction marker")
 dNoCol = input.color(color.gray, "No trade", inline = "dc", group = "Direction marker")
@@ -120,7 +121,8 @@ dTrans = input.int(0, "Transparency", minval = 0, maxval = 100, group = "Directi
 dText  = input.string("None", "Text", group = "Direction marker",
      options = ["None", "Direction", "Direction + R", "Direction + gap"])
 dTxtCol = input.color(color.white, "Text colour", group = "Direction marker")
-dPlace = input.string("Auto", "Placement", options = PLACES, group = "Direction marker")
+dPlace = input.string("Auto", "Placement", group = "Direction marker",
+     options = ["Auto", "Above the bar", "Below the bar", "At the price"])
 dOff   = input.float(0.15, "Offset (R)", step = 0.05, minval = 0.0, group = "Direction marker")
 dNoShow = input.bool(false, "Mark no-trade days too", group = "Direction marker")
 
@@ -129,17 +131,21 @@ dNoShow = input.bool(false, "Mark no-trade days too", group = "Direction marker"
 //=============================================================================
 
 eShow  = input.bool(true, "Show entry marker", group = "Entry marker")
-eShape = input.string("Emoji", "Shape", options = SHAPES, group = "Entry marker")
+eShape = input.string("Emoji", "Shape", group = "Entry marker",
+     options = ["Triangle (auto)", "Arrow (auto)", "Speech bubble (auto)", "Circle", "Square",
+                "Diamond", "Flag", "Cross", "X", "Text only", "Emoji"])
 eUpEmo = input.string("🎯", "Emoji up", inline = "ee", group = "Entry marker")
 eDnEmo = input.string("🎯", "down", inline = "ee", group = "Entry marker")
-eSize  = input.string("Tiny", "Size", options = SIZES, group = "Entry marker")
+eSize  = input.string("Tiny", "Size", group = "Entry marker",
+     options = ["Tiny", "Small", "Normal", "Large", "Huge"])
 eUpCol = input.color(#26a69a, "Up", inline = "ec", group = "Entry marker")
 eDnCol = input.color(#ef5350, "Down", inline = "ec", group = "Entry marker")
 eTrans = input.int(0, "Transparency", minval = 0, maxval = 100, group = "Entry marker")
 eText  = input.string("None", "Text", options = ["None", "Price", "RR", "Price + RR"],
      group = "Entry marker")
 eTxtCol = input.color(color.white, "Text colour", group = "Entry marker")
-ePlace = input.string("At the price", "Placement", options = PLACES, group = "Entry marker")
+ePlace = input.string("At the price", "Placement", group = "Entry marker",
+     options = ["Auto", "Above the bar", "Below the bar", "At the price"])
 eOff   = input.float(0.10, "Offset (R)", step = 0.05, minval = 0.0, group = "Entry marker")
 eWaitOnly = input.bool(false, "Only mark entries that waited", group = "Entry marker")
 
