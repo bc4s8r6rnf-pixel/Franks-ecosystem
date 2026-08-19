@@ -122,11 +122,23 @@ def trade(bars, S, k, cfg):
         cands = [c for c in (vwap_at(bars, s, s.call), box_edge, (rh + rl) / 2)
                  if (c < px if side > 0 else c > px)]
         if cands:
-            lvl = min(cands, key=lambda c: abs(c - box_edge))
             dead = next((i for i in range(s.call, s.hi + 1)
                          if bars[i].ny.hour >= FILL_DEADLINE), s.flat)
-            fb = next((m for m in range(s.call, dead + 1)
-                       if ((bars[m].l <= lvl) if side > 0 else (bars[m].h >= lvl))), None)
+            if cfg["first_touch"]:
+                # Whichever level price reaches first. Within one bar the shallowest
+                # retracement is the one it met on the way, so that is the fill.
+                fb = lvl = None
+                for m in range(s.call, dead + 1):
+                    hit = [c for c in cands
+                           if ((bars[m].l <= c) if side > 0 else (bars[m].h >= c))]
+                    if hit:
+                        fb = m
+                        lvl = max(hit) if side > 0 else min(hit)
+                        break
+            else:
+                lvl = min(cands, key=lambda c: abs(c - box_edge))
+                fb = next((m for m in range(s.call, dead + 1)
+                           if ((bars[m].l <= lvl) if side > 0 else (bars[m].h >= lvl))), None)
             if fb is None:
                 return None
             ebar, entry, waited = fb, lvl, True
@@ -158,7 +170,7 @@ def trade(bars, S, k, cfg):
 
 
 BASE = dict(patient=False, run_thresh=0.5, buffer=2.0, stop_mode="box",
-            flat_R=1.25, cap_2to1=True, flat_at_close=True)
+            flat_R=1.25, cap_2to1=True, flat_at_close=True, first_touch=True)
 
 
 def cfg(**kw):
