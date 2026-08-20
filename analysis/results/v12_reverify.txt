@@ -1,0 +1,94 @@
+====================================================================================================
+  EVERY DECISION RE-TESTED AGAINST THE CHART'S REAL VWAP
+====================================================================================================
+    CURRENT v1.6                      35  19W/16L  win  54.3%  avgRR  2.34  risk $ 23.12  avgR +0.77  totR  +26.9
+
+====================================================================================================
+  1. ENTRY TRIGGER
+====================================================================================================
+    VWAP tap only                     31  17W/14L  win  54.8%  avgRR  3.28  risk $ 21.46  avgR +1.05  totR  +32.7
+    box touch only                    34  18W/16L  win  52.9%  avgRR  2.44  risk $ 21.84  avgR +0.76  totR  +25.9
+    first of either (current)         35  19W/16L  win  54.3%  avgRR  2.34  risk $ 23.12  avgR +0.77  totR  +26.9
+    close with VWAP behind            42  28W/14L  win  66.7%  avgRR  1.68  risk $ 32.23  avgR +0.63  totR  +26.7
+
+====================================================================================================
+  2. TARGET - is the 2:1 floor still dead?
+====================================================================================================
+    zone always (current)             35  19W/16L  win  54.3%  avgRR  2.34  risk $ 23.12  avgR +0.77  totR  +26.9
+    floor at 1.5:1 + BE at the zone   35  19W/16L  win  54.3%  avgRR  2.37  risk $ 23.12  avgR +0.77  totR  +27.1
+    floor at 2.0:1 + BE at the zone   35  19W/16L  win  54.3%  avgRR  2.47  risk $ 23.12  avgR +0.82  totR  +28.6
+    floor at 2.5:1 + BE at the zone   35  17W/16L  win  48.6%  avgRR  2.76  risk $ 23.12  avgR +0.84  totR  +29.6
+
+====================================================================================================
+  3. BREAK-EVEN part-way to target
+====================================================================================================
+    off (current)                     35  19W/16L  win  54.3%  avgRR  2.34  risk $ 23.12  avgR +0.77  totR  +26.9
+    arm at 40% to target              37  12W/13L  win  32.4%  avgRR  2.36  risk $ 22.97  avgR +0.39  totR  +14.4
+    arm at 50% to target              37  14W/14L  win  37.8%  avgRR  2.36  risk $ 22.97  avgR +0.47  totR  +17.5
+    arm at 60% to target              37  15W/14L  win  40.5%  avgRR  2.36  risk $ 22.97  avgR +0.52  totR  +19.4
+    arm at 75% to target              37  16W/15L  win  43.2%  avgRR  2.36  risk $ 22.97  avgR +0.57  totR  +20.9
+    arm at 90% to target              36  18W/17L  win  50.0%  avgRR  2.33  risk $ 23.07  avgR +0.64  totR  +23.0
+
+====================================================================================================
+  4. ONE POSITION AT A TIME
+====================================================================================================
+    lock on (current)                 35  19W/16L  win  54.3%  avgRR  2.34  risk $ 23.12  avgR +0.77  totR  +26.9
+    lock off                          37  19W/18L  win  51.4%  avgRR  2.36  risk $ 22.97  avgR +0.67  totR  +24.9
+
+====================================================================================================
+  5. RANGE FILTER
+====================================================================================================
+    no filter                         41  20W/21L  win  48.8%  avgRR  2.32  risk $ 26.70  avgR +0.56  totR  +23.1
+    skip range >= $30                 30  14W/16L  win  46.7%  avgRR  2.31  risk $ 21.86  avgR +0.48  totR  +14.5
+    skip range >= $35                 34  18W/16L  win  52.9%  avgRR  2.29  risk $ 23.09  avgR +0.67  totR  +22.9
+    skip range >= $40                 35  19W/16L  win  54.3%  avgRR  2.34  risk $ 23.12  avgR +0.77  totR  +26.9
+    skip range >= $45                 36  19W/17L  win  52.8%  avgRR  2.33  risk $ 23.65  avgR +0.72  totR  +25.9
+    skip range >= $50                 39  20W/19L  win  51.3%  avgRR  2.32  risk $ 25.57  avgR +0.64  totR  +25.1
+
+====================================================================================================
+  6. DIRECTION CALL HOUR
+====================================================================================================
+    call at 02:00                     38  19W/19L  win  50.0%  avgRR  2.18  risk $ 24.18  avgR +0.68  totR  +26.0
+    call at 03:00                     37  16W/21L  win  43.2%  avgRR  2.40  risk $ 23.02  avgR +0.38  totR  +14.1
+    call at 04:00                     35  19W/16L  win  54.3%  avgRR  2.34  risk $ 23.12  avgR +0.77  totR  +26.9
+    call at 05:00                     34  19W/15L  win  55.9%  avgRR  2.23  risk $ 23.70  avgR +0.79  totR  +26.9
+    call at 06:00                     31  13W/18L  win  41.9%  avgRR  2.28  risk $ 23.91  avgR +0.22  totR   +6.7
+    call at 07:00                     31  16W/15L  win  51.6%  avgRR  2.30  risk $ 23.64  avgR +0.67  totR  +20.7
+
+====================================================================================================
+  7. ENTRY CUTOFF HOUR
+====================================================================================================
+    cutoff 09:00                      33  18W/15L  win  54.5%  avgRR  2.40  risk $ 22.05  avgR +0.79  totR  +26.2
+    cutoff 10:00                      35  19W/16L  win  54.3%  avgRR  2.34  risk $ 23.12  avgR +0.77  totR  +26.9
+    cutoff 11:00                      35  19W/16L  win  54.3%  avgRR  2.34  risk $ 23.12  avgR +0.77  totR  +26.9
+    cutoff 12:00                      35  19W/16L  win  54.3%  avgRR  2.34  risk $ 23.12  avgR +0.77  totR  +26.9
+    cutoff 14:00                      35  20W/15L  win  57.1%  avgRR  2.31  risk $ 24.43  avgR +0.83  totR  +29.1
+    cutoff 16:00                      35  20W/15L  win  57.1%  avgRR  2.31  risk $ 24.43  avgR +0.83  totR  +29.1
+
+====================================================================================================
+  8. TIME EXIT
+====================================================================================================
+    none (current)                    35  19W/16L  win  54.3%  avgRR  2.34  risk $ 23.12  avgR +0.77  totR  +26.9
+    flat at 12:00                     37  21W/16L  win  56.8%  avgRR  2.36  risk $ 22.97  avgR +0.57  totR  +21.2
+    flat at 16:00                     37  20W/17L  win  54.1%  avgRR  2.36  risk $ 22.97  avgR +0.60  totR  +22.2
+    flat at 23:00                     37  20W/17L  win  54.1%  avgRR  2.36  risk $ 22.97  avgR +0.57  totR  +21.1
+
+====================================================================================================
+  9. STOP - box against VWAP
+====================================================================================================
+    behind the 9pm box (current)      35  19W/16L  win  54.3%  avgRR  2.34  risk $ 23.12  avgR +0.77  totR  +26.9
+     30 pips beyond VWAP              35   6W/29L  win  17.1%  avgRR 10.22  risk $  7.46  avgR -0.24  totR   -8.5
+     50 pips beyond VWAP              34   9W/25L  win  26.5%  avgRR  6.66  risk $  9.53  avgR +0.38  totR  +13.0
+     60 pips beyond VWAP              36  11W/25L  win  30.6%  avgRR 12.17  risk $  9.98  avgR +0.79  totR  +28.4
+     80 pips beyond VWAP              36  13W/23L  win  36.1%  avgRR  5.66  risk $ 11.98  avgR +0.75  totR  +27.1
+    100 pips beyond VWAP              36  13W/23L  win  36.1%  avgRR  4.35  risk $ 13.98  avgR +0.54  totR  +19.3
+    120 pips beyond VWAP              36  14W/22L  win  38.9%  avgRR  3.61  risk $ 15.98  avgR +0.48  totR  +17.4
+    160 pips beyond VWAP              36  16W/20L  win  44.4%  avgRR  2.75  risk $ 19.98  avgR +0.45  totR  +16.0
+
+====================================================================================================
+  10. THE TWO BEST TOGETHER
+====================================================================================================
+    VWAP-behind entry, box stop       42  28W/14L  win  66.7%  avgRR  1.68  risk $ 32.23  avgR +0.63  totR  +26.7
+    VWAP-behind entry, 60 pip stop    44  20W/24L  win  45.5%  avgRR  3.12  risk $ 19.24  avgR +0.58  totR  +25.4
+    VWAP-behind entry, 80 pip stop    44  23W/21L  win  52.3%  avgRR  2.65  risk $ 21.24  avgR +0.60  totR  +26.3
+    VWAP-behind entry, 120 pip stop   44  25W/19L  win  56.8%  avgRR  2.07  risk $ 25.24  avgR +0.48  totR  +21.1

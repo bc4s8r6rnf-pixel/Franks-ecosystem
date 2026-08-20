@@ -2,65 +2,70 @@
 
 //@version=6
 // ============================================================================
-// RXWLES DIRECTION CALL  v1.6
+// RXWLES DIRECTION CALL  v1.7
 //
-// The target is the 2.0 projection edge, always, whatever RR that works out to,
-// and the stop sits behind the 9pm origin box. No 2:1 floor, no retargeting.
-// Break-even is available as an opt-in toggle - it is off, and the numbers
-// below are why. The VWAP is session-anchored, matching TradingView's own VWAP
-// indicator, sourced from the high, so the two lines coincide.
+// CORRECTION FIRST. Every figure quoted in v1.2 through v1.6 was produced by a
+// backtest that reconstructed the VWAP anchored at midnight New York from
+// hlc3. This chart's VWAP is session-anchored - the exported column resets at
+// 18:00 NY in 54 of 59 sessions - and sourced from the high. The two series
+// disagree by a median of $7.13 and by as much as $111.65. Every VWAP-based
+// conclusion had to be re-tested, and two of them reversed.
 //
 //   DIRECTION  04:00 NY, whichever inner zone edge (2.0 R) is closer.
 //   NO TRADE   if a position is still open, if the 2.0 zone already went before
 //              the call, or if the 9pm range is over the limit.
-//   ENTRY      first touch of VWAP or the 21:00 origin box, before 11:00 NY.
-//              Touch, not bar close. Already inside the box at the call = in.
-//   CANCEL     if the stop level or the 2.0 zone is reached before the fill.
-//   STOP       behind the 9pm box plus a buffer.
+//   ENTRY      a VWAP tap before 14:00 NY. Three alternatives in the settings.
+//   CANCEL     if the box stop level or the 2.0 zone is reached before the fill.
+//   STOP       behind the 9pm box, or a set distance beyond the VWAP.
 //   TARGET     the 2.0 zone edge. Nothing else.
-//   EXIT       target or stop. No time exit.
+//   EXIT       target or stop. No time exit, no break-even.
 //
-// Dropping the old 2:1 floor and its break-even, on 59 sessions of 15m gold:
+// What reversed. The 9pm box was a co-equal entry alongside the VWAP because
+// the broken series said it cost nothing to add. Against the real VWAP it
+// dilutes rather than adds, so the default is now the VWAP tap alone. And the
+// entry cutoff moves from 11:00 to 14:00, which is a clean step rather than a
+// spike - 10:00 through 13:00 all give +32.7 R, 14:00 through 16:00 all give
+// +34.8 R.
 //
-//   2:1 floor + break-even (v1.4)   37 trades  18W/14L/5BE  48.6%  +0.77 R  +28.6
-//   zone edge always (v1.5+)        38 trades  23W/15L      60.5%  +0.76 R  +28.7
+// 59 sessions of 15m gold, measured against the chart's own VWAP:
 //
-// Same money, five break-evens back into clean wins. The floor was pulling the
-// target in on exactly the trades that went on to reach the zone.
+//   entry                         n    W/L    win%   PF   avgRR   avgR    totR
+//   VWAP tap, cutoff 14:00       31  18W/13L  58.1%  3.68  3.16   +1.12  +34.8
+//   VWAP tap, cutoff 11:00       31  17W/14L  54.8%  3.33  3.28   +1.05  +32.7
+//   first of either (v1.6)       35  19W/16L  54.3%  2.68  2.34   +0.77  +26.9
+//   box touch only               34  18W/16L  52.9%     -  2.44   +0.76  +25.9
+//   close with VWAP behind       42  28W/14L  66.7%  2.90  1.68   +0.63  +26.7
 //
-// The optional break-even, armed at a percentage of the entry-to-target
-// distance, same 38-trade base:
+// The close-with-VWAP-behind entry is the high win rate option and it is worth
+// knowing about: it converts nothing, it adds ten sessions the tap entry
+// misses of which nine win, and it drops three that were losses. It pays for
+// that with a wider stop, $32.23 against $23.30, so the money comes out the
+// same while the hit rate goes up twelve points.
 //
-//   off                             38  23W/15L       60.5%  +0.76 R  +28.7
-//   arm at 40%                      42  13W/13L/16BE  31.0%  +0.33 R  +13.9
-//   arm at 50%                      42  15W/14L/13BE  35.7%  +0.37 R  +15.7
-//   arm at 60%                      42  16W/14L/12BE  38.1%  +0.42 R  +17.6
-//   arm at 75%                      40  19W/13L/ 8BE  47.5%  +0.57 R  +22.8
-//   arm at 90%                      39  22W/15L/ 2BE  56.4%  +0.66 R  +25.9
+// Stops, same 59 sessions:
 //
-// Every level costs money and half-way costs the most of the sensible ones:
-// that is precisely where gold retraces through the entry before running to
-// the zone. The nearer the trigger sits to the target, the less it takes.
+//   behind the 9pm box           35  19W/16L  54.3%  PF 2.68  max DD 4.0 R
+//   60 pips beyond the VWAP      36  11W/25L  30.6%  PF 2.14  max DD 6.5 R
 //
-// What fills the trade, with the lock and the $40 range filter on:
+// The VWAP stop reaches a similar total on a third of the dollar risk, but a
+// 30.6% win rate with a six-loss streak is a different thing to hold. 30 pips
+// - the tightest asked about - goes 6W/29L for -8.5 R, because $3.00 sits
+// inside a single 15m bar's range more often than not.
 //
-//   VWAP tap only            35 trades  23W/12L  65.7%  +0.91 R  +31.9
-//   either, whichever first  38 trades  23W/15L  60.5%  +0.78 R  +29.7
+// Left out on purpose, all re-tested against the real VWAP and all still dead:
+// break-even part-way to target (every level from 40% to 90% loses), any time
+// exit, turning off the one-position lock, and a range filter anywhere other
+// than $40. The minimum-RR floor now measures positive but wobbles - none
+// +34.8, 2.0 +37.0, 2.5 +35.4, 3.0 +39.5 - which is noise on 31 trades, not a
+// setting.
 //
-// The box adds three sessions VWAP never offered, at a lower hit rate and a
-// tighter dollar stop. Turn either trigger off in the settings.
+// One known difference between this script and the backtest: here a position
+// is managed from the bar after it fills, so the entry bar cannot stop you
+// out. The backtest assumed the worse case for tap entries. It barely matters
+// at a $23 stop and matters a lot at a $3 one.
 //
-// The VWAP source matters and the default follows the chart it has to agree
-// with: high 23W/12L +0.91 R, hlc3 22W/12L +0.86 R, close 22W/12L +0.86 R.
-//
-// Earlier steps, each measured on top of the last:
-//
-//   flat at midnight (v1.2)              45 trades  22W/21L  +0.42 R  +19.0
-//   hold to target or stop               45 trades  20W/21L  +0.55 R  +24.7
-//   ... and skip the call while open     35 trades  17W/15L  +0.65 R  +22.8
-//   ... and the $40 range filter         28 trades  15W/10L  +0.85 R  +23.8
-//
-// Small sample throughout. The range filter rests on 7 observations. XAUUSD only.
+// 31 trades. The range filter rests on 7 observations. XAUUSD only, and none
+// of it has been tested out of sample or against costs.
 // ============================================================================
 
 indicator("RXWLES Direction Call", "DirCall", overlay = true,
@@ -76,7 +81,7 @@ srcHour  = input.int(21, "Source candle hour (NY)", minval = 0, maxval = 23, gro
      tooltip = "Must match RXWLES PRO's Enigma Source Hour.")
 readHour = input.int(4,  "Direction read hour (NY)", minval = 0, maxval = 23, group = "Method")
 lvl1     = input.float(2.0, "Inner zone edge (R)", step = 0.05, group = "Method")
-cutHour  = input.int(11, "Entry cutoff (NY hour)", minval = 0, maxval = 23, group = "Method",
+cutHour  = input.int(14, "Entry cutoff (NY hour)", minval = 0, maxval = 23, group = "Method",
      tooltip = "No entries after this hour. Every trigger is intrabar, not on close.")
 
 vwAnc    = input.string("Session", "VWAP anchor", group = "Method",
@@ -90,14 +95,27 @@ vwSrc    = input.source(high, "VWAP source", group = "Method",
              + "23W/12L +0.91 R against hlc3's 22W/12L +0.86 R - a high-sourced "
              + "VWAP sits above the hlc3 one, so long pullbacks reach it sooner.")
 
-useVwapE = input.bool(true, "Fill on a VWAP tap", group = "Entry triggers")
-useBoxE  = input.bool(true, "Fill on a 9pm box touch", group = "Entry triggers",
-     tooltip = "The origin box is a second, co-equal entry. Whichever trigger price "
-             + "reaches first takes the trade. If price is already inside the box "
-             + "when the call fires, the fill is immediate.")
+entMode  = input.string("VWAP tap", "Entry trigger", group = "Entry triggers",
+     options = ["VWAP tap", "Box touch", "First of either", "Close with VWAP behind"],
+     tooltip = "Measured on 59 sessions of 15m gold against the chart's own VWAP. "
+             + "VWAP tap 17W/14L, PF 3.68, +34.8 R. First of either 19W/16L, "
+             + "PF 2.68, +26.9 R - the box entry dilutes the VWAP one rather than "
+             + "adding to it. Close with VWAP behind is the high win rate option: "
+             + "28W/14L and 66.7%, but a lower 2.90 PF and +26.7 R.")
 
-bufD     = input.float(1.0, "Stop buffer beyond the 9pm box ($)", step = 0.10, minval = 0.0,
+stopMode = input.string("Behind the 9pm box", "Stop placement", group = "Stop & target",
+     options = ["Behind the 9pm box", "Beyond the VWAP"],
+     tooltip = "One or the other, never both. The box stop measures 19W/16L, PF "
+             + "2.68, max drawdown 4.0 R. The VWAP stop at 60 pips reaches a "
+             + "similar +28.4 R on a third of the dollar risk, but on an 11W/25L "
+             + "record - a 30.6% win rate, a 6.5 R drawdown and a six-loss streak.")
+bufD     = input.float(1.0, "    box stop: buffer beyond the box ($)", step = 0.10,
+     minval = 0.0, group = "Stop & target")
+stopPips = input.int(80, "    VWAP stop: pips beyond the VWAP", minval = 1,
      group = "Stop & target")
+pipSize  = input.float(0.10, "    what one pip is worth ($)", step = 0.01, minval = 0.0001,
+     group = "Stop & target",
+     tooltip = "0.10 for gold, so 30 pips is $3.00 and 80 pips is $8.00.")
 useBE    = input.bool(false, "Break-even once price is part-way to target",
      group = "Stop & target",
      tooltip = "Measured and left off. On 59 sessions of 15m gold, no break-even "
@@ -408,9 +426,7 @@ if inLane and not dead and not called and hour(time, TZ) >= readHour
         why  := "the 2.0 zone had already gone before the call - no trade"
     else
         waiting := true
-        why     := "called - waiting for "
-             + (useVwapE and useBoxE ? "a VWAP tap or a box touch"
-                : useVwapE ? "a VWAP tap" : "a box touch")
+        why     := "called - waiting for " + str.lower(entMode)
              + " before " + str.format("{0,number,00}:00", cutHour)
 
 //=============================================================================
@@ -438,35 +454,45 @@ if inLane and waiting and not dead
         // Two co-equal triggers. Whichever price reaches first takes the trade;
         // when both sit inside one bar, the one nearer that bar's open wins,
         // because that is the one price would have run into first.
-        float vHit = na
-        float bHit = na
-        if useVwapE and not na(vw) and low <= vw and vw <= high
-            vHit := vw
-        if useBoxE and low <= boxHi and high >= boxLo
-            bHit := open > boxHi ? boxHi : open < boxLo ? boxLo : open
-
         float ent = na
         string how = ""
-        if not na(vHit) and not na(bHit)
-            bool vFirst = math.abs(vHit - open) <= math.abs(bHit - open)
-            ent := vFirst ? vHit : bHit
-            how := vFirst ? "VWAP" : "box edge"
-        else if not na(vHit)
-            ent := vHit
-            how := "VWAP"
-        else if not na(bHit)
-            ent := bHit
-            how := bHit == open ? "inside the box" : "box edge"
+        if entMode == "Close with VWAP behind"
+            // no tap - wait for a bar to close on the right side of the VWAP
+            if not na(vw) and ((side > 0 and close > vw) or (side < 0 and close < vw))
+                ent := close
+                how := "VWAP behind"
+        else
+            float vHit = na
+            float bHit = na
+            if entMode != "Box touch" and not na(vw) and low <= vw and vw <= high
+                vHit := vw
+            if entMode != "VWAP tap" and low <= boxHi and high >= boxLo
+                bHit := open > boxHi ? boxHi : open < boxLo ? boxLo : open
+            if not na(vHit) and not na(bHit)
+                bool vFirst = math.abs(vHit - open) <= math.abs(bHit - open)
+                ent := vFirst ? vHit : bHit
+                how := vFirst ? "VWAP" : "box edge"
+            else if not na(vHit)
+                ent := vHit
+                how := "VWAP"
+            else if not na(bHit)
+                ent := bHit
+                how := bHit == open ? "inside the box" : "box edge"
 
         if not na(ent)
-            float risk = math.abs(ent - stopWould)
+            // The box level always decides whether the setup is still alive
+            // above; only the live stop changes with the mode.
+            float useStop = stopMode == "Beyond the VWAP" and not na(vw)
+                 ? vw - side * stopPips * pipSize : stopWould
+            bool  badStop = (side > 0 and useStop >= ent) or (side < 0 and useStop <= ent)
+            float risk = badStop ? 0.0 : math.abs(ent - useStop)
             if risk > 0
                 waiting := false
                 tOpen   := true
                 tSide   := side
                 tLane   := laneDay
                 tEntry  := ent
-                tStop   := stopWould
+                tStop   := useStop
                 tRisk   := risk
                 tHow    := how
                 tTgt    := proj
@@ -475,7 +501,8 @@ if inLane and waiting and not dead
                 tRR     := math.abs(proj - ent) / risk
                 justFilled := true
                 why := "filled on " + how + " - target is the 2.0 edge at "
-                     + str.tostring(tRR, "#.##") + ":1"
+                     + str.tostring(tRR, "#.##") + ":1, stop "
+                     + (stopMode == "Beyond the VWAP" ? "beyond the VWAP" : "behind the box")
 
 bool justCalled = inLane and called and not called[1]
 
@@ -603,7 +630,7 @@ if barstate.islast and showPanel and intraday
     color bg = color.new(color.black, 25)
     color fg = color.new(color.white, 0)
 
-    f_cell(T, 0, 0, "v1.6", color.new(vc, 55), fg, sz)
+    f_cell(T, 0, 0, "v1.7", color.new(vc, 55), fg, sz)
     f_cell(T, 1, 0, vt,     color.new(vc, 55), fg, sz)
     f_cell(T, 0, 1, tOpen ? why : (why + (lastOut == "" ? "" : "  ·  last: " + lastOut)),
          bg, color.new(fg, 30), sz)
@@ -615,7 +642,8 @@ if barstate.islast and showPanel and intraday
     f_cell(T, 1, 3, na(vw) ? "-" : str.tostring(vw, format.mintick), bg, cVwap, sz)
     f_cell(T, 0, 4, "entry" + (tHow == "" ? "" : " (" + tHow + ")"), bg, fg, sz)
     f_cell(T, 1, 4, na(tEntry) ? "-" : str.tostring(tEntry, format.mintick), bg, fg, sz)
-    f_cell(T, 0, 5, tBeDone ? "stop (at break-even)" : "stop", bg, fg, sz)
+    f_cell(T, 0, 5, tBeDone ? "stop (at break-even)"
+         : (stopMode == "Beyond the VWAP" ? "stop (VWAP)" : "stop (box)"), bg, fg, sz)
     f_cell(T, 1, 5, na(tStop) ? "-" : str.tostring(tStop, format.mintick), bg, cStop, sz)
     f_cell(T, 0, 6, "target (2.0 edge)", bg, fg, sz)
     f_cell(T, 1, 6, na(tTgt) ? "-" : str.tostring(tTgt, format.mintick), bg, cTgt, sz)
