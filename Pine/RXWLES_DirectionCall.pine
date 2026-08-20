@@ -8,7 +8,7 @@
 // and the stop sits behind the 9pm origin box. No 2:1 floor, no retargeting.
 // Break-even is available as an opt-in toggle - it is off, and the numbers
 // below are why. The VWAP is session-anchored, matching TradingView's own VWAP
-// indicator, so the two lines coincide.
+// indicator, sourced from the high, so the two lines coincide.
 //
 //   DIRECTION  04:00 NY, whichever inner zone edge (2.0 R) is closer.
 //   NO TRADE   if a position is still open, if the 2.0 zone already went before
@@ -44,11 +44,14 @@
 //
 // What fills the trade, with the lock and the $40 range filter on:
 //
-//   VWAP tap only            34 trades  22W/12L  64.7%  +0.86 R  +29.2
-//   either, whichever first  38 trades  23W/15L  60.5%  +0.76 R  +28.7
+//   VWAP tap only            35 trades  23W/12L  65.7%  +0.91 R  +31.9
+//   either, whichever first  38 trades  23W/15L  60.5%  +0.78 R  +29.7
 //
-// The box adds four sessions VWAP never offered, at a slightly lower hit rate
-// and a tighter dollar stop. Turn either trigger off in the settings.
+// The box adds three sessions VWAP never offered, at a lower hit rate and a
+// tighter dollar stop. Turn either trigger off in the settings.
+//
+// The VWAP source matters and the default follows the chart it has to agree
+// with: high 23W/12L +0.91 R, hlc3 22W/12L +0.86 R, close 22W/12L +0.86 R.
 //
 // Earlier steps, each measured on top of the last:
 //
@@ -81,8 +84,11 @@ vwAnc    = input.string("Session", "VWAP anchor", group = "Method",
      tooltip = "Session is what TradingView's own VWAP indicator uses - pick this "
              + "and the line sits exactly on top of yours. Midnight NY was the old "
              + "v1.3 behaviour and does not match the built-in VWAP.")
-vwSrc    = input.source(hlc3, "VWAP source", group = "Method",
-     tooltip = "hlc3 is the built-in VWAP's default. Change it only if you changed yours.")
+vwSrc    = input.source(high, "VWAP source", group = "Method",
+     tooltip = "Set to match the Source in your own VWAP indicator's settings. "
+             + "High is what yours uses. On 59 sessions of 15m gold, high fills "
+             + "23W/12L +0.91 R against hlc3's 22W/12L +0.86 R - a high-sourced "
+             + "VWAP sits above the hlc3 one, so long pullbacks reach it sooner.")
 
 useVwapE = input.bool(true, "Fill on a VWAP tap", group = "Entry triggers")
 useBoxE  = input.bool(true, "Fill on a 9pm box touch", group = "Entry triggers",
