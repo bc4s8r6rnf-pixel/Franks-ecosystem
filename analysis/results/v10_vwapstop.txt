@@ -1,0 +1,43 @@
+============================================================================================================
+  XAUUSD 15m   59 sessions
+============================================================================================================
+
+  BASELINE - v1.6, stop behind the 9pm box, first touch of VWAP or box
+    v1.6                                        38  23W/15L  win  60.5%  avgRR   2.06  avg risk $ 27.27  avgR +0.76  totR  +28.7
+
+============================================================================================================
+  TEST 1: stop a fixed distance the far side of the VWAP
+============================================================================================================
+    stop  10 pips ($ 1.00) beyond VWAP          33   3W/30L  win   9.1%  avgRR 161.88  avg risk $  3.61  avgR -0.44  totR  -14.5
+    stop  20 pips ($ 2.00) beyond VWAP          33   3W/30L  win   9.1%  avgRR  15.89  avg risk $  4.61  avgR -0.49  totR  -16.3
+    stop  30 pips ($ 3.00) beyond VWAP          36   3W/33L  win   8.3%  avgRR  18.82  avg risk $  5.18  avgR -0.58  totR  -20.7
+    stop  40 pips ($ 4.00) beyond VWAP          37   4W/33L  win  10.8%  avgRR  21.88  avg risk $  6.02  avgR -0.45  totR  -16.7
+    stop  60 pips ($ 6.00) beyond VWAP          37   5W/32L  win  13.5%  avgRR   6.92  avg risk $  8.02  avgR -0.38  totR  -13.9
+    stop  80 pips ($ 8.00) beyond VWAP          39   7W/32L  win  17.9%  avgRR   6.98  avg risk $  9.56  avgR -0.12  totR   -4.8
+    stop 120 pips ($12.00) beyond VWAP          39  14W/25L  win  35.9%  avgRR   4.20  avg risk $ 13.33  avgR +0.56  totR  +22.0
+    stop 160 pips ($16.00) beyond VWAP          40  16W/24L  win  40.0%  avgRR   3.59  avg risk $ 16.62  avgR +0.42  totR  +16.8
+    stop 200 pips ($20.00) beyond VWAP          40  18W/22L  win  45.0%  avgRR   2.57  avg risk $ 20.62  avgR +0.37  totR  +14.9
+    stop 300 pips ($30.00) beyond VWAP          37  23W/14L  win  62.2%  avgRR   1.57  avg risk $ 30.91  avgR +0.52  totR  +19.2
+
+  why sessions drop out at 30 pips:
+    filled                              36
+    VWAP stop sits past the entry        6
+    zone hit before entry                6
+    zone gone before the call            3
+    no entry trigger                     1
+
+============================================================================================================
+  TEST 2: only enter with the VWAP behind price (enter on the close)
+============================================================================================================
+    VWAP-behind close, stop behind the box      39  28W/11L  win  71.8%  avgRR   1.67  avg risk $ 33.16  avgR +0.69  totR  +26.8
+    filled                              39
+    box stop reached before entry        4
+    zone gone before the call            3
+
+============================================================================================================
+  TEST 3: both together
+============================================================================================================
+    VWAP-behind close +  30 pip VWAP stop       45  12W/33L  win  26.7%  avgRR   5.71  avg risk $ 11.69  avgR -0.28  totR  -12.7
+    VWAP-behind close +  60 pip VWAP stop       44  16W/28L  win  36.4%  avgRR   3.72  avg risk $ 14.82  avgR +0.17  totR   +7.7
+    VWAP-behind close + 120 pip VWAP stop       44  22W/22L  win  50.0%  avgRR   2.29  avg risk $ 20.82  avgR +0.46  totR  +20.2
+    VWAP-behind close + 200 pip VWAP stop       40  26W/14L  win  65.0%  avgRR   1.54  avg risk $ 29.15  avgR +0.49  totR  +19.8
