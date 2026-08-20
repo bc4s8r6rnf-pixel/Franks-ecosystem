@@ -2,7 +2,7 @@
 
 //@version=6
 // ============================================================================
-// RXWLES DIRECTION CALL  v2.0
+// RXWLES DIRECTION CALL  v2.1
 //
 // CORRECTION FIRST. Every figure quoted in v1.2 through v1.6 was produced by a
 // backtest that reconstructed the VWAP anchored at midnight New York from
@@ -127,7 +127,30 @@
 // half +25.4 R against +22.9. It costs a little on every winner and rescues
 // one loss, and the rescue happened in the second half.
 //
-// 32 trades. The range filter rests on 7 observations. XAUUSD only, costs are
+// v2.1 ADDS THE OPPOSING-CALL EXIT. The next day's direction call closes an
+// open position that disagrees with it - but only one that is not yet in
+// profit. A winner is left alone.
+//
+//   handling of a call that arrives with a trade open    n   W/L    PF   totR   DD
+//   skip the call, keep the trade (v2.0)                32  19W/13L 4.57 +46.5 3.0
+//   cut every opposing call                             35  20W/15L 4.05 +41.6 3.0
+//   cut only while the trade is under water (v2.1)      34  20W/14L 4.72 +47.1 2.8
+//
+// Cutting every opposing call fails on one trade: 2026-07-28 was closed for
+// +0.74 R with a 5.23 R target still live, and that single decision costs more
+// than the three saves it made. Restricting the cut to positions under water
+// keeps the saves and leaves the winners alone. Better in both halves - first
+// +21.2 against +21.1, second +25.8 against +25.4 - though the margin is thin.
+//
+// Anything from 0.00 to +0.50 R gives the same result. At +1.00 R it starts
+// cutting winners and collapses back to +41.6 R.
+//
+// The lock stays on. The six sessions it discarded over the sample were 1W/4L
+// worth -2.2 R, so it is filtering rather than costing, and three separate
+// tests - defer until close, unlimited positions, cut every opposing call -
+// all came back worse.
+//
+// 34 trades. The range filter rests on 7 observations. XAUUSD only, costs are
 // still not modelled, and the split-sample check is two halves of one quarter.
 // ============================================================================
 
@@ -227,8 +250,25 @@ maxDays  = input.int(5, "Give up on an unresolved trade after (days)", minval = 
 
 lockOne  = input.bool(true, "One position at a time - skip the call while open",
      group = "Filters",
-     tooltip = "Takes losses from 21 to 15 and the win rate from 44.4% to 48.6%, "
-             + "skipping 15 sessions. Turn off only if you can genuinely hold two.")
+     tooltip = "The six sessions this discarded were 1W/4L worth -2.2 R, so it is "
+             + "filtering rather than costing. Letting them all through measures "
+             + "+40.4 R against +46.5 R. A call arriving while a trade is open is "
+             + "a call on a day whose box has usually already been breached.")
+cutOpp   = input.bool(true, "Close a losing trade when the next call opposes it",
+     group = "Filters",
+     tooltip = "The new day's direction call doubles as an exit, but only for a "
+             + "position that is not yet in profit - a winner is left alone to "
+             + "run. Cutting every opposing call regardless measures +41.6 R, "
+             + "because on 2026-07-28 it closed a 5.23 R winner for +0.74 R. "
+             + "Cutting only the ones under water gives 20W/14L, PF 4.72, "
+             + "+47.1 R and a 2.8 R drawdown, against 19W/13L, PF 4.57, +46.5 R "
+             + "and 3.0 R for skipping. Better in both halves of the sample, "
+             + "though only just. It also frees the day the closed trade was "
+             + "blocking.")
+cutBelow = input.float(0.25, "    only if it is below this many R", step = 0.05,
+     minval = -1.0, maxval = 2.0, group = "Filters",
+     tooltip = "0.00 through 0.50 all measure the same. At +1.00 R it starts "
+             + "cutting winners and collapses back to +41.6 R.")
 useRngF  = input.bool(true, "Skip days with an oversized 9pm range", group = "Filters",
      tooltip = "Sessions at or above the limit went 1W/6L.")
 maxRng   = input.float(40.0, "    range limit ($)", step = 1.0, minval = 1.0, group = "Filters")
@@ -514,6 +554,24 @@ if inLane and not dead and not called and hour(time, TZ) >= readHour
     side := gUp < gDn ? 1 : -1
     bool gone = side > 0 ? px >= upEdge : px <= dnEdge
 
+    // A call that opposes an open position is an exit signal for it - but only
+    // while it is under water. A winner is left alone to reach its target.
+    if cutOpp and tOpen and tSide != side and not na(tRisk) and tRisk > 0
+        float prog = tSide * (px - tEntry) / tRisk
+        if prog <= cutBelow
+            tOpen   := false
+            lastR   := prog
+            lastOut := "closed by an opposing call, "
+                 + (prog >= 0 ? "+" : "") + str.tostring(prog, "0.00") + "R"
+            justWon  := prog > 0
+            justLost := prog < 0
+            justBE   := prog == 0
+            justOut  := true
+            lastKind := justWon ? 1 : justLost ? 2 : 3
+            sumR     := sumR + prog
+            nWin     := nWin + (prog > 0 ? 1 : 0)
+            nLos     := nLos + (prog < 0 ? 1 : 0)
+
     if lockOne and tOpen
         dead    := true
         skipped := true
@@ -707,7 +765,7 @@ if barstate.islast and showPanel and intraday
     color bg = color.new(color.black, 25)
     color fg = color.new(color.white, 0)
 
-    f_cell(T, 0, 0, "v2.0", color.new(vc, 55), fg, sz)
+    f_cell(T, 0, 0, "v2.1", color.new(vc, 55), fg, sz)
     f_cell(T, 1, 0, vt,     color.new(vc, 55), fg, sz)
     f_cell(T, 0, 1, tOpen ? why : (why + (lastOut == "" ? "" : "  ·  last: " + lastOut)),
          bg, color.new(fg, 30), sz)
