@@ -1,0 +1,25 @@
+========================================================================================================
+  RE-RUN WITH THE CHART'S OWN VWAP (session-anchored, from the export)
+========================================================================================================
+
+  --- pessimistic (stop live on the entry bar) ---
+    baseline: box stop, first touch         35  19W/16L  win  54.3%  avgRR   2.34  risk $ 23.12  avgR +0.77  totR  +26.9
+    stop  10 pips ($ 1.00) beyond VWAP      33   6W/27L  win  18.2%  avgRR  19.79  risk $  5.79  avgR -0.08  totR   -2.6
+    stop  20 pips ($ 2.00) beyond VWAP      35   6W/29L  win  17.1%  avgRR  15.27  risk $  6.46  avgR -0.19  totR   -6.7
+    stop  30 pips ($ 3.00) beyond VWAP      35   6W/29L  win  17.1%  avgRR  10.22  risk $  7.46  avgR -0.24  totR   -8.5
+    stop  50 pips ($ 5.00) beyond VWAP      34   9W/25L  win  26.5%  avgRR   6.66  risk $  9.53  avgR +0.38  totR  +13.0
+    stop  80 pips ($ 8.00) beyond VWAP      36  13W/23L  win  36.1%  avgRR   5.66  risk $ 11.98  avgR +0.75  totR  +27.1
+    stop 120 pips ($12.00) beyond VWAP      36  14W/22L  win  38.9%  avgRR   3.61  risk $ 15.98  avgR +0.48  totR  +17.4
+    stop 200 pips ($20.00) beyond VWAP      34  16W/18L  win  47.1%  avgRR   2.17  risk $ 24.21  avgR +0.42  totR  +14.1
+    VWAP behind price, box stop             42  28W/14L  win  66.7%  avgRR   1.68  risk $ 32.23  avgR +0.63  totR  +26.7
+
+  --- optimistic (stop live from the next bar) ---
+    baseline: box stop, first touch         35  19W/16L  win  54.3%  avgRR   2.34  risk $ 23.12  avgR +0.77  totR  +26.9
+    stop  10 pips ($ 1.00) beyond VWAP      32   7W/25L  win  21.9%  avgRR  19.96  risk $  5.88  avgR +0.23  totR   +7.3
+    stop  20 pips ($ 2.00) beyond VWAP      34   7W/27L  win  20.6%  avgRR  15.41  risk $  6.53  avgR +0.06  totR   +1.9
+    stop  30 pips ($ 3.00) beyond VWAP      34   7W/27L  win  20.6%  avgRR  10.27  risk $  7.53  avgR -0.02  totR   -0.8
+    stop  50 pips ($ 5.00) beyond VWAP      34   9W/25L  win  26.5%  avgRR   6.66  risk $  9.53  avgR +0.38  totR  +13.0
+    stop  80 pips ($ 8.00) beyond VWAP      36  13W/23L  win  36.1%  avgRR   5.66  risk $ 11.98  avgR +0.75  totR  +27.1
+    stop 120 pips ($12.00) beyond VWAP      36  14W/22L  win  38.9%  avgRR   3.61  risk $ 15.98  avgR +0.48  totR  +17.4
+    stop 200 pips ($20.00) beyond VWAP      34  16W/18L  win  47.1%  avgRR   2.17  risk $ 24.21  avgR +0.42  totR  +14.1
+    VWAP behind price, box stop             42  28W/14L  win  66.7%  avgRR   1.68  risk $ 32.23  avgR +0.63  totR  +26.7
