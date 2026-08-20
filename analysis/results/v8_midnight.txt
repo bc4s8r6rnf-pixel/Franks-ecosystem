@@ -1,0 +1,110 @@
+========================================================================================
+  XAUUSD 15m   59 sessions   2026-05-28 -> 2026-08-18
+========================================================================================
+
+========================================================================================
+  1. WHY A SESSION PRODUCES NOTHING
+========================================================================================
+  filled                             42    71.2%
+  range filter                        7    11.9%
+  target hit before entry             6    10.2%
+  target already hit pre-call         3     5.1%
+  no tap                              1     1.7%
+
+  the sessions in the screenshots:
+  date          9pm range   what happened
+  2026-06-01   $    17.77   filled
+  2026-06-02   $    29.63   filled
+  2026-06-16   $    14.05   target hit before entry
+  2026-06-17   $    15.50   filled
+  2026-06-18   $    22.12   target hit before entry
+  2026-07-31   $    19.52   target hit before entry
+  2026-08-03   $    15.74   filled
+
+========================================================================================
+  2. MIDNIGHT PROXIMITY - FOLLOW THE NEAR ZONE, OR FADE IT?
+========================================================================================
+  At 00:00 NY, which 2.0 edge is nearer? Then which one actually
+  gets touched first during the day? No trading, just the base rate.
+
+  group                         n  near hit   far hit   neither
+  all sessions                 59    22  37.3%   12  20.3%   25  42.4%
+  9pm range < $40              52    21  40.4%   11  21.2%   20  38.5%
+  9pm range >= $40              7     1  14.3%    1  14.3%    5  71.4%
+
+  Same question at 01:00 NY:
+
+  group                         n  near hit   far hit   neither
+  all sessions                 59    26  44.1%    8  13.6%   25  42.4%
+  9pm range < $40              52    25  48.1%    7  13.5%   20  38.5%
+  9pm range >= $40              7     1  14.3%    1  14.3%    5  71.4%
+
+  And the 04:00 call the engine actually uses, for comparison:
+
+  group                         n  near hit   far hit   neither
+  all sessions                 59    30  50.8%    4   6.8%   25  42.4%
+  9pm range < $40              52    28  53.8%    4   7.7%   20  38.5%
+  9pm range >= $40              7     2  28.6%    0   0.0%    5  71.4%
+
+========================================================================================
+  2b. TRADING IT: MIDNIGHT ENTRY, FOLLOW vs FADE
+========================================================================================
+  Enter at the 00:00 open, stop behind the 9pm box, target the zone.
+
+  --- all sessions ---
+    follow the near zone                  58  23W/35L       win  39.7%  avgR +0.09  totR   +5.5
+    fade to the far zone                  27   5W/22L       win  18.5%  avgR +0.36  totR   +9.6
+  --- range < $40 ---
+    follow the near zone                  51  21W/30L       win  41.2%  avgR +0.10  totR   +5.1
+    fade to the far zone                  22   5W/17L       win  22.7%  avgR +0.66  totR  +14.6
+  --- range >= $40 ---
+    follow the near zone                   7   2W/ 5L       win  28.6%  avgR +0.05  totR   +0.3
+    fade to the far zone                   5   0W/ 5L       win   0.0%  avgR -1.00  totR   -5.0
+
+========================================================================================
+  3. TOUCHING THE ORIGIN BOX BETWEEN 00:00 AND 01:00
+========================================================================================
+  If price reaches the 9pm box in that hour, take it immediately.
+  Two readings of direction: toward the nearer zone, or in the
+  direction of the side that got broken.
+
+  --- window 00:00-01:00 ---
+    toward the nearer zone (33 touched)   33   9W/24L       win  27.3%  avgR +0.04  totR   +1.3
+    with the broken side (33 touched)     33  11W/22L       win  33.3%  avgR +0.73  totR  +24.1
+  --- window 00:00-02:00 ---
+    toward the nearer zone (43 touched)   43  15W/28L       win  34.9%  avgR +0.21  totR   +8.8
+    with the broken side (43 touched)     43  17W/26L       win  39.5%  avgR +0.74  totR  +31.6
+  --- window 00:00-04:00 ---
+    toward the nearer zone (46 touched)   46  16W/30L       win  34.8%  avgR +0.19  totR   +8.7
+    with the broken side (46 touched)     46  18W/28L       win  39.1%  avgR +0.68  totR  +31.5
+
+========================================================================================
+  4. THE FIB TRADE ON THE DAYS THE RANGE FILTER SKIPS
+========================================================================================
+  Swing measured 19:00 the night before to 02:00 NY, the largest
+  swing point to swing point move aligned with the 04:00 call.
+  Entry the 0.618 retracement, stop behind the 0.88, target the 2.0
+  zone. Entry only after the call, cutoff 11:00 NY.
+
+  --- big days, 9pm range >= $40  (7 sessions) ---
+    run to the 2.0 zone                    3   1W/ 2L       win  33.3%  avgR +1.44  totR   +4.3
+    take profit at 2R                      3   1W/ 2L       win  33.3%  avgR +0.00  totR   +0.0
+    break-even at 2R, run on               3   1W/ 2L       win  33.3%  avgR +1.44  totR   +4.3
+       4 dropped: no retracement
+
+  --- normal days, range < $40  (52 sessions) ---
+    run to the 2.0 zone                   17   6W/11L       win  35.3%  avgR +1.56  totR  +26.5
+    take profit at 2R                     17  10W/ 7L       win  58.8%  avgR +0.76  totR  +13.0
+    break-even at 2R, run on              17   5W/ 7L/ 5BE  win  29.4%  avgR +1.16  totR  +19.7
+      19 dropped: zone hit before entry
+      11 dropped: no retracement
+       5 dropped: stop hit before entry
+
+  --- every session  (59 sessions) ---
+    run to the 2.0 zone                   20   7W/13L       win  35.0%  avgR +1.54  totR  +30.8
+    take profit at 2R                     20  11W/ 9L       win  55.0%  avgR +0.65  totR  +13.0
+    break-even at 2R, run on              20   6W/ 9L/ 5BE  win  30.0%  avgR +1.20  totR  +24.0
+      19 dropped: zone hit before entry
+      15 dropped: no retracement
+       5 dropped: stop hit before entry
+
