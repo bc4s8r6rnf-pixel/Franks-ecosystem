@@ -169,12 +169,17 @@ pipSize  = input.float(0.10, "    what one pip is worth ($)", step = 0.01, minva
      tooltip = "0.10 for gold, so 30 pips is $3.00 and 80 pips is $8.00.")
 useBE    = input.bool(false, "Break-even once price is part-way to target",
      group = "Stop & target",
-     tooltip = "Measured and left off. On 59 sessions of 15m gold, no break-even "
-             + "is 23W/15L +0.76 R; arming it at 50% of the way to the zone is "
-             + "15W/14L/13BE +0.37 R. Half-way is exactly where gold pulls back "
-             + "through the entry and then goes on to the zone anyway. 75% costs "
-             + "+0.57 R, 90% costs +0.66 R - the closer to the target, the less "
-             + "it takes. Turn it on if you want the protection and accept the bill.")
+     tooltip = "Re-measured against the 2.5 target, where it is a much closer "
+             + "call than it was against 2.0. Off: 18W/14L, PF 4.18, +44.5 R, "
+             + "3.0 R drawdown. Armed at 50%: 15W/9L/9BE, PF 5.70, +42.3 R, "
+             + "2.0 R drawdown - five losses become scratches, but three winners "
+             + "do too, and those three were worth 7.2 R between them. Anywhere "
+             + "from 40% to 60% gives exactly the same result, so it is a wide "
+             + "plateau rather than a lucky number. Fewer losses and a third off "
+             + "the drawdown for 2.2 R. It stays off because total R is a coin "
+             + "flip between the two halves of the sample - the first half prefers "
+             + "it, the second does not - while the loss count and the profit "
+             + "factor improve in both.")
 beFrac   = input.float(50.0, "    at this % of the entry-to-target distance",
      step = 5.0, minval = 1.0, maxval = 99.0, group = "Stop & target")
 maxDays  = input.int(5, "Give up on an unresolved trade after (days)", minval = 1, maxval = 20,
