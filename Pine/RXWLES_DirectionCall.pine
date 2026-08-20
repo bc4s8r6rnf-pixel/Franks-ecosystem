@@ -2,12 +2,13 @@
 
 //@version=6
 // ============================================================================
-// RXWLES DIRECTION CALL  v1.5
+// RXWLES DIRECTION CALL  v1.6
 //
-// The break-even rule and the 2:1 floor are gone. The target is the 2.0 zone
-// edge, always, whatever RR that happens to be, and the stop sits behind the
-// 9pm origin box. The VWAP is now anchored to the session, which is what
-// TradingView's own VWAP indicator uses, so the two lines coincide.
+// The target is the 2.0 projection edge, always, whatever RR that works out to,
+// and the stop sits behind the 9pm origin box. No 2:1 floor, no retargeting.
+// Break-even is available as an opt-in toggle - it is off, and the numbers
+// below are why. The VWAP is session-anchored, matching TradingView's own VWAP
+// indicator, so the two lines coincide.
 //
 //   DIRECTION  04:00 NY, whichever inner zone edge (2.0 R) is closer.
 //   NO TRADE   if a position is still open, if the 2.0 zone already went before
@@ -17,18 +18,31 @@
 //   CANCEL     if the stop level or the 2.0 zone is reached before the fill.
 //   STOP       behind the 9pm box plus a buffer.
 //   TARGET     the 2.0 zone edge. Nothing else.
-//   EXIT       target or stop. No time exit, no break-even, no retargeting.
+//   EXIT       target or stop. No time exit.
 //
-// Dropping the floor and the break-even, on 59 sessions of 15m gold:
+// Dropping the old 2:1 floor and its break-even, on 59 sessions of 15m gold:
 //
 //   2:1 floor + break-even (v1.4)   37 trades  18W/14L/5BE  48.6%  +0.77 R  +28.6
-//   zone edge always (v1.5)         38 trades  23W/15L      60.5%  +0.76 R  +28.7
+//   zone edge always (v1.5+)        38 trades  23W/15L      60.5%  +0.76 R  +28.7
 //
-// The same money, but five break-evens turn back into clean wins and the win
-// rate goes from 48.6% to 60.5%. The floor was never earning anything - it was
-// moving the target in on exactly the trades that went on to reach the zone.
+// Same money, five break-evens back into clean wins. The floor was pulling the
+// target in on exactly the trades that went on to reach the zone.
 //
-// What fills the trade, all with the lock and the $40 range filter on:
+// The optional break-even, armed at a percentage of the entry-to-target
+// distance, same 38-trade base:
+//
+//   off                             38  23W/15L       60.5%  +0.76 R  +28.7
+//   arm at 40%                      42  13W/13L/16BE  31.0%  +0.33 R  +13.9
+//   arm at 50%                      42  15W/14L/13BE  35.7%  +0.37 R  +15.7
+//   arm at 60%                      42  16W/14L/12BE  38.1%  +0.42 R  +17.6
+//   arm at 75%                      40  19W/13L/ 8BE  47.5%  +0.57 R  +22.8
+//   arm at 90%                      39  22W/15L/ 2BE  56.4%  +0.66 R  +25.9
+//
+// Every level costs money and half-way costs the most of the sensible ones:
+// that is precisely where gold retraces through the entry before running to
+// the zone. The nearer the trigger sits to the target, the less it takes.
+//
+// What fills the trade, with the lock and the $40 range filter on:
 //
 //   VWAP tap only            34 trades  22W/12L  64.7%  +0.86 R  +29.2
 //   either, whichever first  38 trades  23W/15L  60.5%  +0.76 R  +28.7
@@ -78,6 +92,16 @@ useBoxE  = input.bool(true, "Fill on a 9pm box touch", group = "Entry triggers",
 
 bufD     = input.float(1.0, "Stop buffer beyond the 9pm box ($)", step = 0.10, minval = 0.0,
      group = "Stop & target")
+useBE    = input.bool(false, "Break-even once price is part-way to target",
+     group = "Stop & target",
+     tooltip = "Measured and left off. On 59 sessions of 15m gold, no break-even "
+             + "is 23W/15L +0.76 R; arming it at 50% of the way to the zone is "
+             + "15W/14L/13BE +0.37 R. Half-way is exactly where gold pulls back "
+             + "through the entry and then goes on to the zone anyway. 75% costs "
+             + "+0.57 R, 90% costs +0.66 R - the closer to the target, the less "
+             + "it takes. Turn it on if you want the protection and accept the bill.")
+beFrac   = input.float(50.0, "    at this % of the entry-to-target distance",
+     step = 5.0, minval = 1.0, maxval = 99.0, group = "Stop & target")
 maxDays  = input.int(5, "Give up on an unresolved trade after (days)", minval = 1, maxval = 20,
      group = "Stop & target",
      tooltip = "A safety valve, not a strategy rule. Only one trade in the sample "
@@ -187,6 +211,10 @@ cTgt    = input.color(#00e676, "", inline = "t", group = "Levels")
 sTgt    = input.string("Solid", "", options = ["Solid", "Dashed", "Dotted"], inline = "t", group = "Levels")
 wTgt    = input.int(2, "", minval = 1, maxval = 4, inline = "t", group = "Levels")
 
+shBE    = input.bool(true, "Break-even trigger (when enabled)", inline = "b", group = "Levels")
+cBE     = input.color(#ffab00, "", inline = "b", group = "Levels")
+sBE     = input.string("Dashed", "", options = ["Solid", "Dashed", "Dotted"], inline = "b", group = "Levels")
+
 shVwap  = input.bool(true, "VWAP while waiting", inline = "v", group = "Levels")
 cVwap   = input.color(color.new(#ffffff, 0), "", inline = "v", group = "Levels")
 
@@ -248,6 +276,8 @@ var float  tStop    = na
 var float  tTgt     = na
 var float  tRR      = na
 var float  tRisk    = na
+var float  tBE      = na         // the break-even arming level, when enabled
+var bool   tBeDone  = false
 var string tHow     = ""         // what filled it
 var string lastOut  = ""
 var int    lastKind = 0          // 1 win, 2 loss, 3 flat
@@ -259,6 +289,7 @@ var int    nLos     = 0
 var line   lnE      = na
 var line   lnS      = na
 var line   lnT      = na
+var line   lnB      = na
 var label  tagS     = na
 var label  tagT     = na
 
@@ -303,26 +334,35 @@ bool justBE   = false
 bool justOut  = false
 
 if intraday and tOpen
+    // The stop is tested first, against the stop as it stands. Only then can
+    // this bar arm break-even - so a bar that reaches both is a loss, not a
+    // save, which is the honest reading when you cannot see inside the bar.
     bool hitStop = (tSide > 0 and low <= tStop) or (tSide < 0 and high >= tStop)
-    bool hitTgt  = (tSide > 0 and high >= tTgt) or (tSide < 0 and low <= tTgt)
     if hitStop
         tOpen   := false
-        lastR   := -1.0
-        lastOut := "stopped out, -1.00R"
-        justLost := true
-    else if hitTgt
-        tOpen   := false
-        lastR   := tRR
-        lastOut := "target hit, +" + str.tostring(tRR, "#.##") + "R"
-        justWon := true
-    else if not na(tLane) and time > tLane + maxDays * 86400000
-        tOpen   := false
-        lastR   := na(tRisk) or tRisk <= 0 ? 0.0 : tSide * (close - tEntry) / tRisk
-        lastOut := "unresolved after " + str.tostring(maxDays) + " days - closed at "
-             + (lastR >= 0 ? "+" : "") + str.tostring(lastR, "0.00") + "R"
-        justWon  := lastR > 0
-        justLost := lastR < 0
-        justBE   := lastR == 0
+        lastR   := tBeDone ? 0.0 : -1.0
+        lastOut := tBeDone ? "closed at break-even, 0.00R" : "stopped out, -1.00R"
+        justBE   := tBeDone
+        justLost := not tBeDone
+    else
+        if useBE and not tBeDone and not na(tBE)
+            if (tSide > 0 and high >= tBE) or (tSide < 0 and low <= tBE)
+                tBeDone := true
+                tStop   := tEntry
+        bool hitTgt = (tSide > 0 and high >= tTgt) or (tSide < 0 and low <= tTgt)
+        if hitTgt
+            tOpen   := false
+            lastR   := tRR
+            lastOut := "target hit, +" + str.tostring(tRR, "#.##") + "R"
+            justWon := true
+        else if not na(tLane) and time > tLane + maxDays * 86400000
+            tOpen   := false
+            lastR   := na(tRisk) or tRisk <= 0 ? 0.0 : tSide * (close - tEntry) / tRisk
+            lastOut := "unresolved after " + str.tostring(maxDays) + " days - closed at "
+                 + (lastR >= 0 ? "+" : "") + str.tostring(lastR, "0.00") + "R"
+            justWon  := lastR > 0
+            justLost := lastR < 0
+            justBE   := lastR == 0
 
     justOut := justWon or justLost or justBE
     if justOut
@@ -424,6 +464,8 @@ if inLane and waiting and not dead
                 tRisk   := risk
                 tHow    := how
                 tTgt    := proj
+                tBE     := ent + side * (beFrac / 100.0) * math.abs(proj - ent)
+                tBeDone := false
                 tRR     := math.abs(proj - ent) / risk
                 justFilled := true
                 why := "filled on " + how + " - target is the 2.0 edge at "
@@ -494,12 +536,15 @@ if justFilled
     if shTgt
         lnT := line.new(bar_index, tTgt, bar_index + 1, tTgt, color = cTgt,
              style = f_style(sTgt), width = wTgt)
+    if useBE and shBE and not na(tBE)
+        lnB := line.new(bar_index, tBE, bar_index + 1, tBE, color = cBE,
+             style = f_style(sBE), width = 1)
     if priceTag
         tagS := f_tag(tStop, "SL " + str.tostring(tStop, format.mintick), cStop)
         tagT := f_tag(tTgt,  "TP " + str.tostring(tTgt, format.mintick)
              + "  " + str.tostring(tRR, "#.##") + "R", cTgt)
 
-// The lines run for as long as the position does, and the stop follows BE.
+// The lines run for as long as the position does, and the stop follows break-even.
 if tOpen
     if not na(lnE)
         line.set_x2(lnE, bar_index)
@@ -509,11 +554,13 @@ if tOpen
         line.set_y2(lnS, tStop)
     if not na(lnT)
         line.set_x2(lnT, bar_index)
+    if not na(lnB)
+        line.set_x2(lnB, bar_index)
     if priceTag
         if not na(tagS)
             label.set_x(tagS, bar_index)
             label.set_y(tagS, tStop)
-            label.set_text(tagS, "SL " + str.tostring(tStop, format.mintick))
+            label.set_text(tagS, (tBeDone ? "BE " : "SL ") + str.tostring(tStop, format.mintick))
         if not na(tagT)
             label.set_x(tagT, bar_index)
 
@@ -543,13 +590,14 @@ if barstate.islast and showPanel and intraday
 
     color vc = tOpen ? (tSide > 0 ? dUpCol : dDnCol) : dead ? color.gray :
          side > 0 ? dUpCol : side < 0 ? dDnCol : color.gray
-    string vt = tOpen ? (tSide > 0 ? "LONG" : "SHORT") :
+    string vt = tOpen ? (tBeDone ? (tSide > 0 ? "LONG · BE" : "SHORT · BE")
+                                 : (tSide > 0 ? "LONG" : "SHORT")) :
          dead ? "NO TRADE" : waiting ? (side > 0 ? "WATCHING LONG" : "WATCHING SHORT") :
          not called ? "WAITING" : "NO TRADE"
     color bg = color.new(color.black, 25)
     color fg = color.new(color.white, 0)
 
-    f_cell(T, 0, 0, "v1.5", color.new(vc, 55), fg, sz)
+    f_cell(T, 0, 0, "v1.6", color.new(vc, 55), fg, sz)
     f_cell(T, 1, 0, vt,     color.new(vc, 55), fg, sz)
     f_cell(T, 0, 1, tOpen ? why : (why + (lastOut == "" ? "" : "  ·  last: " + lastOut)),
          bg, color.new(fg, 30), sz)
@@ -561,7 +609,7 @@ if barstate.islast and showPanel and intraday
     f_cell(T, 1, 3, na(vw) ? "-" : str.tostring(vw, format.mintick), bg, cVwap, sz)
     f_cell(T, 0, 4, "entry" + (tHow == "" ? "" : " (" + tHow + ")"), bg, fg, sz)
     f_cell(T, 1, 4, na(tEntry) ? "-" : str.tostring(tEntry, format.mintick), bg, fg, sz)
-    f_cell(T, 0, 5, "stop", bg, fg, sz)
+    f_cell(T, 0, 5, tBeDone ? "stop (at break-even)" : "stop", bg, fg, sz)
     f_cell(T, 1, 5, na(tStop) ? "-" : str.tostring(tStop, format.mintick), bg, cStop, sz)
     f_cell(T, 0, 6, "target (2.0 edge)", bg, fg, sz)
     f_cell(T, 1, 6, na(tTgt) ? "-" : str.tostring(tTgt, format.mintick), bg, cTgt, sz)
@@ -584,6 +632,8 @@ alertcondition(justCalled and side ==  1 and not skipped, "Direction: UP",   "Di
 alertcondition(justCalled and side == -1 and not skipped, "Direction: DOWN", "Direction call: DOWN")
 alertcondition(justCalled and skipped, "Call skipped", "Call skipped - already in a position")
 alertcondition(justFilled, "Entry filled", "Entry trigger hit - stop and target set")
+alertcondition(useBE and tBeDone and not tBeDone[1], "Break-even",
+     "Part-way to target - stop moved to break-even")
 alertcondition(justWon,  "Trade won",  "Target hit at the 2.0 zone edge")
 alertcondition(justLost, "Trade lost", "Stopped out, -1R")
 alertcondition(justBE,   "Trade flat", "Closed flat, 0R")
