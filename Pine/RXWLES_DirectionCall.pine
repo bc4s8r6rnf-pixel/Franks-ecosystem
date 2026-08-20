@@ -479,7 +479,7 @@ if inLane and not dead and not called and hour(time, TZ) >= readHour
         why     := "still in a " + (tSide > 0 ? "long" : "short") + " - call skipped"
     else if preHit or gone
         dead := true
-        why  := "the 2.0 zone had already gone before the call - no trade"
+        why  := "the zone had already gone before the call - no trade"
     else
         waiting := true
         why     := "called - waiting for a VWAP tap before "
@@ -501,7 +501,7 @@ if inLane and waiting and not dead
     else if (side > 0 and high >= proj) or (side < 0 and low <= proj)
         waiting := false
         dead    := true
-        why     := "the 2.0 zone was reached before the entry - cancelled"
+        why     := "the zone was reached before the entry - cancelled"
     else if hour(time, TZ) >= cutHour
         waiting := false
         dead    := true
@@ -535,7 +535,8 @@ if inLane and waiting and not dead
                 tBeDone := false
                 tRR     := math.abs(proj - ent) / risk
                 justFilled := true
-                why := "filled on " + how + " - target is the 2.0 edge at "
+                why := "filled on " + how + " - target is the "
+                     + str.tostring(lvl1, "#.##") + " edge at "
                      + str.tostring(tRR, "#.##") + ":1, stop "
                      + (stopMode == "Beyond the VWAP" ? "beyond the VWAP" : "behind the box")
 
@@ -703,6 +704,6 @@ alertcondition(justCalled and skipped, "Call skipped", "Call skipped - already i
 alertcondition(justFilled, "Entry filled", "Entry trigger hit - stop and target set")
 alertcondition(useBE and tBeDone and not tBeDone[1], "Break-even",
      "Part-way to target - stop moved to break-even")
-alertcondition(justWon,  "Trade won",  "Target hit at the 2.0 zone edge")
+alertcondition(justWon,  "Trade won",  "Target hit at the far zone edge")
 alertcondition(justLost, "Trade lost", "Stopped out, -1R")
 alertcondition(justBE,   "Trade flat", "Closed flat, 0R")
