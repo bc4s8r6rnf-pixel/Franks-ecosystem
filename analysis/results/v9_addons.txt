@@ -45,3 +45,22 @@
     window 00:00-02:00, break >= 0.50 R       38  23W/15L       win  60.5%  avgR +0.76  totR  +28.7
     window 00:00-02:00, break >= 1.00 R       38  23W/15L       win  60.5%  avgR +0.76  totR  +28.7
 
+
+================================================================================
+ BIG-DAY POST-MORTEM
+================================================================================
+Travel beyond the 9pm box, in R, by box size (all 59 sessions):
+  $0-20   3.63 R median   81.2% reached the 2.0 zone
+  $20-25  3.47 R          60.0%
+  $25-30  2.63 R          53.8%
+  $30-35  1.88 R          42.9%
+  $40+    1.19 R          28.6%
+
+In dollars the day's travel is near constant - $61, $82, $74, $59, $62 - while
+the zone distance scales with the box: $33.52 up to $96.76. Big days fail
+because the target is moved out of reach, not because the day behaves oddly.
+
+18 configurations tested on the 7 big days - stops from $10 to $58, targets
+from edge+1.0R to the 2.0 zone. Every one lost money. Best -1.9 R, worst
+-7.0 R. Tightening the stop made it worse: the whole-box stop goes 2W/5L,
+everything tighter goes 0W/7L or 1W/6L.
