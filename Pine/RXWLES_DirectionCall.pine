@@ -2,12 +2,12 @@
 
 //@version=6
 // ============================================================================
-// RXWLES DIRECTION CALL  v1.4
+// RXWLES DIRECTION CALL  v1.5
 //
-// Two ways in, not one. The origin box is now a co-equal entry alongside VWAP:
-// whichever price reaches first takes the trade, and if price is already inside
-// the box when the call fires, the fill is immediate. Wins, losses and
-// break-evens are marked on the chart with the R won or lost.
+// The break-even rule and the 2:1 floor are gone. The target is the 2.0 zone
+// edge, always, whatever RR that happens to be, and the stop sits behind the
+// 9pm origin box. The VWAP is now anchored to the session, which is what
+// TradingView's own VWAP indicator uses, so the two lines coincide.
 //
 //   DIRECTION  04:00 NY, whichever inner zone edge (2.0 R) is closer.
 //   NO TRADE   if a position is still open, if the 2.0 zone already went before
@@ -16,24 +16,25 @@
 //              Touch, not bar close. Already inside the box at the call = in.
 //   CANCEL     if the stop level or the 2.0 zone is reached before the fill.
 //   STOP       behind the 9pm box plus a buffer.
-//   TARGET     the 2.0 zone edge when it is 2:1 or better; otherwise the 2:1
-//              level, with break-even armed at the 2.0 edge.
-//   EXIT       target or stop. No time exit.
+//   TARGET     the 2.0 zone edge. Nothing else.
+//   EXIT       target or stop. No time exit, no break-even, no retargeting.
 //
-// 59 sessions of 15m gold, all three measured on the same harness with the lock
-// and the $40 range filter on:
+// Dropping the floor and the break-even, on 59 sessions of 15m gold:
 //
-//   VWAP tap only (v1.3)        34 trades  17W/12L  50.0%  +0.85 R  +28.8
-//   box touch only              34 trades  18W/16L  52.9%  +0.78 R  +26.6
-//   either, whichever first      37 trades  18W/14L  48.6%  +0.77 R  +28.6
+//   2:1 floor + break-even (v1.4)   37 trades  18W/14L/5BE  48.6%  +0.77 R  +28.6
+//   zone edge always (v1.5)         38 trades  23W/15L      60.5%  +0.76 R  +28.7
 //
-// Adding the box neither helps nor hurts the R total - it is the same +28.6 as
-// VWAP alone, spread over three more sessions - but it fills at a materially
-// tighter stop, $27.40 of risk against $28.90, and it catches the days VWAP
-// never comes back to. Inside the 'whichever first' run the strongest bucket by
-// far is the immediate fill: 18 trades already inside the box at the call, 10W/8L,
-// +1.04 R each, on $19.71 of risk. The plain VWAP fills in that same run are the
-// weakest at +0.33 R. That is the argument for the box, and it is one sample.
+// The same money, but five break-evens turn back into clean wins and the win
+// rate goes from 48.6% to 60.5%. The floor was never earning anything - it was
+// moving the target in on exactly the trades that went on to reach the zone.
+//
+// What fills the trade, all with the lock and the $40 range filter on:
+//
+//   VWAP tap only            34 trades  22W/12L  64.7%  +0.86 R  +29.2
+//   either, whichever first  38 trades  23W/15L  60.5%  +0.76 R  +28.7
+//
+// The box adds four sessions VWAP never offered, at a slightly lower hit rate
+// and a tighter dollar stop. Turn either trigger off in the settings.
 //
 // Earlier steps, each measured on top of the last:
 //
@@ -61,19 +62,22 @@ lvl1     = input.float(2.0, "Inner zone edge (R)", step = 0.05, group = "Method"
 cutHour  = input.int(11, "Entry cutoff (NY hour)", minval = 0, maxval = 23, group = "Method",
      tooltip = "No entries after this hour. Every trigger is intrabar, not on close.")
 
+vwAnc    = input.string("Session", "VWAP anchor", group = "Method",
+     options = ["Session", "Midnight NY (lane open)"],
+     tooltip = "Session is what TradingView's own VWAP indicator uses - pick this "
+             + "and the line sits exactly on top of yours. Midnight NY was the old "
+             + "v1.3 behaviour and does not match the built-in VWAP.")
+vwSrc    = input.source(hlc3, "VWAP source", group = "Method",
+     tooltip = "hlc3 is the built-in VWAP's default. Change it only if you changed yours.")
+
 useVwapE = input.bool(true, "Fill on a VWAP tap", group = "Entry triggers")
 useBoxE  = input.bool(true, "Fill on a 9pm box touch", group = "Entry triggers",
      tooltip = "The origin box is a second, co-equal entry. Whichever trigger price "
              + "reaches first takes the trade. If price is already inside the box "
              + "when the call fires, the fill is immediate.")
 
-minRR    = input.float(2.0, "Minimum RR - every trade carries this", step = 0.25, minval = 1.0,
-     group = "Stop & target",
-     tooltip = "When the 2.0 zone edge is nearer than this, the edge becomes the "
-             + "break-even trigger and the target moves out to this RR.")
 bufD     = input.float(1.0, "Stop buffer beyond the 9pm box ($)", step = 0.10, minval = 0.0,
      group = "Stop & target")
-useBE    = input.bool(true, "Break-even at the 2.0 edge when retargeting", group = "Stop & target")
 maxDays  = input.int(5, "Give up on an unresolved trade after (days)", minval = 1, maxval = 20,
      group = "Stop & target",
      tooltip = "A safety valve, not a strategy rule. Only one trade in the sample "
@@ -151,17 +155,17 @@ xShape  = input.string("Text only", "Shape", group = "Exit marker",
                 "Diamond", "Flag", "Cross", "X", "Text only", "Emoji"])
 xWinEmo = input.string("✅", "Emoji win", inline = "xe", group = "Exit marker")
 xLosEmo = input.string("❌", "loss", inline = "xe", group = "Exit marker")
-xBeEmo  = input.string("➖", "break-even", inline = "xe", group = "Exit marker")
+xBeEmo  = input.string("➖", "flat", inline = "xe", group = "Exit marker")
 xSize   = input.string("Small", "Size", group = "Exit marker",
      options = ["Tiny", "Small", "Normal", "Large", "Huge"])
 xWinCol = input.color(#00e676, "Win", inline = "xc", group = "Exit marker")
 xLosCol = input.color(#ff1744, "Loss", inline = "xc", group = "Exit marker")
-xBeCol  = input.color(#ffab00, "BE", inline = "xc", group = "Exit marker")
+xBeCol  = input.color(#ffab00, "Flat", inline = "xc", group = "Exit marker")
 xTrans  = input.int(0, "Transparency", minval = 0, maxval = 100, group = "Exit marker")
 xText   = input.string("R result", "Text", group = "Exit marker",
      options = ["None", "R result", "Words", "Words + R result"])
 xTxtCol = input.color(color.white, "Text colour (shapes only)", group = "Exit marker",
-     tooltip = "Text-only and emoji markers are tinted with the win / loss / BE colour.")
+     tooltip = "Text-only and emoji markers are tinted with the win / loss / flat colour.")
 xPlace  = input.string("Win above, loss below", "Placement", group = "Exit marker",
      options = ["Win above, loss below", "Always above", "Always below"])
 xOff    = input.float(0.35, "Offset from the candle (R)", step = 0.05, minval = 0.0,
@@ -183,12 +187,8 @@ cTgt    = input.color(#00e676, "", inline = "t", group = "Levels")
 sTgt    = input.string("Solid", "", options = ["Solid", "Dashed", "Dotted"], inline = "t", group = "Levels")
 wTgt    = input.int(2, "", minval = 1, maxval = 4, inline = "t", group = "Levels")
 
-shBE    = input.bool(true, "Break-even trigger (the 2.0 edge)", inline = "b", group = "Levels")
-cBE     = input.color(#ffab00, "", inline = "b", group = "Levels")
-sBE     = input.string("Dashed", "", options = ["Solid", "Dashed", "Dotted"], inline = "b", group = "Levels")
-
 shVwap  = input.bool(true, "VWAP while waiting", inline = "v", group = "Levels")
-cVwap   = input.color(color.new(#ffab00, 30), "", inline = "v", group = "Levels")
+cVwap   = input.color(color.new(#ffffff, 0), "", inline = "v", group = "Levels")
 
 priceTag = input.bool(true, "Price tag on each level", group = "Levels")
 tagSize  = input.string("Tiny", "Tag size", options = ["Tiny", "Small", "Normal"], group = "Levels")
@@ -246,14 +246,11 @@ var int    tLane    = na         // the lane it was opened in
 var float  tEntry   = na
 var float  tStop    = na
 var float  tTgt     = na
-var float  tBE      = na
 var float  tRR      = na
 var float  tRisk    = na
-var bool   tBeDone  = false
-var bool   tRetgt   = false
 var string tHow     = ""         // what filled it
 var string lastOut  = ""
-var int    lastKind = 0          // 1 win, 2 loss, 3 break-even
+var int    lastKind = 0          // 1 win, 2 loss, 3 flat
 var float  lastR    = na         // the R won or lost
 var float  sumR     = 0.0
 var int    nWin     = 0
@@ -262,7 +259,6 @@ var int    nLos     = 0
 var line   lnE      = na
 var line   lnS      = na
 var line   lnT      = na
-var line   lnB      = na
 var label  tagS     = na
 var label  tagT     = na
 
@@ -270,7 +266,10 @@ bool intraday = not timeframe.isdwm
 bool newSrc = intraday and not na(srcDay) and not na(srcHigh) and (na(laneDay) or srcDay != laneDay)
 
 bool laneOpen = intraday and not na(laneDay) and time >= laneDay and time[1] < laneDay
-float vw = ta.vwap(hlc3, laneOpen)
+// "Session" is the built-in VWAP's own anchor, so the two lines coincide.
+float vwSess = ta.vwap(vwSrc)
+float vwLane = ta.vwap(vwSrc, laneOpen)
+float vw = vwAnc == "Session" ? vwSess : vwLane
 
 if newSrc and (srcHigh - srcLow) > 0
     laneDay := srcDay
@@ -304,19 +303,13 @@ bool justBE   = false
 bool justOut  = false
 
 if intraday and tOpen
-    if useBE and tRetgt and not tBeDone and not na(tBE)
-        if (tSide > 0 and high >= tBE) or (tSide < 0 and low <= tBE)
-            tBeDone := true
-            tStop   := tEntry
     bool hitStop = (tSide > 0 and low <= tStop) or (tSide < 0 and high >= tStop)
     bool hitTgt  = (tSide > 0 and high >= tTgt) or (tSide < 0 and low <= tTgt)
     if hitStop
         tOpen   := false
-        lastR   := tBeDone ? 0.0 : -1.0
-        lastOut := tBeDone ? "closed at break-even, 0.00R"
-             : "stopped out, -1.00R"
-        justBE   := tBeDone
-        justLost := not tBeDone
+        lastR   := -1.0
+        lastOut := "stopped out, -1.00R"
+        justLost := true
     else if hitTgt
         tOpen   := false
         lastR   := tRR
@@ -430,21 +423,11 @@ if inLane and waiting and not dead
                 tStop   := stopWould
                 tRisk   := risk
                 tHow    := how
-                tBeDone := false
-                float rrBox = math.abs(proj - ent) / risk
-                if rrBox >= minRR
-                    tTgt  := proj
-                    tBE   := na
-                    tRetgt := false
-                else
-                    tTgt  := ent + side * minRR * risk
-                    tBE   := proj
-                    tRetgt := true
-                tRR := math.abs(tTgt - ent) / risk
+                tTgt    := proj
+                tRR     := math.abs(proj - ent) / risk
                 justFilled := true
-                why := "filled on " + how + (tRetgt
-                     ? " - box under " + str.tostring(minRR, "#.#") + ":1, target moved out"
-                     : " - the 2.0 edge is the target")
+                why := "filled on " + how + " - target is the 2.0 edge at "
+                     + str.tostring(tRR, "#.##") + ":1"
 
 bool justCalled = inLane and called and not called[1]
 
@@ -480,7 +463,7 @@ f_exit(int kind, float rres) =>
     color  c   = kind == 1 ? xWinCol : kind == 2 ? xLosCol : xBeCol
     string emo = kind == 1 ? xWinEmo : kind == 2 ? xLosEmo : xBeEmo
     string rt  = (rres > 0 ? "+" : "") + str.tostring(rres, "0.00") + "R"
-    string wd  = kind == 1 ? "TARGET" : kind == 2 ? "STOP" : "BREAK-EVEN"
+    string wd  = kind == 1 ? "TARGET" : kind == 2 ? "STOP" : "FLAT"
     string txt = xText == "None" ? "" : xText == "R result" ? rt :
          xText == "Words" ? wd : wd + "  " + rt
     string body = xShape == "Emoji" ? emo + (txt == "" ? "" : " " + txt) : txt
@@ -511,9 +494,6 @@ if justFilled
     if shTgt
         lnT := line.new(bar_index, tTgt, bar_index + 1, tTgt, color = cTgt,
              style = f_style(sTgt), width = wTgt)
-    if shBE and tRetgt and not na(tBE)
-        lnB := line.new(bar_index, tBE, bar_index + 1, tBE, color = cBE,
-             style = f_style(sBE), width = 1)
     if priceTag
         tagS := f_tag(tStop, "SL " + str.tostring(tStop, format.mintick), cStop)
         tagT := f_tag(tTgt,  "TP " + str.tostring(tTgt, format.mintick)
@@ -529,13 +509,11 @@ if tOpen
         line.set_y2(lnS, tStop)
     if not na(lnT)
         line.set_x2(lnT, bar_index)
-    if not na(lnB)
-        line.set_x2(lnB, bar_index)
     if priceTag
         if not na(tagS)
             label.set_x(tagS, bar_index)
             label.set_y(tagS, tStop)
-            label.set_text(tagS, (tBeDone ? "BE " : "SL ") + str.tostring(tStop, format.mintick))
+            label.set_text(tagS, "SL " + str.tostring(tStop, format.mintick))
         if not na(tagT)
             label.set_x(tagT, bar_index)
 
@@ -560,19 +538,18 @@ if barstate.islast and showPanel and intraday
     string sz = f_size(panelSize)
     if not na(T)
         table.delete(T)
-    T := table.new(pos, 2, xTally ? 11 : 10, border_width = 1, frame_width = 1,
+    T := table.new(pos, 2, xTally ? 10 : 9, border_width = 1, frame_width = 1,
          frame_color = color.new(color.gray, 55), border_color = color.new(color.gray, 80))
 
     color vc = tOpen ? (tSide > 0 ? dUpCol : dDnCol) : dead ? color.gray :
          side > 0 ? dUpCol : side < 0 ? dDnCol : color.gray
-    string vt = tOpen ? (tBeDone ? (tSide > 0 ? "LONG · BE" : "SHORT · BE")
-                                 : (tSide > 0 ? "LONG" : "SHORT")) :
+    string vt = tOpen ? (tSide > 0 ? "LONG" : "SHORT") :
          dead ? "NO TRADE" : waiting ? (side > 0 ? "WATCHING LONG" : "WATCHING SHORT") :
          not called ? "WAITING" : "NO TRADE"
     color bg = color.new(color.black, 25)
     color fg = color.new(color.white, 0)
 
-    f_cell(T, 0, 0, "v1.4", color.new(vc, 55), fg, sz)
+    f_cell(T, 0, 0, "v1.5", color.new(vc, 55), fg, sz)
     f_cell(T, 1, 0, vt,     color.new(vc, 55), fg, sz)
     f_cell(T, 0, 1, tOpen ? why : (why + (lastOut == "" ? "" : "  ·  last: " + lastOut)),
          bg, color.new(fg, 30), sz)
@@ -580,25 +557,22 @@ if barstate.islast and showPanel and intraday
     f_cell(T, 0, 2, "R (9pm box)", bg, fg, sz)
     f_cell(T, 1, 2, na(R) ? "-" : "$" + str.tostring(R, "#.##"), bg,
          useRngF and not na(R) and R >= maxRng ? cStop : fg, sz)
-    f_cell(T, 0, 3, "VWAP", bg, fg, sz)
+    f_cell(T, 0, 3, "VWAP (" + (vwAnc == "Session" ? "session" : "midnight") + ")", bg, fg, sz)
     f_cell(T, 1, 3, na(vw) ? "-" : str.tostring(vw, format.mintick), bg, cVwap, sz)
     f_cell(T, 0, 4, "entry" + (tHow == "" ? "" : " (" + tHow + ")"), bg, fg, sz)
     f_cell(T, 1, 4, na(tEntry) ? "-" : str.tostring(tEntry, format.mintick), bg, fg, sz)
-    f_cell(T, 0, 5, tBeDone ? "stop (break-even)" : "stop", bg, fg, sz)
+    f_cell(T, 0, 5, "stop", bg, fg, sz)
     f_cell(T, 1, 5, na(tStop) ? "-" : str.tostring(tStop, format.mintick), bg, cStop, sz)
-    f_cell(T, 0, 6, tRetgt ? "BE trigger (2.0 edge)" : "2.0 edge", bg, fg, sz)
-    f_cell(T, 1, 6, na(tBE) ? (na(tEntry) ? "-" : "is the target") :
-         str.tostring(tBE, format.mintick), bg, cBE, sz)
-    f_cell(T, 0, 7, "target", bg, fg, sz)
-    f_cell(T, 1, 7, na(tTgt) ? "-" : str.tostring(tTgt, format.mintick), bg, cTgt, sz)
-    f_cell(T, 0, 8, "RR", bg, fg, sz)
-    f_cell(T, 1, 8, na(tRR) ? "-" : str.tostring(tRR, "#.##") + " : 1", bg, fg, sz)
-    f_cell(T, 0, 9, "last result", bg, fg, sz)
-    f_cell(T, 1, 9, na(lastR) ? "-" : (lastR > 0 ? "+" : "") + str.tostring(lastR, "0.00")
+    f_cell(T, 0, 6, "target (2.0 edge)", bg, fg, sz)
+    f_cell(T, 1, 6, na(tTgt) ? "-" : str.tostring(tTgt, format.mintick), bg, cTgt, sz)
+    f_cell(T, 0, 7, "RR", bg, fg, sz)
+    f_cell(T, 1, 7, na(tRR) ? "-" : str.tostring(tRR, "#.##") + " : 1", bg, fg, sz)
+    f_cell(T, 0, 8, "last result", bg, fg, sz)
+    f_cell(T, 1, 8, na(lastR) ? "-" : (lastR > 0 ? "+" : "") + str.tostring(lastR, "0.00")
          + "R", bg, na(lastR) ? fg : lastR > 0 ? xWinCol : lastR < 0 ? xLosCol : xBeCol, sz)
     if xTally
-        f_cell(T, 0, 10, "on this chart", bg, fg, sz)
-        f_cell(T, 1, 10, str.tostring(nWin) + "W / " + str.tostring(nLos) + "L   "
+        f_cell(T, 0, 9, "on this chart", bg, fg, sz)
+        f_cell(T, 1, 9, str.tostring(nWin) + "W / " + str.tostring(nLos) + "L   "
              + (sumR >= 0 ? "+" : "") + str.tostring(sumR, "0.0") + "R", bg,
              sumR >= 0 ? xWinCol : xLosCol, sz)
 
@@ -610,7 +584,6 @@ alertcondition(justCalled and side ==  1 and not skipped, "Direction: UP",   "Di
 alertcondition(justCalled and side == -1 and not skipped, "Direction: DOWN", "Direction call: DOWN")
 alertcondition(justCalled and skipped, "Call skipped", "Call skipped - already in a position")
 alertcondition(justFilled, "Entry filled", "Entry trigger hit - stop and target set")
-alertcondition(tBeDone and not tBeDone[1], "Break-even", "2.0 edge tapped - stop to break-even")
-alertcondition(justWon,  "Trade won",  "Target hit")
+alertcondition(justWon,  "Trade won",  "Target hit at the 2.0 zone edge")
 alertcondition(justLost, "Trade lost", "Stopped out, -1R")
-alertcondition(justBE,   "Trade flat", "Closed at break-even, 0R")
+alertcondition(justBE,   "Trade flat", "Closed flat, 0R")
