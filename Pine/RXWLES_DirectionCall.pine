@@ -2,7 +2,7 @@
 
 //@version=6
 // ============================================================================
-// RXWLES DIRECTION CALL  v1.7
+// RXWLES DIRECTION CALL  v1.8
 //
 // CORRECTION FIRST. Every figure quoted in v1.2 through v1.6 was produced by a
 // backtest that reconstructed the VWAP anchored at midnight New York from
@@ -14,7 +14,7 @@
 //   DIRECTION  04:00 NY, whichever inner zone edge (2.0 R) is closer.
 //   NO TRADE   if a position is still open, if the 2.0 zone already went before
 //              the call, or if the 9pm range is over the limit.
-//   ENTRY      a VWAP tap before 14:00 NY. Three alternatives in the settings.
+//   ENTRY      a VWAP tap before 14:00 NY. Both are fixed, not inputs.
 //   CANCEL     if the box stop level or the 2.0 zone is reached before the fill.
 //   STOP       behind the 9pm box, or a set distance beyond the VWAP.
 //   TARGET     the 2.0 zone edge. Nothing else.
@@ -22,10 +22,14 @@
 //
 // What reversed. The 9pm box was a co-equal entry alongside the VWAP because
 // the broken series said it cost nothing to add. Against the real VWAP it
-// dilutes rather than adds, so the default is now the VWAP tap alone. And the
-// entry cutoff moves from 11:00 to 14:00, which is a clean step rather than a
-// spike - 10:00 through 13:00 all give +32.7 R, 14:00 through 16:00 all give
-// +34.8 R.
+// dilutes rather than adds, so the box entry is gone and the VWAP tap is the
+// only trigger. The entry cutoff moves from 11:00 to 14:00, which is a clean
+// step rather than a spike - 10:00 through 13:00 all give +32.7 R, 14:00
+// through 16:00 all give +34.8 R.
+//
+// Both are hard-coded in v1.8 rather than offered as settings. That is a
+// deliberate narrowing: the alternatives below were all measured and all lost,
+// so the only thing an input would buy is a way to set it wrong.
 //
 // 59 sessions of 15m gold, measured against the chart's own VWAP:
 //
@@ -36,11 +40,13 @@
 //   box touch only               34  18W/16L  52.9%     -  2.44   +0.76  +25.9
 //   close with VWAP behind       42  28W/14L  66.7%  2.90  1.68   +0.63  +26.7
 //
-// The close-with-VWAP-behind entry is the high win rate option and it is worth
-// knowing about: it converts nothing, it adds ten sessions the tap entry
-// misses of which nine win, and it drops three that were losses. It pays for
-// that with a wider stop, $32.23 against $23.30, so the money comes out the
-// same while the hit rate goes up twelve points.
+// The close-with-VWAP-behind entry is the one genuine alternative and it is
+// worth knowing about even though it is not in here: it converts nothing, it
+// adds ten sessions the tap entry misses of which nine win, and it drops three
+// that were losses. It pays for that with a wider stop, $32.23 against $23.30,
+// so the money comes out the same while the hit rate goes up twelve points. If
+// you ever want it, it is one line - enter at the close of the first bar that
+// closes with the VWAP behind price, instead of on the tap.
 //
 // Stops, same 59 sessions:
 //
@@ -73,6 +79,13 @@ indicator("RXWLES Direction Call", "DirCall", overlay = true,
 
 const string TZ = "America/New_York"
 
+// Hard-coded, not inputs. These two are the version: a VWAP tap, before 14:00
+// New York. Measured 18W/13L, PF 3.68, +34.8 R over 59 sessions of 15m gold,
+// against 19W/16L and PF 2.68 for the box-inclusive entry it replaced. The
+// cutoff is a step and not a spike - 10:00 to 13:00 all give +32.7 R and
+// 14:00 to 16:00 all give +34.8 R.
+const int cutHour = 14
+
 //=============================================================================
 // METHOD
 //=============================================================================
@@ -81,8 +94,6 @@ srcHour  = input.int(21, "Source candle hour (NY)", minval = 0, maxval = 23, gro
      tooltip = "Must match RXWLES PRO's Enigma Source Hour.")
 readHour = input.int(4,  "Direction read hour (NY)", minval = 0, maxval = 23, group = "Method")
 lvl1     = input.float(2.0, "Inner zone edge (R)", step = 0.05, group = "Method")
-cutHour  = input.int(14, "Entry cutoff (NY hour)", minval = 0, maxval = 23, group = "Method",
-     tooltip = "No entries after this hour. Every trigger is intrabar, not on close.")
 
 vwAnc    = input.string("Session", "VWAP anchor", group = "Method",
      options = ["Session", "Midnight NY (lane open)"],
@@ -94,14 +105,6 @@ vwSrc    = input.source(high, "VWAP source", group = "Method",
              + "High is what yours uses. On 59 sessions of 15m gold, high fills "
              + "23W/12L +0.91 R against hlc3's 22W/12L +0.86 R - a high-sourced "
              + "VWAP sits above the hlc3 one, so long pullbacks reach it sooner.")
-
-entMode  = input.string("VWAP tap", "Entry trigger", group = "Entry triggers",
-     options = ["VWAP tap", "Box touch", "First of either", "Close with VWAP behind"],
-     tooltip = "Measured on 59 sessions of 15m gold against the chart's own VWAP. "
-             + "VWAP tap 17W/14L, PF 3.68, +34.8 R. First of either 19W/16L, "
-             + "PF 2.68, +26.9 R - the box entry dilutes the VWAP one rather than "
-             + "adding to it. Close with VWAP behind is the high win rate option: "
-             + "28W/14L and 66.7%, but a lower 2.90 PF and +26.7 R.")
 
 stopMode = input.string("Behind the 9pm box", "Stop placement", group = "Stop & target",
      options = ["Behind the 9pm box", "Beyond the VWAP"],
@@ -426,8 +429,8 @@ if inLane and not dead and not called and hour(time, TZ) >= readHour
         why  := "the 2.0 zone had already gone before the call - no trade"
     else
         waiting := true
-        why     := "called - waiting for " + str.lower(entMode)
-             + " before " + str.format("{0,number,00}:00", cutHour)
+        why     := "called - waiting for a VWAP tap before "
+             + str.format("{0,number,00}:00", cutHour)
 
 //=============================================================================
 // WAITING FOR THE TAP
@@ -451,33 +454,12 @@ if inLane and waiting and not dead
         dead    := true
         why     := "no entry trigger before the cutoff - no trade"
     else
-        // Two co-equal triggers. Whichever price reaches first takes the trade;
-        // when both sit inside one bar, the one nearer that bar's open wins,
-        // because that is the one price would have run into first.
+        // The one trigger. A tap of the VWAP, intrabar, not on the close.
         float ent = na
         string how = ""
-        if entMode == "Close with VWAP behind"
-            // no tap - wait for a bar to close on the right side of the VWAP
-            if not na(vw) and ((side > 0 and close > vw) or (side < 0 and close < vw))
-                ent := close
-                how := "VWAP behind"
-        else
-            float vHit = na
-            float bHit = na
-            if entMode != "Box touch" and not na(vw) and low <= vw and vw <= high
-                vHit := vw
-            if entMode != "VWAP tap" and low <= boxHi and high >= boxLo
-                bHit := open > boxHi ? boxHi : open < boxLo ? boxLo : open
-            if not na(vHit) and not na(bHit)
-                bool vFirst = math.abs(vHit - open) <= math.abs(bHit - open)
-                ent := vFirst ? vHit : bHit
-                how := vFirst ? "VWAP" : "box edge"
-            else if not na(vHit)
-                ent := vHit
-                how := "VWAP"
-            else if not na(bHit)
-                ent := bHit
-                how := bHit == open ? "inside the box" : "box edge"
+        if not na(vw) and low <= vw and vw <= high
+            ent := vw
+            how := "VWAP"
 
         if not na(ent)
             // The box level always decides whether the setup is still alive
@@ -630,7 +612,7 @@ if barstate.islast and showPanel and intraday
     color bg = color.new(color.black, 25)
     color fg = color.new(color.white, 0)
 
-    f_cell(T, 0, 0, "v1.7", color.new(vc, 55), fg, sz)
+    f_cell(T, 0, 0, "v1.8", color.new(vc, 55), fg, sz)
     f_cell(T, 1, 0, vt,     color.new(vc, 55), fg, sz)
     f_cell(T, 0, 1, tOpen ? why : (why + (lastOut == "" ? "" : "  ·  last: " + lastOut)),
          bg, color.new(fg, 30), sz)
