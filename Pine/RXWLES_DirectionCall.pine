@@ -2,7 +2,7 @@
 
 //@version=6
 // ============================================================================
-// RXWLES DIRECTION CALL  v1.9
+// RXWLES DIRECTION CALL  v2.0
 //
 // CORRECTION FIRST. Every figure quoted in v1.2 through v1.6 was produced by a
 // backtest that reconstructed the VWAP anchored at midnight New York from
@@ -17,7 +17,7 @@
 //   STOP LEVEL the 9pm box edge plus a $1.00 buffer.
 //   ENTRY      a VWAP tap before 14:00 NY. Both are fixed, not inputs.
 //   CANCEL     if the box stop level or the zone is reached before the fill.
-//   TARGET     the far edge of the zone, 2.5 R. Nothing else.
+//   TARGET     just inside the far edge of the zone - 2.5 R less 0.05.
 //   EXIT       target or stop. No time exit, no break-even.
 //
 // What reversed. The 9pm box was a co-equal entry alongside the VWAP because
@@ -100,6 +100,33 @@
 // (shorts 60% and +21.6 R, longs 42.9% and +10.2 R - but both make money and
 // 14 longs decide nothing).
 //
+// v2.0 ADDS ONE THING: the take profit rests a twentieth of a box inside the
+// far edge rather than on it. The argument is execution, not statistics - an
+// order sitting on the exact edge of a level every other chart draws is at the
+// back of that queue.
+//
+//   target                          n    W/L    win%   PF    totR
+//   on the 2.50 edge (v1.9)        32  18W/14L  56.2%  4.18  +44.5
+//   0.05 R inside it (v2.0)        32  19W/13L  59.4%  4.57  +46.5
+//
+// 2026-08-18 is the case that prompted it. Price came within 8 cents of the
+// untouched edge, turned, and stopped out for -1.00 R. Worse, the position was
+// still open at the next morning's call, so the one-position lock skipped a
+// session that went on to run. A 0.05 R pull-in banks that trade at 21:00 the
+// same evening and hands the next day back. One change, both problems.
+//
+// Softening the lock directly was tried and does not work: unlimited positions
+// gives +42.3 R, letting a second through once the open one clears +0.5 R
+// gives +43.5 R, and every threshold at +1.0 R or above never triggers. The
+// blockage is worth fixing at its cause, not by loosening the rule that caught
+// it.
+//
+// Anything from 0.02 to 0.25 R rescues the same trade - the W/L is 19W/13L
+// across that whole band - so the size is not fitted, only the amount of the
+// other winners you hand back. Split: first half +21.1 R against +21.6, second
+// half +25.4 R against +22.9. It costs a little on every winner and rescues
+// one loss, and the rescue happened in the second half.
+//
 // 32 trades. The range filter rests on 7 observations. XAUUSD only, costs are
 // still not modelled, and the split-sample check is two halves of one quarter.
 // ============================================================================
@@ -133,7 +160,18 @@ lvl1     = input.float(2.5, "Zone edge used as the target (R)", step = 0.05,
              + "2.0's 18W/13L, PF 3.68, +34.8 R, and it holds in both halves of "
              + "the sample. Past 2.5 it falls away - 2.75 drops to +35.1 R, "
              + "because that is asking price to leave the zone rather than reach it.")
-
+tgtPull  = input.float(0.05, "    take profit this far inside the edge (R)", step = 0.01,
+     minval = 0.0, maxval = 1.0, group = "Method",
+     tooltip = "Do not rest the order on the exact edge of a level every other "
+             + "chart draws. You are at the back of that queue. Pulling it a "
+             + "twentieth of a box inside - $1.60 on a $32 box, about 16 pips - "
+             + "takes 18W/14L and PF 4.18 to 19W/13L and PF 4.57. On 2026-08-18 "
+             + "the low came within 8 cents of the untouched edge, reversed and "
+             + "stopped out for -1.00 R; a 0.05 R pull-in banks it at 21:00 the "
+             + "same evening, which also frees the next day's call that the "
+             + "one-position lock would otherwise have skipped. Anything from "
+             + "0.02 to 0.25 R rescues the same trade - past that you are just "
+             + "paying more of the winners away.")
 vwAnc    = input.string("Session", "VWAP anchor", group = "Method",
      options = ["Session", "Midnight NY (lane open)"],
      tooltip = "Session is what TradingView's own VWAP indicator uses - pick this "
@@ -387,8 +425,11 @@ if newSrc and (srcHigh - srcLow) > 0
     boxHi   := srcHigh
     boxLo   := srcLow
     R       := srcHigh - srcLow
-    upEdge  := srcHigh + lvl1 * R
-    dnEdge  := srcLow  - lvl1 * R
+    // The order rests just inside the edge, so the drawn level and the level
+    // actually worked are not the same thing.
+    float tgtLvl = math.max(lvl1 - tgtPull, 0.1)
+    upEdge  := srcHigh + tgtLvl * R
+    dnEdge  := srcLow  - tgtLvl * R
     called  := false
     waiting := false
     dead    := false
@@ -666,7 +707,7 @@ if barstate.islast and showPanel and intraday
     color bg = color.new(color.black, 25)
     color fg = color.new(color.white, 0)
 
-    f_cell(T, 0, 0, "v1.9", color.new(vc, 55), fg, sz)
+    f_cell(T, 0, 0, "v2.0", color.new(vc, 55), fg, sz)
     f_cell(T, 1, 0, vt,     color.new(vc, 55), fg, sz)
     f_cell(T, 0, 1, tOpen ? why : (why + (lastOut == "" ? "" : "  ·  last: " + lastOut)),
          bg, color.new(fg, 30), sz)
@@ -681,7 +722,9 @@ if barstate.islast and showPanel and intraday
     f_cell(T, 0, 5, tBeDone ? "stop (at break-even)"
          : (stopMode == "Beyond the VWAP" ? "stop (VWAP)" : "stop (box)"), bg, fg, sz)
     f_cell(T, 1, 5, na(tStop) ? "-" : str.tostring(tStop, format.mintick), bg, cStop, sz)
-    f_cell(T, 0, 6, "target (" + str.tostring(lvl1, "#.##") + " edge)", bg, fg, sz)
+    f_cell(T, 0, 6, "target (" + str.tostring(lvl1 - tgtPull, "#.##") + " R"
+         + (tgtPull > 0 ? ", inside the " + str.tostring(lvl1, "#.##") + " edge" : "")
+         + ")", bg, fg, sz)
     f_cell(T, 1, 6, na(tTgt) ? "-" : str.tostring(tTgt, format.mintick), bg, cTgt, sz)
     f_cell(T, 0, 7, "RR", bg, fg, sz)
     f_cell(T, 1, 7, na(tRR) ? "-" : str.tostring(tRR, "#.##") + " : 1", bg, fg, sz)
