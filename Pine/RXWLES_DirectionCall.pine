@@ -14,7 +14,7 @@
 //   DIRECTION  04:00 NY, whichever zone is closer.
 //   NO TRADE   if a position is still open, if the 2.0 zone already went before
 //              the call, or if the 9pm range is over the limit.
-//   STOP LEVEL the 9pm box edge plus a $0.50 buffer.
+//   STOP LEVEL the 9pm box edge plus a $1.00 buffer.
 //   ENTRY      a VWAP tap before 14:00 NY. Both are fixed, not inputs.
 //   CANCEL     if the box stop level or the zone is reached before the fill.
 //   TARGET     the far edge of the zone, 2.5 R. Nothing else.
@@ -70,27 +70,29 @@
 // out. The backtest assumed the worse case for tap entries. It barely matters
 // at a $23 stop and matters a lot at a $3 one.
 //
-// TWO CHANGES IN v1.9, both of which hold in each half of the sample - the
-// only out-of-sample test this data allows.
-//
-//   target the far edge of the zone, 2.5 R, not the near one at 2.0
-//   drop the stop buffer from $1.00 to $0.50
+// ONE CHANGE IN v1.9: the target moves from the near edge of the zone to the
+// far one, 2.0 R to 2.5 R. It is the only change here because it is the only
+// one with a mechanism behind it rather than a number.
 //
 //   config                          n    W/L    win%   PF    avgR    totR
-//   v1.8: 2.0 edge, $1.00 buffer   31  18W/13L  58.1%  3.68  +1.12  +34.8
-//   2.5 edge, $1.00 buffer         32  18W/14L  56.2%  4.18  +1.39  +44.5
-//   2.5 edge, $0.50 buffer         32  18W/14L  56.2%  4.29  +1.44  +46.1
-//   2.5 edge, $0.00 buffer         32  18W/14L  56.2%  4.42  +1.49  +47.8
+//   v1.8: 2.0 edge                 31  18W/13L  58.1%  3.68  +1.12  +34.8
+//   v1.9: 2.5 edge                 32  18W/14L  56.2%  4.18  +1.39  +44.5
 //
 //   split           2.0 edge    2.5 edge
 //   first half       +16.5 R     +21.6 R    (8W/6L either way)
 //   second half      +18.3 R     +22.9 R
 //
-// Max drawdown stays at 3.0 R throughout. The buffer never saved a trade at
-// any width - the record is 18W/14L from $0.00 to $3.00 - so every cent of it
-// was pure cost. $0.00 measures best and $0.50 ships, because a stop sitting
-// exactly on a level everyone can see gets taken by the spread and the data
-// cannot see spread.
+// Max drawdown stays at 3.0 R. It holds in both halves independently, and it
+// peaks at exactly the far edge and falls away past it - 2.75 drops to +35.1 R
+// - which is what you would expect if the zone is a real destination rather
+// than a fitted number.
+//
+// The stop buffer was measured in the same pass and left alone. It costs money
+// on paper - the record is 18W/14L at every width from $0.00 to $3.00 while
+// the total falls +47.8 R to +30.2 R - but the reason is that no winning trade
+// ever came within $2.54 of the box edge, so the wick-and-recover event a
+// buffer exists for never once arose. That makes it untested, not useless, and
+// $1.00 stays until a bigger sample can rule on it.
 //
 // Tried in the same pass and rejected: delaying the entry past the call bar
 // (every delay loses), a minimum RR to enter (raises PF to 4.22, cuts total R
@@ -149,15 +151,17 @@ stopMode = input.string("Behind the 9pm box", "Stop placement", group = "Stop & 
              + "2.68, max drawdown 4.0 R. The VWAP stop at 60 pips reaches a "
              + "similar +28.4 R on a third of the dollar risk, but on an 11W/25L "
              + "record - a 30.6% win rate, a 6.5 R drawdown and a six-loss streak.")
-bufD     = input.float(0.50, "    box stop: buffer beyond the box ($)", step = 0.10,
+bufD     = input.float(1.00, "    box stop: buffer beyond the box ($)", step = 0.10,
      minval = 0.0, group = "Stop & target",
      tooltip = "The buffer costs money and never once saved a trade. Across 59 "
              + "sessions the record is 18W/14L at every buffer from $0.00 to "
              + "$3.00 - identical - while the total falls from +47.8 R to +30.2 R "
              + "as the stop widens. $0.00 measures best and holds in both halves. "
-             + "It defaults to $0.50 anyway, because a stop resting exactly on a "
-             + "level everyone can see gets taken by the spread, and the data "
-             + "cannot see spread. That insurance costs 1.7 R over 32 trades.")
+             + "But no winning trade ever came closer than $2.54 to the box edge, "
+             + "so the situation a buffer exists for simply never arose - that is "
+             + "an untested rule, not a proven-useless one. Left at $1.00 until a "
+             + "bigger sample can actually test it. $0.50 is +1.4 R and $0.00 is "
+             + "+3.0 R if you want them.")
 stopPips = input.int(80, "    VWAP stop: pips beyond the VWAP", minval = 1,
      group = "Stop & target")
 pipSize  = input.float(0.10, "    what one pip is worth ($)", step = 0.01, minval = 0.0001,
