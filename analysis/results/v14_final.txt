@@ -1,0 +1,62 @@
+==============================================================================================
+  v2.1 - every knob swept against the full rule set
+==============================================================================================
+    v2.1 as shipped               34  20W 14L   58.8%  PF  4.72  avgR +1.38  totR  +47.1  DD  2.8
+
+  call hour:
+      3                           37  18W 19L   48.6%  PF  2.86  avgR +0.90  totR  +33.1  DD  6.0
+      4                           34  20W 14L   58.8%  PF  4.72  avgR +1.38  totR  +47.1  DD  2.8
+      5                           33  18W 15L   54.5%  PF  3.20  avgR +0.94  totR  +31.0  DD  3.0
+      6                           30  16W 14L   53.3%  PF  3.10  avgR +0.92  totR  +27.6  DD  4.0
+
+  entry cutoff:
+      10                          33  19W 14L   57.6%  PF  4.30  avgR +1.35  totR  +44.7  DD  2.8
+      11                          34  19W 15L   55.9%  PF  4.24  avgR +1.31  totR  +44.5  DD  2.8
+      12                          34  19W 15L   55.9%  PF  4.24  avgR +1.31  totR  +44.5  DD  2.8
+      14                          34  20W 14L   58.8%  PF  4.72  avgR +1.38  totR  +47.1  DD  2.8
+      16                          34  20W 14L   58.8%  PF  4.72  avgR +1.38  totR  +47.1  DD  2.8
+
+  zone edge:
+      2.0                         33  19W 14L   57.6%  PF  3.72  avgR +1.04  totR  +34.4  DD  2.8
+      2.25                        34  20W 14L   58.8%  PF  4.28  avgR +1.22  totR  +41.4  DD  2.8
+      2.4                         34  20W 14L   58.8%  PF  4.54  avgR +1.32  totR  +44.8  DD  2.8
+      2.5                         34  20W 14L   58.8%  PF  4.72  avgR +1.38  totR  +47.1  DD  2.8
+      2.6                         34  19W 15L   55.9%  PF  4.38  avgR +1.36  totR  +46.1  DD  2.8
+      2.75                        34  17W 17L   50.0%  PF  3.54  avgR +1.13  totR  +38.4  DD  3.2
+
+  target pull-in (R):
+      0.0                         34  19W 15L   55.9%  PF  4.30  avgR +1.32  totR  +45.0  DD  2.8
+      0.02                        34  20W 14L   58.8%  PF  4.78  avgR +1.40  totR  +47.7  DD  2.8
+      0.05                        34  20W 14L   58.8%  PF  4.72  avgR +1.38  totR  +47.1  DD  2.8
+      0.1                         34  20W 14L   58.8%  PF  4.63  avgR +1.35  totR  +45.9  DD  2.8
+      0.2                         34  20W 14L   58.8%  PF  4.46  avgR +1.29  totR  +43.7  DD  2.8
+
+  stop buffer ($):
+      0.0                         33  19W 14L   57.6%  PF  4.96  avgR +1.52  totR  +50.2  DD  3.0
+      0.25                        33  19W 14L   57.6%  PF  4.89  avgR +1.49  totR  +49.3  DD  3.0
+      0.5                         34  20W 14L   58.8%  PF  4.85  avgR +1.43  totR  +48.7  DD  2.8
+      1.0                         34  20W 14L   58.8%  PF  4.72  avgR +1.38  totR  +47.1  DD  2.8
+      2.0                         34  20W 14L   58.8%  PF  4.49  avgR +1.30  totR  +44.1  DD  2.8
+
+  range filter ($):
+      None                        38  20W 18L   52.6%  PF  3.54  avgR +1.07  totR  +40.5  DD  3.8
+      35.0                        33  19W 14L   57.6%  PF  4.37  avgR +1.29  totR  +42.6  DD  2.8
+      40.0                        34  20W 14L   58.8%  PF  4.72  avgR +1.38  totR  +47.1  DD  2.8
+      45.0                        35  20W 15L   57.1%  PF  4.61  avgR +1.34  totR  +46.8  DD  2.8
+      50.0                        36  20W 16L   55.6%  PF  4.05  avgR +1.18  totR  +42.5  DD  3.8
+
+  cut-below threshold (R):
+      0.0                         33  19W 14L   57.6%  PF  4.70  avgR +1.42  totR  +46.8  DD  3.0
+      0.25                        34  20W 14L   58.8%  PF  4.72  avgR +1.38  totR  +47.1  DD  2.8
+      0.5                         34  20W 14L   58.8%  PF  4.72  avgR +1.38  totR  +47.1  DD  2.8
+      1.0                         35  20W 15L   57.1%  PF  4.05  avgR +1.19  totR  +41.6  DD  3.0
+
+  break-even at % of target:
+      None                        34  20W 14L   58.8%  PF  4.72  avgR +1.38  totR  +47.1  DD  2.8
+      0.4                         34  16W 11L   47.1%  PF  5.19  avgR +1.25  totR  +42.3  DD  2.0
+      0.5                         34  16W 11L   47.1%  PF  5.19  avgR +1.25  totR  +42.3  DD  2.0
+      0.75                        34  19W 14L   55.9%  PF  4.57  avgR +1.33  totR  +45.2  DD  2.8
+
+  switches:
+      lock off                    37  20W 17L   54.1%  PF  4.03  avgR +1.21  totR  +44.9  DD  2.8
+      opposing cut off            32  19W 13L   59.4%  PF  4.57  avgR +1.45  totR  +46.5  DD  3.0

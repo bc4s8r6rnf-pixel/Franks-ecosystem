@@ -2,7 +2,7 @@
 
 //@version=6
 // ============================================================================
-// RXWLES DIRECTION CALL  v2.1
+// RXWLES DIRECTION CALL  v2.2
 //
 // CORRECTION FIRST. Every figure quoted in v1.2 through v1.6 was produced by a
 // backtest that reconstructed the VWAP anchored at midnight New York from
@@ -150,6 +150,31 @@
 // tests - defer until close, unlimited positions, cut every opposing call -
 // all came back worse.
 //
+// v2.2 IS A FULL RE-SWEEP, every knob moved one at a time against the finished
+// rule set rather than against whatever the rule set looked like when that knob
+// was first tested. Everything held at its existing value except the stop
+// buffer, which moves $1.00 -> $0.50.
+//
+//   knob            values tried                       best      kept
+//   call hour       3 / 4 / 5 / 6                      4         4
+//   entry cutoff    10 / 11 / 12 / 14 / 16             14 = 16   14
+//   zone edge       2.0 / 2.25 / 2.4 / 2.5 / 2.6/2.75  2.5       2.5
+//   target pull-in  0 / .02 / .05 / .10 / .20          0.02      0.05
+//   stop buffer     0 / .25 / .50 / 1.00 / 2.00        0.00      0.50
+//   range filter    off / 35 / 40 / 45 / 50            40        40
+//   cut-below       0 / .25 / .50 / 1.00               .25 = .50 0.25
+//   break-even      off / 40% / 50% / 75%              off       off
+//   lock            on / off                           on        on
+//   opposing cut    on / off                           on        on
+//
+// Two places where the measured optimum was not taken, both for the same
+// reason - a backtest cannot see the spread. The 0.02 R pull-in is 64 cents on
+// a $32 box, inside the spread on gold, so 0.05 stays. And the $0.00 buffer
+// scores +50.2 R but drops a winner and lifts the drawdown to 3.0 R, where
+// $0.50 keeps 20W/14L at 2.8 R.
+//
+//   FINAL: 34 trades  20W/14L  58.8%  PF 4.85  +1.43 R avg  +48.7 R  DD 2.8 R
+//
 // 34 trades. The range filter rests on 7 observations. XAUUSD only, costs are
 // still not modelled, and the split-sample check is two halves of one quarter.
 // ============================================================================
@@ -212,17 +237,20 @@ stopMode = input.string("Behind the 9pm box", "Stop placement", group = "Stop & 
              + "2.68, max drawdown 4.0 R. The VWAP stop at 60 pips reaches a "
              + "similar +28.4 R on a third of the dollar risk, but on an 11W/25L "
              + "record - a 30.6% win rate, a 6.5 R drawdown and a six-loss streak.")
-bufD     = input.float(1.00, "    box stop: buffer beyond the box ($)", step = 0.10,
+bufD     = input.float(0.50, "    box stop: buffer beyond the box ($)", step = 0.10,
      minval = 0.0, group = "Stop & target",
      tooltip = "The buffer costs money and never once saved a trade. Across 59 "
              + "sessions the record is 18W/14L at every buffer from $0.00 to "
              + "$3.00 - identical - while the total falls from +47.8 R to +30.2 R "
              + "as the stop widens. $0.00 measures best and holds in both halves. "
-             + "But no winning trade ever came closer than $2.54 to the box edge, "
-             + "so the situation a buffer exists for simply never arose - that is "
-             + "an untested rule, not a proven-useless one. Left at $1.00 until a "
-             + "bigger sample can actually test it. $0.50 is +1.4 R and $0.00 is "
-             + "+3.0 R if you want them.")
+             + "Re-swept against the full v2.2 rule set: $2.00 gives +44.1 R, "
+             + "$1.00 +47.1, $0.50 +48.7, $0.25 +49.3 and $0.00 +50.2. But the "
+             + "two tightest drop a winner and push the drawdown from 2.8 R to "
+             + "3.0, so $0.50 is the pick - it keeps 20W/14L and the lower "
+             + "drawdown while banking most of the gain. It also leaves a little "
+             + "cushion against the spread taking a stop that rests exactly on a "
+             + "level everyone can see, which no backtest can measure. $0.00 is "
+             + "worth +1.5 R more if you disagree.")
 stopPips = input.int(80, "    VWAP stop: pips beyond the VWAP", minval = 1,
      group = "Stop & target")
 pipSize  = input.float(0.10, "    what one pip is worth ($)", step = 0.01, minval = 0.0001,
@@ -765,7 +793,7 @@ if barstate.islast and showPanel and intraday
     color bg = color.new(color.black, 25)
     color fg = color.new(color.white, 0)
 
-    f_cell(T, 0, 0, "v2.1", color.new(vc, 55), fg, sz)
+    f_cell(T, 0, 0, "v2.2", color.new(vc, 55), fg, sz)
     f_cell(T, 1, 0, vt,     color.new(vc, 55), fg, sz)
     f_cell(T, 0, 1, tOpen ? why : (why + (lastOut == "" ? "" : "  ·  last: " + lastOut)),
          bg, color.new(fg, 30), sz)
