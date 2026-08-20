@@ -1,0 +1,32 @@
+======================================================================================================================
+  FIB 0.618 ENTRY -> -0.27 TARGET   |   2818 sessions 2015-2026
+======================================================================================================================
+  break-even at 2.32:1 requires 1/(1+2.32) = 30.1% wins
+
+    asia    08:00-09:45 window  1212   357W   855L   29.5% PF  0.97 RR  2.32 risk $  3.18 avgR -0.02 totR    -26.3 DD  42.9
+    asia    only :00/:30 candles  1063   310W   753L   29.2% PF  0.96 RR  2.32 risk $  3.25 avgR -0.03 totR    -33.5 DD  56.9
+    london  08:00-09:45 window  1640   455W  1185L   27.7% PF  0.89 RR  2.32 risk $  3.36 avgR -0.08 totR   -127.3 DD 154.7
+    london  only :00/:30 candles  1455   399W  1056L   27.4% PF  0.88 RR  2.32 risk $  3.37 avgR -0.09 totR   -128.5 DD 147.7
+    both    08:00-09:45 window  1424   429W   995L   30.1% PF  1.00 RR  2.32 risk $  4.57 avgR -0.00 totR     -2.5 DD  76.0
+    both    only :00/:30 candles  1257   380W   877L   30.2% PF  1.00 RR  2.32 risk $  4.55 avgR -0.00 totR     -0.4 DD  72.1
+
+  combined range, year by year:
+
+    2015   139 trades   51W  88L   36.7%  PF  1.36  totR   +31.5
+    2016   132 trades   37W  95L   28.0%  PF  0.91  totR    -9.0
+    2017   121 trades   37W  84L   30.6%  PF  1.00  totR    +0.0
+    2018   114 trades   43W  71L   37.7%  PF  1.41  totR   +29.0
+    2019   137 trades   37W 100L   27.0%  PF  0.86  totR   -14.0
+    2020   130 trades   43W  87L   33.1%  PF  1.13  totR   +11.2
+    2021   137 trades   36W 101L   26.3%  PF  0.82  totR   -17.8
+    2022   126 trades   36W  90L   28.6%  PF  0.93  totR    -6.3
+    2023   147 trades   43W 104L   29.3%  PF  0.96  totR    -4.0
+    2024   133 trades   34W  99L   25.6%  PF  0.80  totR   -20.0
+    2025   101 trades   29W  72L   28.7%  PF  0.92  totR    -6.0
+    2026     7 trades    3W   4L   42.9%  PF  1.74  totR    +3.0
+
+  why sessions produce no trade:
+
+    filled                    1424   50.5%
+    0.618 never touched       1393   49.4%
+    no window                    1    0.0%
