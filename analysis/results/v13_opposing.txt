@@ -1,0 +1,17 @@
+================================================================================================
+  NEVER SKIP A DAY - the opposing call as an exit
+================================================================================================
+
+    skip the call (v2.0)              32  19W/13L   59.4%  PF  4.57  avgR +1.45  totR  +46.5  DD  3.0
+    opposing flips, agreeing stacks   37  20W/17L   54.1%  PF  3.72  avgR +1.09  totR  +40.4  DD  3.0
+    opposing flips, agreeing skipped  35  20W/15L   57.1%  PF  4.05  avgR +1.19  totR  +41.6  DD  3.0
+    opposing just closes, no new trade  35  20W/15L   57.1%  PF  4.05  avgR +1.19  totR  +41.6  DD  3.0
+
+  the trades closed early by an opposing call (flip_one):
+
+    2026-06-03  closed at the call for +0.24 R (target was 2.92:1)
+    2026-06-15  closed at the call for -0.09 R (target was 1.65:1)
+    2026-07-28  closed at the call for +0.74 R (target was 5.23:1)
+    2026-08-06  closed at the call for -0.55 R (target was 2.41:1)
+
+    4 trades cut short, +0.3 R between them
