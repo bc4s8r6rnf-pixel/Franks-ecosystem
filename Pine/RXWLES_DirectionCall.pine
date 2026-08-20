@@ -241,7 +241,7 @@ if newSrc and (srcHigh - srcLow) > 0
     tgtPx    := na
     beLvl    := na
     rrHave   := na
-    why      := useRngF and R >= maxRng
+    why      := (useRngF and R >= maxRng)
          ? "range $" + str.tostring(R, "#.##") + " over the $"
            + str.tostring(maxRng, "#") + " limit - no trade"
          : "waiting for " + str.format("{0,number,00}:00", readHour) + " NY"
