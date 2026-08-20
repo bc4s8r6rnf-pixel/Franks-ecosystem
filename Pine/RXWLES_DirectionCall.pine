@@ -2,40 +2,37 @@
 
 //@version=6
 // ============================================================================
-// RXWLES DIRECTION CALL  v1.2
+// RXWLES DIRECTION CALL  v1.3
 //
-// Every trade carries at least 2:1. If the 2.0 zone edge sits closer than that
-// from the entry, the edge becomes a break-even trigger instead of the target,
-// and the target moves out to the 2:1 level.
+// The trade now outlives the session. It runs to its target or its stop rather
+// than being flattened at midnight, and while it is open the next day's call is
+// skipped - because you can only hold one position at a time.
 //
-//   DIRECTION  04:00 NY, whichever inner zone edge (2.0 R) is closer. Drawn
-//              immediately; the trade waits.
-//   NO TRADE   if that 2.0 zone was already reached before the call.
+//   DIRECTION  04:00 NY, whichever inner zone edge (2.0 R) is closer.
+//   NO TRADE   if a position is still open, if the 2.0 zone already went before
+//              the call, or if the 9pm range is over the limit.
 //   ENTRY      a tap of VWAP before 11:00 NY. Tap, not bar close.
-//   CANCEL     if the stop level is reached before the tap.
-//   CANCEL     if the 2.0 zone is reached before the tap.
+//   CANCEL     if the stop level or the 2.0 zone is reached before the tap.
 //   STOP       behind the 9pm box plus a buffer.
-//   TARGET     the 2.0 zone edge when it is 2:1 or better. Otherwise the 2:1
+//   TARGET     the 2.0 zone edge when it is 2:1 or better; otherwise the 2:1
 //              level, with break-even armed at the 2.0 edge.
-//   FILTER     skip the day when the 9pm range is too large - those sessions
-//              went 1W/6L.
-//   EXIT       flat at the lane close.
+//   EXIT       target or stop. No time exit.
 //
-// Measured on 59 sessions of 15m gold:
+// On 59 sessions of 15m gold, each change measured on top of the last:
 //
-//   45 trades, 22W / 21L, 48.9%, +0.42 R per trade, avg RR 2.66, risk $32.67
-//   with the $40 range filter: 38 trades, 21W / 15L, +0.58 R, +22.2 R total
+//   flat at midnight (v1.2)              45 trades  22W/21L  +0.42 R  +19.0
+//   hold to target or stop               45 trades  20W/21L  +0.55 R  +24.7
+//   ... and skip the call while open     35 trades  17W/15L  +0.65 R  +22.8
+//   ... and the $40 range filter         28 trades  15W/10L  +0.85 R  +23.8
 //
-// VWAP was tapped on 58 of 59 sessions, so the entry trigger is not what
-// filters - the two cancel rules are, and they remove 13 sessions.
+// The time exit was costing money at every level tested - 16:55 was worse than
+// midnight, and no exit at all is better than either. The one-position lock
+// takes losses from 21 down to 10 and lifts the win rate to 53.6%, at the cost
+// of 15 skipped sessions. Total R is slightly higher without it, but only if
+// you can genuinely hold two positions at once; if you cannot, that version is
+// not tradeable and this one is.
 //
-// Two things tested and rejected: fading the day after a big expansion, which
-// returns -0.82 R against +0.84 R for following it, and skipping sub-2:1
-// setups rather than retargeting them, +12.1 R over 19 trades against +19.0 R
-// over 45.
-//
-// 45 trades is a small sample and the range buckets hold single figures each.
-// XAUUSD only - NAS100 never reproduced the direction edge.
+// 28 trades. The range filter rests on 7 observations. XAUUSD only.
 // ============================================================================
 
 indicator("RXWLES Direction Call", "DirCall", overlay = true,
@@ -59,13 +56,19 @@ minRR    = input.float(2.0, "Minimum RR - every trade carries this", step = 0.25
      tooltip = "When the 2.0 zone edge is nearer than this, the edge becomes the "
              + "break-even trigger and the target moves out to this RR.")
 bufD     = input.float(1.0, "Stop buffer beyond the 9pm box ($)", step = 0.10, minval = 0.0,
-     group = "Stop & target",
-     tooltip = "1 pip on gold = $0.10. Tested flat from 0 to $12, so keep it small.")
+     group = "Stop & target")
 useBE    = input.bool(true, "Break-even at the 2.0 edge when retargeting", group = "Stop & target")
+maxDays  = input.int(5, "Give up on an unresolved trade after (days)", minval = 1, maxval = 20,
+     group = "Stop & target",
+     tooltip = "A safety valve, not a strategy rule. Only one trade in the sample "
+             + "ever reached it.")
 
+lockOne  = input.bool(true, "One position at a time - skip the call while open",
+     group = "Filters",
+     tooltip = "Takes losses from 21 to 15 and the win rate from 44.4% to 48.6%, "
+             + "skipping 15 sessions. Turn off only if you can genuinely hold two.")
 useRngF  = input.bool(true, "Skip days with an oversized 9pm range", group = "Filters",
-     tooltip = "Sessions with a range at or above the limit went 1W/6L for -3.3 R. "
-             + "Removing them took the sample from +19.0 R to +22.2 R.")
+     tooltip = "Sessions at or above the limit went 1W/6L.")
 maxRng   = input.float(40.0, "    range limit ($)", step = 1.0, minval = 1.0, group = "Filters")
 
 //=============================================================================
@@ -92,7 +95,6 @@ f_shape(string s, int dir) =>
      s == "Emoji"                ? label.style_none :
      (dir > 0 ? label.style_triangleup : label.style_triangledown)
 
-// ---- direction marker (fires at the 04:00 call) ---------------------------
 dShow  = input.bool(true, "Show direction marker", group = "Direction marker")
 dShape = input.string("Triangle (auto)", "Shape", group = "Direction marker",
      options = ["Triangle (auto)", "Arrow (auto)", "Speech bubble (auto)", "Circle", "Square",
@@ -106,8 +108,10 @@ dDnCol = input.color(#ef5350, "Down", inline = "dc", group = "Direction marker")
 dTrans = input.int(35, "Transparency", minval = 0, maxval = 100, group = "Direction marker")
 dOff   = input.float(0.20, "Offset from the candle (R)", step = 0.05, minval = 0.0,
      group = "Direction marker")
+dSkip  = input.bool(true, "Mark calls skipped because a trade is open",
+     group = "Direction marker")
+dSkipCol = input.color(color.new(color.gray, 40), "    skip colour", group = "Direction marker")
 
-// ---- entry marker (fires on the VWAP tap) --------------------------------
 eShow  = input.bool(true, "Show entry marker", group = "Entry marker")
 eShape = input.string("Arrow (auto)", "Shape", group = "Entry marker",
      options = ["Triangle (auto)", "Arrow (auto)", "Speech bubble (auto)", "Circle", "Square",
@@ -123,11 +127,12 @@ eText  = input.string("RR", "Text", options = ["None", "Price", "RR", "Price + R
      group = "Entry marker")
 eTxtCol = input.color(color.white, "Text colour", group = "Entry marker")
 eOff   = input.float(0.45, "Offset from the candle (R)", step = 0.05, minval = 0.0,
-     group = "Entry marker",
-     tooltip = "How far clear of the entry candle to sit, in units of R. Bigger = "
-             + "more visible and further from the wick.")
+     group = "Entry marker")
 
-// ---- levels ---------------------------------------------------------------
+xShow  = input.bool(true, "Mark the exit", group = "Entry marker")
+xWinCol = input.color(#00e676, "Win", inline = "xc", group = "Entry marker")
+xLosCol = input.color(#ff1744, "Loss", inline = "xc", group = "Entry marker")
+
 shEntry = input.bool(true, "Entry", inline = "e", group = "Levels")
 cEntry  = input.color(color.new(#b0bec5, 0), "", inline = "e", group = "Levels")
 sEntry  = input.string("Dotted", "", options = ["Solid", "Dashed", "Dotted"], inline = "e", group = "Levels")
@@ -184,6 +189,8 @@ f_src() =>
 //=============================================================================
 // STATE
 //=============================================================================
+// Lane state resets every night. Trade state does not - the position outlives
+// the session that opened it, which is the whole point of this version.
 
 var float  R        = na
 var float  upEdge   = na
@@ -192,28 +199,30 @@ var float  boxHi    = na
 var float  boxLo    = na
 var int    laneDay  = na
 var bool   called   = false
-var bool   waiting  = false      // called, watching for the VWAP tap
-var bool   filled   = false
-var bool   dead     = false      // cancelled or filtered out
-var bool   preHit   = false      // the 2.0 zone was reached before the call
+var bool   waiting  = false
+var bool   dead     = false
+var bool   preHit   = false
 var int    side     = 0
-var float  gap      = na
-var float  entryPx  = na
-var float  stopPx   = na
-var float  tgtPx    = na
-var float  beLvl    = na
-var float  rrHave   = na
-var bool   beDone   = false
-var bool   retarget = false      // the box was inside minRR, so the target moved out
 var string why      = ""
+
+var bool   tOpen    = false      // a position is live
+var int    tSide    = 0
+var int    tLane    = na         // the lane it was opened in
+var float  tEntry   = na
+var float  tStop    = na
+var float  tTgt     = na
+var float  tBE      = na
+var float  tRR      = na
+var bool   tBeDone  = false
+var bool   tRetgt   = false
+var string lastOut  = ""
+
 var line   lnE      = na
 var line   lnS      = na
 var line   lnT      = na
 var line   lnB      = na
-var label  tagE     = na
 var label  tagS     = na
 var label  tagT     = na
-var label  tagB     = na
 
 bool intraday = not timeframe.isdwm
 bool newSrc = intraday and not na(srcDay) and not na(srcHigh) and (na(laneDay) or srcDay != laneDay)
@@ -222,34 +231,53 @@ bool laneOpen = intraday and not na(laneDay) and time >= laneDay and time[1] < l
 float vw = ta.vwap(hlc3, laneOpen)
 
 if newSrc and (srcHigh - srcLow) > 0
-    laneDay  := srcDay
-    boxHi    := srcHigh
-    boxLo    := srcLow
-    R        := srcHigh - srcLow
-    upEdge   := srcHigh + lvl1 * R
-    dnEdge   := srcLow  - lvl1 * R
-    called   := false
-    waiting  := false
-    filled   := false
-    dead     := false
-    preHit   := false
-    beDone   := false
-    retarget := false
-    side     := 0
-    entryPx  := na
-    stopPx   := na
-    tgtPx    := na
-    beLvl    := na
-    rrHave   := na
-    why      := (useRngF and R >= maxRng)
+    laneDay := srcDay
+    boxHi   := srcHigh
+    boxLo   := srcLow
+    R       := srcHigh - srcLow
+    upEdge  := srcHigh + lvl1 * R
+    dnEdge  := srcLow  - lvl1 * R
+    called  := false
+    waiting := false
+    dead    := false
+    preHit  := false
+    side    := 0
+    why     := (useRngF and R >= maxRng)
          ? "range $" + str.tostring(R, "#.##") + " over the $"
            + str.tostring(maxRng, "#") + " limit - no trade"
          : "waiting for " + str.format("{0,number,00}:00", readHour) + " NY"
     if useRngF and R >= maxRng
         dead := true
 
-bool inLane   = intraday and not na(laneDay) and time >= laneDay and time < laneDay + 86400000
-bool laneLive = inLane and not dead
+bool inLane = intraday and not na(laneDay) and time >= laneDay and time < laneDay + 86400000
+
+//=============================================================================
+// MANAGE THE OPEN POSITION - before anything else, so a call cannot fire on a
+// bar that also closes the trade
+//=============================================================================
+
+bool justWon  = false
+bool justLost = false
+
+if intraday and tOpen
+    if useBE and tRetgt and not tBeDone and not na(tBE)
+        if (tSide > 0 and high >= tBE) or (tSide < 0 and low <= tBE)
+            tBeDone := true
+            tStop   := tEntry
+    bool hitStop = (tSide > 0 and low <= tStop) or (tSide < 0 and high >= tStop)
+    bool hitTgt  = (tSide > 0 and high >= tTgt) or (tSide < 0 and low <= tTgt)
+    if hitStop
+        tOpen   := false
+        lastOut := tBeDone ? "closed at break-even" : "stopped out"
+        justLost := not tBeDone
+        justWon  := tBeDone
+    else if hitTgt
+        tOpen   := false
+        lastOut := "target hit, " + str.tostring(tRR, "#.##") + "R"
+        justWon := true
+    else if not na(tLane) and time > tLane + maxDays * 86400000
+        tOpen   := false
+        lastOut := "unresolved after " + str.tostring(maxDays) + " days - closed"
 
 //=============================================================================
 // PRE-CALL: has the 2.0 zone already gone?
@@ -263,32 +291,38 @@ if inLane and not called and not dead
 // THE CALL
 //=============================================================================
 
-if laneLive and not called and hour(time, TZ) >= readHour
+bool skipped = false
+
+if inLane and not dead and not called and hour(time, TZ) >= readHour
     called := true
     float px  = open
     float gUp = (upEdge - px) / R
     float gDn = (px - dnEdge) / R
-    gap  := math.abs(gUp - gDn)
     side := gUp < gDn ? 1 : -1
+    bool gone = side > 0 ? px >= upEdge : px <= dnEdge
 
-    float proj = side > 0 ? upEdge : dnEdge
-    bool gone  = side > 0 ? px >= upEdge : px <= dnEdge
-    if preHit or gone
+    if lockOne and tOpen
+        dead    := true
+        skipped := true
+        why     := "still in a " + (tSide > 0 ? "long" : "short") + " - call skipped"
+    else if preHit or gone
         dead := true
         why  := "the 2.0 zone had already gone before the call - no trade"
     else
         waiting := true
-        stopPx  := side > 0 ? boxLo - bufD : boxHi + bufD
         why     := "called - waiting for a VWAP tap before "
              + str.format("{0,number,00}:00", cutHour)
 
 //=============================================================================
-// WAITING FOR THE TAP - cancels are checked before the tap on the same bar
+// WAITING FOR THE TAP
 //=============================================================================
 
-if laneLive and waiting and not filled
+bool justFilled = false
+
+if inLane and waiting and not dead
     float proj = side > 0 ? upEdge : dnEdge
-    if (side > 0 and low <= stopPx) or (side < 0 and high >= stopPx)
+    float stopWould = side > 0 ? boxLo - bufD : boxHi + bufD
+    if (side > 0 and low <= stopWould) or (side < 0 and high >= stopWould)
         waiting := false
         dead    := true
         why     := "stop level reached before the entry - cancelled"
@@ -301,39 +335,32 @@ if laneLive and waiting and not filled
         dead    := true
         why     := "no VWAP tap before the cutoff - no trade"
     else if low <= vw and vw <= high
-        entryPx  := vw
-        filled   := true
-        waiting  := false
-        float risk = math.abs(entryPx - stopPx)
-        float rrBox = risk > 0 ? math.abs(proj - entryPx) / risk : 0
-        if rrBox >= minRR
-            tgtPx    := proj
-            beLvl    := na
-            retarget := false
-        else
-            tgtPx    := entryPx + side * minRR * risk
-            beLvl    := proj
-            retarget := true
-        rrHave := risk > 0 ? math.abs(tgtPx - entryPx) / risk : na
-        why    := retarget
-             ? "filled on VWAP - box was under " + str.tostring(minRR, "#.#")
-               + ":1, target moved out"
-             : "filled on VWAP - the 2.0 edge is the target"
+        waiting := false
+        float risk = math.abs(vw - stopWould)
+        if risk > 0
+            tOpen   := true
+            tSide   := side
+            tLane   := laneDay
+            tEntry  := vw
+            tStop   := stopWould
+            tBeDone := false
+            float rrBox = math.abs(proj - vw) / risk
+            if rrBox >= minRR
+                tTgt  := proj
+                tBE   := na
+                tRetgt := false
+            else
+                tTgt  := vw + side * minRR * risk
+                tBE   := proj
+                tRetgt := true
+            tRR := math.abs(tTgt - vw) / risk
+            justFilled := true
+            why := tRetgt
+                 ? "filled on VWAP - box under " + str.tostring(minRR, "#.#")
+                   + ":1, target moved out"
+                 : "filled on VWAP - the 2.0 edge is the target"
 
-//=============================================================================
-// IN THE TRADE
-//=============================================================================
-
-if laneLive and filled and not na(stopPx)
-    if useBE and retarget and not beDone and not na(beLvl)
-        if (side > 0 and high >= beLvl) or (side < 0 and low <= beLvl)
-            beDone := true
-            stopPx := entryPx
-            why    := "2.0 edge tapped - stop at break-even, running to "
-                 + str.tostring(minRR, "#.#") + ":1"
-
-bool justCalled = laneLive and called and not called[1]
-bool justFilled = laneLive and filled and not filled[1]
+bool justCalled = inLane and called and not called[1]
 
 //=============================================================================
 // DRAWING
@@ -348,17 +375,26 @@ f_mark(int dir, string shape, string emoUp, string emoDn, string txt, color col,
          textcolor = shape == "Emoji" ? color.new(color.white, 0) : txtCol,
          size = f_size(sz), yloc = yloc.price)
 
-if justCalled and dShow and side != 0 and not dead
-    f_mark(side, dShape, dUpEmo, dDnEmo, "", side > 0 ? dUpCol : dDnCol,
-         dSize, dOff, color.white, dTrans)
+if justCalled and side != 0
+    if skipped and dSkip
+        f_mark(side, dShape, dUpEmo, dDnEmo, "", dSkipCol, dSize, dOff, color.white, 60)
+    else if dShow and not dead
+        f_mark(side, dShape, dUpEmo, dDnEmo, "", side > 0 ? dUpCol : dDnCol,
+             dSize, dOff, color.white, dTrans)
 
 if justFilled and eShow
     string et = eText == "None" ? "" :
-         eText == "Price" ? str.tostring(entryPx, format.mintick) :
-         eText == "RR" ? str.tostring(rrHave, "#.##") + "R" :
-         str.tostring(entryPx, format.mintick) + "  " + str.tostring(rrHave, "#.##") + "R"
-    f_mark(side, eShape, eUpEmo, eDnEmo, et, side > 0 ? eUpCol : eDnCol,
+         eText == "Price" ? str.tostring(tEntry, format.mintick) :
+         eText == "RR" ? str.tostring(tRR, "#.##") + "R" :
+         str.tostring(tEntry, format.mintick) + "  " + str.tostring(tRR, "#.##") + "R"
+    f_mark(tSide, eShape, eUpEmo, eDnEmo, et, tSide > 0 ? eUpCol : eDnCol,
          eSize, eOff, eTxtCol, eTrans)
+
+if xShow and (justWon or justLost)
+    label.new(bar_index, justWon ? high + 0.25 * R : low - 0.25 * R,
+         justWon ? "✓" : "✕", style = label.style_none,
+         textcolor = justWon ? xWinCol : xLosCol, size = size.normal,
+         yloc = yloc.price)
 
 f_tag(float y, string txt, color c) =>
     label.new(bar_index, y, txt, style = label.style_label_left,
@@ -367,50 +403,43 @@ f_tag(float y, string txt, color c) =>
 
 if justFilled
     if shEntry
-        lnE := line.new(bar_index, entryPx, bar_index + 1, entryPx, color = cEntry,
+        lnE := line.new(bar_index, tEntry, bar_index + 1, tEntry, color = cEntry,
              style = f_style(sEntry), width = wEntry)
     if shStop
-        lnS := line.new(bar_index, stopPx, bar_index + 1, stopPx, color = cStop,
+        lnS := line.new(bar_index, tStop, bar_index + 1, tStop, color = cStop,
              style = f_style(sStop), width = wStop)
     if shTgt
-        lnT := line.new(bar_index, tgtPx, bar_index + 1, tgtPx, color = cTgt,
+        lnT := line.new(bar_index, tTgt, bar_index + 1, tTgt, color = cTgt,
              style = f_style(sTgt), width = wTgt)
-    if shBE and retarget and not na(beLvl)
-        lnB := line.new(bar_index, beLvl, bar_index + 1, beLvl, color = cBE,
+    if shBE and tRetgt and not na(tBE)
+        lnB := line.new(bar_index, tBE, bar_index + 1, tBE, color = cBE,
              style = f_style(sBE), width = 1)
     if priceTag
-        tagE := f_tag(entryPx, "entry " + str.tostring(entryPx, format.mintick), cEntry)
-        tagS := f_tag(stopPx,  "SL "    + str.tostring(stopPx,  format.mintick), cStop)
-        tagT := f_tag(tgtPx,   "TP "    + str.tostring(tgtPx,   format.mintick)
-             + "  " + str.tostring(rrHave, "#.##") + "R", cTgt)
-        if retarget and not na(beLvl)
-            tagB := f_tag(beLvl, "BE " + str.tostring(beLvl, format.mintick), cBE)
+        tagS := f_tag(tStop, "SL " + str.tostring(tStop, format.mintick), cStop)
+        tagT := f_tag(tTgt,  "TP " + str.tostring(tTgt, format.mintick)
+             + "  " + str.tostring(tRR, "#.##") + "R", cTgt)
 
-// the lines run with the trade, and the stop line follows break-even
-if laneLive and filled
+// The lines run for as long as the position does, and the stop follows BE.
+if tOpen
     if not na(lnE)
         line.set_x2(lnE, bar_index)
     if not na(lnS)
         line.set_x2(lnS, bar_index)
-        line.set_y1(lnS, stopPx)
-        line.set_y2(lnS, stopPx)
+        line.set_y1(lnS, tStop)
+        line.set_y2(lnS, tStop)
     if not na(lnT)
         line.set_x2(lnT, bar_index)
     if not na(lnB)
         line.set_x2(lnB, bar_index)
     if priceTag
-        if not na(tagE)
-            label.set_x(tagE, bar_index)
         if not na(tagS)
             label.set_x(tagS, bar_index)
-            label.set_y(tagS, stopPx)
-            label.set_text(tagS, (beDone ? "BE " : "SL ") + str.tostring(stopPx, format.mintick))
+            label.set_y(tagS, tStop)
+            label.set_text(tagS, (tBeDone ? "BE " : "SL ") + str.tostring(tStop, format.mintick))
         if not na(tagT)
             label.set_x(tagT, bar_index)
-        if not na(tagB)
-            label.set_x(tagB, bar_index)
 
-plot(shVwap and laneLive and (waiting or filled) ? vw : na, "VWAP",
+plot(shVwap and inLane and (waiting or tOpen) ? vw : na, "VWAP",
      color = cVwap, style = plot.style_linebr, linewidth = 1)
 
 //=============================================================================
@@ -434,40 +463,45 @@ if barstate.islast and showPanel and intraday
     T := table.new(pos, 2, 9, border_width = 1, frame_width = 1,
          frame_color = color.new(color.gray, 55), border_color = color.new(color.gray, 80))
 
-    color vc = dead ? color.gray : side > 0 ? dUpCol : side < 0 ? dDnCol : color.gray
-    string vt = dead ? "NO TRADE" : not called ? "WAITING" :
-         waiting ? (side > 0 ? "WATCHING LONG" : "WATCHING SHORT") :
-         filled ? (beDone ? (side > 0 ? "LONG · BE" : "SHORT · BE")
-                          : (side > 0 ? "LONG" : "SHORT")) : "NO TRADE"
+    color vc = tOpen ? (tSide > 0 ? dUpCol : dDnCol) : dead ? color.gray :
+         side > 0 ? dUpCol : side < 0 ? dDnCol : color.gray
+    string vt = tOpen ? (tBeDone ? (tSide > 0 ? "LONG · BE" : "SHORT · BE")
+                                 : (tSide > 0 ? "LONG" : "SHORT")) :
+         dead ? "NO TRADE" : waiting ? (side > 0 ? "WATCHING LONG" : "WATCHING SHORT") :
+         not called ? "WAITING" : "NO TRADE"
     color bg = color.new(color.black, 25)
     color fg = color.new(color.white, 0)
 
-    f_cell(T, 0, 0, "v1.2", color.new(vc, 55), fg, sz)
+    f_cell(T, 0, 0, "v1.3", color.new(vc, 55), fg, sz)
     f_cell(T, 1, 0, vt,     color.new(vc, 55), fg, sz)
-    f_cell(T, 0, 1, why, bg, color.new(fg, 30), sz)
-    f_cell(T, 1, 1, "",  bg, fg, sz)
+    f_cell(T, 0, 1, tOpen ? why : (why + (lastOut == "" ? "" : "  ·  last: " + lastOut)),
+         bg, color.new(fg, 30), sz)
+    f_cell(T, 1, 1, "", bg, fg, sz)
     f_cell(T, 0, 2, "R (9pm box)", bg, fg, sz)
     f_cell(T, 1, 2, na(R) ? "-" : "$" + str.tostring(R, "#.##"), bg,
          useRngF and not na(R) and R >= maxRng ? cStop : fg, sz)
     f_cell(T, 0, 3, "VWAP", bg, fg, sz)
     f_cell(T, 1, 3, na(vw) ? "-" : str.tostring(vw, format.mintick), bg, cVwap, sz)
     f_cell(T, 0, 4, "entry", bg, fg, sz)
-    f_cell(T, 1, 4, na(entryPx) ? "-" : str.tostring(entryPx, format.mintick), bg, fg, sz)
-    f_cell(T, 0, 5, beDone ? "stop (break-even)" : "stop", bg, fg, sz)
-    f_cell(T, 1, 5, na(stopPx) ? "-" : str.tostring(stopPx, format.mintick), bg, cStop, sz)
-    f_cell(T, 0, 6, retarget ? "BE trigger (2.0 edge)" : "2.0 edge", bg, fg, sz)
-    f_cell(T, 1, 6, na(beLvl) ? (na(entryPx) ? "-" : "is the target") :
-         str.tostring(beLvl, format.mintick), bg, cBE, sz)
+    f_cell(T, 1, 4, na(tEntry) ? "-" : str.tostring(tEntry, format.mintick), bg, fg, sz)
+    f_cell(T, 0, 5, tBeDone ? "stop (break-even)" : "stop", bg, fg, sz)
+    f_cell(T, 1, 5, na(tStop) ? "-" : str.tostring(tStop, format.mintick), bg, cStop, sz)
+    f_cell(T, 0, 6, tRetgt ? "BE trigger (2.0 edge)" : "2.0 edge", bg, fg, sz)
+    f_cell(T, 1, 6, na(tBE) ? (na(tEntry) ? "-" : "is the target") :
+         str.tostring(tBE, format.mintick), bg, cBE, sz)
     f_cell(T, 0, 7, "target", bg, fg, sz)
-    f_cell(T, 1, 7, na(tgtPx) ? "-" : str.tostring(tgtPx, format.mintick), bg, cTgt, sz)
+    f_cell(T, 1, 7, na(tTgt) ? "-" : str.tostring(tTgt, format.mintick), bg, cTgt, sz)
     f_cell(T, 0, 8, "RR", bg, fg, sz)
-    f_cell(T, 1, 8, na(rrHave) ? "-" : str.tostring(rrHave, "#.##") + " : 1", bg, fg, sz)
+    f_cell(T, 1, 8, na(tRR) ? "-" : str.tostring(tRR, "#.##") + " : 1", bg, fg, sz)
 
 //=============================================================================
 // ALERTS
 //=============================================================================
 
-alertcondition(justCalled and side ==  1, "Direction: UP",   "Direction call: UP")
-alertcondition(justCalled and side == -1, "Direction: DOWN", "Direction call: DOWN")
-alertcondition(justFilled,                "Entry filled",    "VWAP tapped - stop and target set")
-alertcondition(beDone and not beDone[1],  "Break-even",      "2.0 edge tapped - stop to break-even")
+alertcondition(justCalled and side ==  1 and not skipped, "Direction: UP",   "Direction call: UP")
+alertcondition(justCalled and side == -1 and not skipped, "Direction: DOWN", "Direction call: DOWN")
+alertcondition(justCalled and skipped, "Call skipped", "Call skipped - already in a position")
+alertcondition(justFilled, "Entry filled", "VWAP tapped - stop and target set")
+alertcondition(tBeDone and not tBeDone[1], "Break-even", "2.0 edge tapped - stop to break-even")
+alertcondition(justWon,  "Trade won",  "Target hit or closed at break-even")
+alertcondition(justLost, "Trade lost", "Stopped out")
