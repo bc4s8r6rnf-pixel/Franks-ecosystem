@@ -2,7 +2,7 @@
 
 //@version=6
 // ============================================================================
-// RXWLES DIRECTION CALL  v2.4
+// RXWLES DIRECTION CALL  v2.5
 //
 // CORRECTION FIRST. Every figure quoted in v1.2 through v1.6 was produced by a
 // backtest that reconstructed the VWAP anchored at midnight New York from
@@ -180,7 +180,7 @@
 // ============================================================================
 
 indicator("RXWLES Direction Call", "DirCall", overlay = true,
-     max_labels_count = 500, max_lines_count = 500)
+     max_labels_count = 500, max_lines_count = 500, max_boxes_count = 500)
 
 const string TZ = "America/New_York"
 
@@ -194,6 +194,15 @@ const int cutHour = 14
 //=============================================================================
 // METHOD
 //=============================================================================
+
+preset   = input.string("v2 - current", "Rule set", group = "Method",
+     options = ["v2 - current", "v1.0 - original"],
+     tooltip = "v1.0 is the frozen first version: market entry at the read hour, " +
+               "stop and target both 1.5 R from entry, the 2.0 edge as the zone, " +
+               "and none of the later filters. Switching to it overrides the " +
+               "target, stop, entry and every filter below.")
+v1race   = input.float(1.5, "    v1.0: stop and target distance (R)", step = 0.25,
+     minval = 0.25, group = "Method")
 
 srcHour  = input.int(21, "Source candle hour (NY)", minval = 0, maxval = 23, group = "Method",
      tooltip = "Must match RXWLES PRO's Enigma Source Hour.")
@@ -397,7 +406,10 @@ xText   = input.string("R result", "Text", group = "Exit marker",
 xTxtCol = input.color(color.white, "Text colour (shapes only)", group = "Exit marker",
      tooltip = "Text-only and emoji markers are tinted with the win / loss / flat colour.")
 xPlace  = input.string("Win above, loss below", "Placement", group = "Exit marker",
-     options = ["Win above, loss below", "Always above", "Always below"])
+     options = ["Win above, loss below", "Always above", "Always below",
+                "Clear of the zones", "Above the zones"],
+     tooltip = "Clear of the zones parks the marker just outside the projection " +
+               "box on the side the trade was on, so candles never sit on top of it.")
 xOff    = input.float(0.35, "Offset from the candle (R)", step = 0.05, minval = 0.0,
      group = "Exit marker")
 xTally  = input.bool(true, "Running R tally in the panel", group = "Exit marker")
@@ -459,6 +471,82 @@ tagSize  = input.string("Tiny", "Tag size", options = ["Tiny", "Small", "Normal"
 // is doing - an open position from yesterday never suppresses it.
 //-----------------------------------------------------------------------------
 
+//-----------------------------------------------------------------------------
+// FIB ZONES
+//
+// Three retracements, all sharing one rule: -0.27 is pinned to the projection
+// edge in the direction of the call, and only the 1 anchor changes.
+//
+//   Zone to zone   1 on the opposing 2.0 edge      span is always 5R
+//   Asia           1 on the Asia high / low        19:00 - 00:00 NY
+//   Prev day       1 on yesterday's extreme        the lane high / low
+//
+// price(f) = A + (1 - f) / 1.27 x (B - A), so with the stop on the 1 the
+// reward-to-risk is set purely by which level you enter at:
+//
+//     0.62 -> 2.34 : 1      0.70 -> 3.23 : 1      0.79 -> 5.05 : 1
+//-----------------------------------------------------------------------------
+
+fzOn    = input.bool(true, "Draw the fib zones", group = "Fib zones")
+fzExt   = input.string("End of the lane", "Extend to", group = "Fib zones",
+     options = ["End of the lane", "Right edge", "Entry or lane end"])
+fzWhen  = input.string("The call", "Draw from", group = "Fib zones",
+     options = ["The call", "Lane open"],
+     tooltip = "The call needs a direction before it can pick a side. Lane open " +
+               "draws both sides' geometry from the 04:00 reading anyway, so it " +
+               "only shifts where the lines start.")
+
+fzL100  = input.bool(true,  "1.0 (the anchor / stop)", inline="fa", group = "Fib zones")
+fzL79   = input.bool(true,  "0.79", inline="fa", group = "Fib zones")
+fzL70   = input.bool(true,  "0.70", inline="fb", group = "Fib zones")
+fzL62   = input.bool(true,  "0.62", inline="fb", group = "Fib zones")
+fzLEQ   = input.bool(true,  "0.5 EQ", inline="fc", group = "Fib zones")
+fzL0    = input.bool(false, "0.0", inline="fc", group = "Fib zones")
+fzL27   = input.bool(true,  "-0.27 (the target)", inline="fd", group = "Fib zones")
+fzBand  = input.bool(true,  "Shade the 0.62-0.79 band", inline="fd", group = "Fib zones")
+
+fzLbl   = input.bool(true, "Labels", inline = "fl", group = "Fib zones")
+fzLblSz = input.string("Tiny", "", inline = "fl", group = "Fib zones",
+     options = ["Tiny", "Small", "Normal"])
+fzLblAt = input.string("Right", "", inline = "fl", group = "Fib zones",
+     options = ["Right", "Left"])
+fzLblPr = input.bool(true, "price in the label", inline = "fl", group = "Fib zones")
+fzWidth = input.int(1, "Line width", minval = 1, maxval = 4, inline = "fw", group = "Fib zones")
+fzStyle = input.string("Dotted", "", inline = "fw", group = "Fib zones",
+     options = ["Solid", "Dashed", "Dotted"])
+fzKeyW  = input.int(2, "Width of 1.0 / -0.27", minval = 1, maxval = 4, inline = "fw",
+     group = "Fib zones")
+
+fz1On   = input.bool(true, "Zone to zone", inline = "f1", group = "Fib zone 1  (zone to zone)")
+fz1Col  = input.color(#b0bec5, "", inline = "f1", group = "Fib zone 1  (zone to zone)")
+fz1Fill = input.color(#b0bec5, "band", inline = "f1", group = "Fib zone 1  (zone to zone)")
+fz1Tr   = input.int(88, "band transparency", minval = 0, maxval = 100,
+     group = "Fib zone 1  (zone to zone)")
+fz1LnTr = input.int(25, "line transparency", minval = 0, maxval = 100,
+     group = "Fib zone 1  (zone to zone)")
+fz1Lbl  = input.color(#b0bec5, "label colour", group = "Fib zone 1  (zone to zone)")
+fz1Tag  = input.string("Z", "label prefix", group = "Fib zone 1  (zone to zone)")
+
+fz2On   = input.bool(true, "Asia extreme", inline = "f2", group = "Fib zone 2  (Asia)")
+fz2Col  = input.color(#78909c, "", inline = "f2", group = "Fib zone 2  (Asia)")
+fz2Fill = input.color(#78909c, "band", inline = "f2", group = "Fib zone 2  (Asia)")
+fz2Tr   = input.int(92, "band transparency", minval = 0, maxval = 100, group = "Fib zone 2  (Asia)")
+fz2LnTr = input.int(40, "line transparency", minval = 0, maxval = 100, group = "Fib zone 2  (Asia)")
+fz2Lbl  = input.color(#78909c, "label colour", group = "Fib zone 2  (Asia)")
+fz2Tag  = input.string("A", "label prefix", group = "Fib zone 2  (Asia)")
+fz2Win  = input.string("19:00 - 00:00", "Asia window (NY)", group = "Fib zone 2  (Asia)",
+     options = ["19:00 - 00:00", "18:00 - 00:00", "20:00 - 02:00", "19:00 - 02:00"])
+
+fz3On   = input.bool(true, "Previous day extreme", inline = "f3", group = "Fib zone 3  (previous day)")
+fz3Col  = input.color(#546e7a, "", inline = "f3", group = "Fib zone 3  (previous day)")
+fz3Fill = input.color(#546e7a, "band", inline = "f3", group = "Fib zone 3  (previous day)")
+fz3Tr   = input.int(94, "band transparency", minval = 0, maxval = 100,
+     group = "Fib zone 3  (previous day)")
+fz3LnTr = input.int(50, "line transparency", minval = 0, maxval = 100,
+     group = "Fib zone 3  (previous day)")
+fz3Lbl  = input.color(#546e7a, "label colour", group = "Fib zone 3  (previous day)")
+fz3Tag  = input.string("P", "label prefix", group = "Fib zone 3  (previous day)")
+
 cfShow   = input.bool(true, "Show the confidence dashboard", group = "Confidence")
 cfPos    = input.string("Bottom right", "Position", group = "Confidence",
      options = ["Bottom right", "Bottom left", "Bottom centre", "Top right", "Top left",
@@ -516,6 +604,23 @@ panelPos  = input.string("Top right", "Position", group = "Panel",
 panelSize = input.string("Small", "Text size", options = ["Tiny", "Small", "Normal"], group = "Panel")
 
 //=============================================================================
+// EFFECTIVE SETTINGS
+//
+// v1.0 is the frozen original: the 2.0 edge as the zone, a market entry at the
+// read hour, stop and target both 1.5 R from that entry, and no filters at all.
+// Selecting it overrides the inputs below rather than hiding them, so you can
+// see exactly what changes.
+//=============================================================================
+
+bool  isV1     = preset == "v1.0 - original"
+float e_lvl1   = isV1 ? 2.0   : lvl1
+float e_pull   = isV1 ? 0.0   : tgtPull
+bool  e_BE     = isV1 ? false : useBE
+bool  e_lock   = isV1 ? false : lockOne
+bool  e_cutOpp = isV1 ? false : cutOpp
+bool  e_rngF   = isV1 ? false : useRngF
+
+//=============================================================================
 // CALENDAR + SOURCE CANDLE
 //=============================================================================
 
@@ -570,6 +675,8 @@ var bool   tBeDone  = false
 var string tHow     = ""         // what filled it
 var string lastOut  = ""
 var int    lastKind = 0          // 1 win, 2 loss, 3 flat
+var float  z20u     = na         // the true 2.0 edges
+var float  z20d     = na
 var float  lastR    = na         // the R won or lost
 var float  sumR     = 0.0
 var int    nWin     = 0
@@ -598,19 +705,23 @@ if newSrc and (srcHigh - srcLow) > 0
     R       := srcHigh - srcLow
     // The order rests just inside the edge, so the drawn level and the level
     // actually worked are not the same thing.
-    float tgtLvl = math.max(lvl1 - tgtPull, 0.1)
+    float tgtLvl = math.max(e_lvl1 - e_pull, 0.1)
     upEdge  := srcHigh + tgtLvl * R
     dnEdge  := srcLow  - tgtLvl * R
+    // The true 2.0 edges. The fibs and the confidence score are both built from
+    // these, not from the pulled-in target level.
+    z20u    := srcHigh + 2.0 * R
+    z20d    := srcLow  - 2.0 * R
     called  := false
     waiting := false
     dead    := false
     preHit  := false
     side    := 0
-    why     := (useRngF and R >= maxRng)
+    why     := (e_rngF and R >= maxRng)
          ? "range $" + str.tostring(R, "#.##") + " over the $"
            + str.tostring(maxRng, "#") + " limit - no trade"
          : "waiting for " + str.format("{0,number,00}:00", readHour) + " NY"
-    if useRngF and R >= maxRng
+    if e_rngF and R >= maxRng
         dead := true
 
 bool inLane = intraday and not na(laneDay) and time >= laneDay and time < laneDay + 86400000
@@ -633,9 +744,35 @@ var bool  cfDone  = false
 var float laneHi  = na
 var float laneLo  = na
 var float prevRng = na
+var float prevHi  = na          // yesterday's lane extremes, frozen at the open
+var float prevLo  = na
+var float asHi    = na          // Asia, accumulating
+var float asLo    = na
+var float asiaHi  = na          // Asia, frozen for this lane
+var float asiaLo  = na
+
+// Asia builds in the hours before the lane opens. It is accumulated while the
+// window is open and frozen on the bar the window closes, which handles both
+// the windows that end at midnight and the ones that run past it.
+int asH = hour(time, TZ)
+bool inAsia = fz2Win == "18:00 - 00:00" ? (asH >= 18) :
+     fz2Win == "20:00 - 02:00"          ? (asH >= 20 or asH < 2) :
+     fz2Win == "19:00 - 02:00"          ? (asH >= 19 or asH < 2) : (asH >= 19)
+if intraday
+    if inAsia and not inAsia[1]
+        asHi := high
+        asLo := low
+    else if inAsia
+        asHi := math.max(nz(asHi, high), high)
+        asLo := math.min(nz(asLo, low), low)
+    else if inAsia[1]
+        asiaHi := asHi
+        asiaLo := asLo
 
 if laneOpen
     prevRng := na(laneHi) or na(laneLo) ? na : laneHi - laneLo
+    prevHi  := laneHi
+    prevLo  := laneLo
     laneHi  := high
     laneLo  := low
     cfDone  := false
@@ -651,11 +788,7 @@ else if inLane
 
 if inLane and not cfDone and not na(R) and R > 0 and hour(time, TZ) >= readHour
     cfDone := true
-    // The research measured the true 2.0 edges, not the pulled-in target
-    // level, so the score is built from 2.0 whatever lvl1 is set to.
-    float z2u = boxHi + 2.0 * R
-    float z2d = boxLo - 2.0 * R
-    float pz = (open - z2d) / (z2u - z2d)
+    float pz = (open - z20d) / (z20u - z20d)
     cfRaw  := math.abs(pz - 0.5)
     cfSide := pz > 0.5 ? 1 : -1
     cfRatio := na(prevRng) or prevRng <= 0 ? na : R / prevRng
@@ -688,7 +821,7 @@ if intraday and tOpen
         justBE   := tBeDone
         justLost := not tBeDone
     else
-        if useBE and not tBeDone and not na(tBE)
+        if e_BE and not tBeDone and not na(tBE)
             if (tSide > 0 and high >= tBE) or (tSide < 0 and low <= tBE)
                 tBeDone := true
                 tStop   := tEntry
@@ -727,6 +860,7 @@ if inLane and not called and not dead
 //=============================================================================
 
 bool skipped = false
+bool v1Fill  = false
 
 if inLane and not dead and not called and hour(time, TZ) >= readHour
     called := true
@@ -738,7 +872,7 @@ if inLane and not dead and not called and hour(time, TZ) >= readHour
 
     // A call that opposes an open position is an exit signal for it - but only
     // while it is under water. A winner is left alone to reach its target.
-    if cutOpp and tOpen and tSide != side and not na(tRisk) and tRisk > 0
+    if e_cutOpp and tOpen and tSide != side and not na(tRisk) and tRisk > 0
         float prog = tSide * (px - tEntry) / tRisk
         if prog <= cutBelow
             tOpen   := false
@@ -754,13 +888,32 @@ if inLane and not dead and not called and hour(time, TZ) >= readHour
             nWin     := nWin + (prog > 0 ? 1 : 0)
             nLos     := nLos + (prog < 0 ? 1 : 0)
 
-    if lockOne and tOpen
+    if e_lock and tOpen
         dead    := true
         skipped := true
         why     := "still in a " + (tSide > 0 ? "long" : "short") + " - call skipped"
     else if preHit or gone
         dead := true
         why  := "the zone had already gone before the call - no trade"
+    else if isV1
+        // v1.0 took the trade at the read hour, no waiting and no trigger.
+        float ent1 = px
+        float st1  = ent1 - side * v1race * R
+        float tg1  = ent1 + side * v1race * R
+        tOpen   := true
+        tSide   := side
+        tLane   := laneDay
+        tEntry  := ent1
+        tStop   := st1
+        tRisk   := math.abs(ent1 - st1)
+        tHow    := "v1 market"
+        tTgt    := tg1
+        tBE     := ent1
+        tBeDone := false
+        tRR     := 1.0
+        v1Fill  := true
+        why     := "v1.0 - market at " + str.format("{0,number,00}:00", readHour)
+             + ", " + str.tostring(v1race, "#.##") + " R each way"
     else
         waiting := true
         why     := "called - waiting for a VWAP tap before "
@@ -770,7 +923,7 @@ if inLane and not dead and not called and hour(time, TZ) >= readHour
 // WAITING FOR THE TAP
 //=============================================================================
 
-bool justFilled = false
+bool justFilled = v1Fill
 
 if inLane and waiting and not dead
     float proj = side > 0 ? upEdge : dnEdge
@@ -862,7 +1015,15 @@ f_exit(int kind, float rres) =>
     bool above = xPlace == "Always above" or
          (xPlace == "Win above, loss below" and kind != 2)
     float pad = na(R) ? syminfo.mintick * 100 : xOff * R
-    float yv  = above ? high + pad : low - pad
+    // "Clear of the zones" parks the marker outside the projection box, where no
+    // candle can reach it. "Above the zones" always puts it over the top edge.
+    float yv = na
+    if xPlace == "Above the zones" and not na(upEdge)
+        yv := upEdge + pad
+    else if xPlace == "Clear of the zones" and not na(upEdge) and not na(dnEdge)
+        yv := tSide < 0 or (tSide == 0 and side < 0) ? dnEdge - pad : upEdge + pad
+    else
+        yv := above ? high + pad : low - pad
     bool flat = xShape == "Emoji" or xShape == "Text only"
     label.new(bar_index, yv, body, style = f_shape(xShape, kind == 2 ? -1 : 1),
          color = flat ? color.new(c, 100) : color.new(c, xTrans),
@@ -947,14 +1108,14 @@ if barstate.islast and showPanel and intraday
     color bg = color.new(color.black, 25)
     color fg = color.new(color.white, 0)
 
-    f_cell(T, 0, 0, "v2.4", color.new(vc, 55), fg, sz)
+    f_cell(T, 0, 0, isV1 ? "v1.0" : "v2.5", color.new(vc, 55), fg, sz)
     f_cell(T, 1, 0, vt,     color.new(vc, 55), fg, sz)
     f_cell(T, 0, 1, tOpen ? why : (why + (lastOut == "" ? "" : "  ·  last: " + lastOut)),
          bg, color.new(fg, 30), sz)
     f_cell(T, 1, 1, "", bg, fg, sz)
     f_cell(T, 0, 2, "R (9pm box)", bg, fg, sz)
     f_cell(T, 1, 2, na(R) ? "-" : "$" + str.tostring(R, "#.##"), bg,
-         useRngF and not na(R) and R >= maxRng ? cStop : fg, sz)
+         e_rngF and not na(R) and R >= maxRng ? cStop : fg, sz)
     f_cell(T, 0, 3, "VWAP (" + (vwAnc == "Session" ? "session" : "midnight") + ")", bg, fg, sz)
     f_cell(T, 1, 3, na(vw) ? "-" : str.tostring(vw, format.mintick), bg, cVwap, sz)
     f_cell(T, 0, 4, "entry" + (tHow == "" ? "" : " (" + tHow + ")"), bg, fg, sz)
@@ -976,6 +1137,89 @@ if barstate.islast and showPanel and intraday
         f_cell(T, 1, 9, str.tostring(nWin) + "W / " + str.tostring(nLos) + "L   "
              + (sumR >= 0 ? "+" : "") + str.tostring(sumR, "0.0") + "R", bg,
              sumR >= 0 ? xWinCol : xLosCol, sz)
+
+//=============================================================================
+// FIB ZONES
+//
+// One helper draws a whole retracement. The -0.27 is always the projection edge
+// in the direction of the call; only the 1 anchor changes between the three.
+//=============================================================================
+
+// Objects are never deleted - TradingView drops the oldest once the 500-per-type
+// ceiling is reached, so the chart keeps as much history as it can hold. Three
+// zones with every level on is 21 lines a day, i.e. roughly 23 days of history.
+// Turn levels or zones off and the history stretches proportionally.
+var line[]  fzL = array.new_line()
+var box[]   fzB = array.new_box()
+
+f_fzPrice(float a, float b, float f) => a + (1.0 - f) / 1.27 * (b - a)
+
+f_fzLine(float y, int x1, color c, string nm, color lc, bool key) =>
+    array.push(fzL, line.new(x1, y, x1, y, xloc = xloc.bar_index, color = c,
+         width = key ? fzKeyW : fzWidth, style = f_style(fzStyle)))
+    if fzLbl
+        label.new(x1, y, nm + (fzLblPr ? "  " + str.tostring(y, format.mintick) : ""),
+             style = fzLblAt == "Left" ? label.style_label_right : label.style_label_left,
+             color = color.new(color.black, 100), textcolor = lc,
+             size = f_size(fzLblSz), yloc = yloc.price, xloc = xloc.bar_index)
+
+// A = the 1 anchor, Bv = the -0.27 target.
+f_fzDraw(float A, float Bv, int x1, color col, int lnTr, color fill, int fillTr,
+         color lc, string tag) =>
+    if not na(A) and not na(Bv) and (Bv - A) != 0
+        color c = color.new(col, lnTr)
+        if fzBand
+            float p62 = f_fzPrice(A, Bv, 0.62)
+            float p79 = f_fzPrice(A, Bv, 0.79)
+            array.push(fzB, box.new(x1, math.max(p62, p79), x1, math.min(p62, p79),
+                 border_color = color.new(fill, 100), bgcolor = color.new(fill, fillTr),
+                 xloc = xloc.bar_index))
+        if fzL100
+            f_fzLine(A, x1, c, tag + " 1.0", lc, true)
+        if fzL79
+            f_fzLine(f_fzPrice(A, Bv, 0.79), x1, c, tag + " 0.79", lc, false)
+        if fzL70
+            f_fzLine(f_fzPrice(A, Bv, 0.70), x1, c, tag + " 0.70", lc, false)
+        if fzL62
+            f_fzLine(f_fzPrice(A, Bv, 0.62), x1, c, tag + " 0.62", lc, false)
+        if fzLEQ
+            f_fzLine(f_fzPrice(A, Bv, 0.50), x1, c, tag + " EQ", lc, false)
+        if fzL0
+            f_fzLine(f_fzPrice(A, Bv, 0.00), x1, c, tag + " 0.0", lc, false)
+        if fzL27
+            f_fzLine(Bv, x1, c, tag + " -0.27", lc, true)
+
+// How many objects belong to the lane being drawn, so they can be stretched
+// each bar without touching the ones already finished.
+var int fzLines = 0
+var int fzBoxes = 0
+
+if fzOn and intraday and not na(R) and R > 0 and not na(z20u)
+    bool fire = fzWhen == "Lane open" ? laneOpen : (justCalled and side != 0)
+    if fire
+        int n0 = array.size(fzL)
+        int b0 = array.size(fzB)
+        int d  = side != 0 ? side : ((z20u - open) < (open - z20d) ? 1 : -1)
+        float tgt = d > 0 ? z20u : z20d
+        if fz1On
+            f_fzDraw(d > 0 ? z20d : z20u, tgt, bar_index, fz1Col, fz1LnTr,
+                 fz1Fill, fz1Tr, fz1Lbl, fz1Tag)
+        if fz2On
+            f_fzDraw(d > 0 ? asiaLo : asiaHi, tgt, bar_index, fz2Col, fz2LnTr,
+                 fz2Fill, fz2Tr, fz2Lbl, fz2Tag)
+        if fz3On
+            f_fzDraw(d > 0 ? prevLo : prevHi, tgt, bar_index, fz3Col, fz3LnTr,
+                 fz3Fill, fz3Tr, fz3Lbl, fz3Tag)
+        fzLines := array.size(fzL) - n0
+        fzBoxes := array.size(fzB) - b0
+    // stretch the current lane's drawings to the right as the day fills in
+    if inLane and fzLines > 0
+        int stop = fzExt == "Entry or lane end" and tOpen and not tOpen[1]
+             ? bar_index : bar_index + (fzExt == "Right edge" ? 20 : 1)
+        for i = array.size(fzL) - fzLines to array.size(fzL) - 1
+            line.set_x2(array.get(fzL, i), stop)
+        for i = array.size(fzB) - fzBoxes to array.size(fzB) - 1
+            box.set_right(array.get(fzB, i), stop)
 
 //=============================================================================
 // CONFIDENCE DASHBOARD
@@ -1021,7 +1265,7 @@ alertcondition(justCalled and side ==  1 and not skipped, "Direction: UP",   "Di
 alertcondition(justCalled and side == -1 and not skipped, "Direction: DOWN", "Direction call: DOWN")
 alertcondition(justCalled and skipped, "Call skipped", "Call skipped - already in a position")
 alertcondition(justFilled, "Entry filled", "Entry trigger hit - stop and target set")
-alertcondition(useBE and tBeDone and not tBeDone[1], "Break-even",
+alertcondition(e_BE and tBeDone and not tBeDone[1], "Break-even",
      "Part-way to target - stop moved to break-even")
 alertcondition(justWon,  "Trade won",  "Target hit at the far zone edge")
 alertcondition(justLost, "Trade lost", "Stopped out, -1R")
