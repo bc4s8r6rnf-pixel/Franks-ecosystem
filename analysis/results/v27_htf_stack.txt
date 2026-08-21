@@ -36,3 +36,163 @@ matched lanes: 60
   lower edge difference: median +0.00   mean +0.00   max |0.00|
   lanes where both edges agree within $0.50: 60/60 (100%)
 
+========================================================================================================================================================
+C. THE SAME BOOK, MEASURED IN R INSTEAD OF DOLLARS  (each close divided by its own
+   average 9pm range x book size, so 2004 and 2026 are comparable)
+========================================================================================================================================================
+
+  --- MT5 2004-2026 ---
+    4H ema2050               closes  548 (119W/429L  21.7%)  totR   -614.6  R/close -1.122  maxDD  634.6R  stack 12  worst heat  -87.77R  top3 =  14.7% of gains
+    4H px_e50                closes 1034 (240W/793L  23.2%)  totR  -1175.8  R/close -1.137  maxDD 1200.0R  stack 13  worst heat -107.09R  top3 =   7.3% of gains
+    4H px_e200               closes  510 (114W/395L  22.4%)  totR   -557.9  R/close -1.094  maxDD  564.4R  stack 12  worst heat -101.52R  top3 =  11.8% of gains
+    4H stack                 closes 1120 (242W/876L  21.6%)  totR  -1298.2  R/close -1.159  maxDD 1324.1R  stack 13  worst heat -107.09R  top3 =   8.1% of gains
+    4H super_                closes  871 (191W/679L  21.9%)  totR  -1013.7  R/close -1.164  maxDD 1038.6R  stack 12  worst heat -122.83R  top3 =  10.8% of gains
+    4H struct                closes 2853 (607W/2241L  21.3%)  totR  -3318.4  R/close -1.163  maxDD 3343.9R  stack 12  worst heat -132.09R  top3 =   3.9% of gains
+
+  --- MT5 2014+ ---
+    4H ema2050               closes  319 ( 72W/247L  22.6%)  totR   -321.5  R/close -1.008  maxDD  348.9R  stack 12  worst heat  -87.77R  top3 =  25.0% of gains
+    4H px_e50                closes  583 (132W/451L  22.6%)  totR   -660.1  R/close -1.132  maxDD  686.2R  stack 13  worst heat -107.09R  top3 =  15.5% of gains
+    4H px_e200               closes  282 ( 59W/223L  20.9%)  totR   -300.8  R/close -1.067  maxDD  308.6R  stack 12  worst heat -101.52R  top3 =  22.4% of gains
+    4H stack                 closes  563 (128W/435L  22.7%)  totR   -558.0  R/close -0.991  maxDD  585.5R  stack 13  worst heat -107.09R  top3 =  15.0% of gains
+    4H super_                closes  481 (106W/375L  22.0%)  totR   -518.7  R/close -1.078  maxDD  539.6R  stack 12  worst heat -122.83R  top3 =  22.5% of gains
+    4H struct                closes 1357 (293W/1064L  21.6%)  totR  -1411.7  R/close -1.040  maxDD 1433.8R  stack 12  worst heat -132.09R  top3 =   6.8% of gains
+
+  --- MT5 2020+ ---
+    4H ema2050               closes  163 ( 37W/126L  22.7%)  totR   -155.6  R/close -0.954  maxDD  180.0R  stack  9  worst heat  -26.19R  top3 =  34.7% of gains
+    4H px_e50                closes  279 ( 66W/213L  23.7%)  totR   -289.4  R/close -1.037  maxDD  318.1R  stack 10  worst heat  -50.14R  top3 =  23.2% of gains
+    4H px_e200               closes  125 ( 26W/ 99L  20.8%)  totR   -147.8  R/close -1.183  maxDD  159.2R  stack 10  worst heat  -23.17R  top3 =  30.4% of gains
+    4H stack                 closes  277 ( 63W/214L  22.7%)  totR   -267.7  R/close -0.967  maxDD  299.5R  stack  9  worst heat  -26.19R  top3 =  21.9% of gains
+    4H super_                closes  239 ( 58W/181L  24.3%)  totR   -226.1  R/close -0.946  maxDD  249.6R  stack 10  worst heat  -50.14R  top3 =  29.2% of gains
+    4H struct                closes  667 (140W/527L  21.0%)  totR   -700.4  R/close -1.050  maxDD  717.4R  stack 12  worst heat  -54.95R  top3 =  11.3% of gains
+
+  --- MT5 2024+ ---
+    4H ema2050               closes   59 ( 14W/ 45L  23.7%)  totR    -49.8  R/close -0.844  maxDD   68.9R  stack  8  worst heat  -14.81R  top3 =  78.6% of gains
+    4H px_e50                closes   77 ( 26W/ 51L  33.8%)  totR    -32.1  R/close -0.417  maxDD   55.5R  stack  8  worst heat  -20.46R  top3 =  51.7% of gains
+    4H px_e200               closes   41 ( 11W/ 30L  26.8%)  totR    -37.5  R/close -0.915  maxDD   43.1R  stack  8  worst heat  -23.17R  top3 =  62.8% of gains
+    4H stack                 closes   91 ( 22W/ 69L  24.2%)  totR    -64.6  R/close -0.710  maxDD   89.6R  stack  8  worst heat  -23.17R  top3 =  53.0% of gains
+    4H super_                closes   73 ( 20W/ 53L  27.4%)  totR    -54.5  R/close -0.746  maxDD   72.4R  stack  9  worst heat  -25.50R  top3 =  65.2% of gains
+    4H struct                closes  193 ( 49W/144L  25.4%)  totR   -167.8  R/close -0.870  maxDD  187.7R  stack  9  worst heat  -25.93R  top3 =  29.0% of gains
+
+  --- FX May-Aug 2026 ---
+    4H ema2050               closes   14 (  3W/ 11L  21.4%)  totR    -26.7  R/close -1.907  maxDD   24.0R  stack  7  worst heat  -10.55R  top3 = 100.0% of gains
+    4H px_e50                closes   16 (  3W/ 13L  18.8%)  totR    -27.2  R/close -1.702  maxDD   25.2R  stack  7  worst heat  -12.85R  top3 = 100.0% of gains
+    4H px_e200               closes    4 (  2W/  2L  50.0%)  totR     -3.0  R/close -0.743  maxDD    1.6R  stack  7  worst heat   -5.95R  top3 =  36.5% of gains
+    4H stack                 closes   16 (  3W/ 13L  18.8%)  totR    -30.3  R/close -1.896  maxDD   27.6R  stack  7  worst heat  -15.84R  top3 = 100.0% of gains
+    4H super_                closes   10 (  3W/  7L  30.0%)  totR    -16.4  R/close -1.641  maxDD   13.7R  stack  7  worst heat  -15.84R  top3 = 100.0% of gains
+    4H struct                closes   18 (  4W/ 14L  22.2%)  totR    -27.3  R/close -1.517  maxDD   34.2R  stack  7  worst heat  -21.13R  top3 =  96.0% of gains
+
+========================================================================================================================================================
+D. HOW CONCENTRATED IS THE PROFIT?  (4H px_e50, full history)
+========================================================================================================================================================
+  1034 book closes, total -1175.8 R
+  best 1    +21.9 R   best 5   +76.0 R   best 10  +129.9 R   best 25  +241.3 R
+  remove the best 10 closes -> total -1305.6 R
+  remove the best 25 closes -> total -1417.1 R
+  median close -1.959 R   mean -1.137 R
+
+  the ten biggest wins:
+    2026-01-23  book of  8    +21.9 R
+    2014-11-04  book of  8    +14.0 R
+    2006-07-06  book of  3    +13.6 R
+    2008-05-30  book of  3    +13.3 R
+    2017-03-10  book of  7    +13.3 R
+    2007-01-03  book of  4    +11.9 R
+    2017-05-05  book of 10    +11.1 R
+    2005-10-07  book of  2    +11.0 R
+    2008-12-18  book of  7    +10.5 R
+    2009-10-08  book of  4     +9.4 R
+
+========================================================================================================================================================
+E. CAN CAPPING THE BOOK OR STOPPING THE HEAT FIX IT?  (4H px_e50)
+========================================================================================================================================================
+    max stack 1              closes 1034 (322W/711L  31.1%)  totR   +424.5  R/close +0.411  maxDD   97.2R  stack  1  worst heat  -88.27R  top3 =   7.8% of gains
+    max stack 2              closes 1034 (264W/769L  25.5%)  totR   -468.2  R/close -0.453  maxDD  546.0R  stack  2  worst heat  -88.49R  top3 =   9.2% of gains
+    max stack 3              closes 1034 (244W/789L  23.6%)  totR   -872.6  R/close -0.844  maxDD  925.8R  stack  3  worst heat -106.93R  top3 =   8.7% of gains
+    max stack 5              closes 1034 (241W/792L  23.3%)  totR  -1049.1  R/close -1.015  maxDD 1090.5R  stack  5  worst heat -104.75R  top3 =   9.0% of gains
+    max stack 8              closes 1034 (240W/793L  23.2%)  totR  -1156.6  R/close -1.119  maxDD 1180.8R  stack  8  worst heat -134.88R  top3 =   7.7% of gains
+    max stack None           closes 1034 (240W/793L  23.2%)  totR  -1175.8  R/close -1.137  maxDD 1200.0R  stack 13  worst heat -107.09R  top3 =   7.3% of gains
+
+    heat stop 2R/unit        closes 1058 (374W/683L  35.3%)  totR   -384.2  R/close -0.363  maxDD  423.1R  stack 10  worst heat  -14.67R  top3 =   4.4% of gains
+    heat stop 4R/unit        closes 1036 (302W/733L  29.2%)  totR   -545.8  R/close -0.527  maxDD  590.7R  stack 10  worst heat  -30.37R  top3 =   3.9% of gains
+    heat stop 8R/unit        closes 1034 (253W/780L  24.5%)  totR   -705.5  R/close -0.682  maxDD  729.7R  stack 10  worst heat  -73.78R  top3 =   5.0% of gains
+    heat stop 15R/unit       closes 1034 (241W/792L  23.3%)  totR   -864.5  R/close -0.836  maxDD  888.8R  stack 12  worst heat -107.62R  top3 =   7.9% of gains
+    heat stop NoneR/unit     closes 1034 (240W/793L  23.2%)  totR  -1175.8  R/close -1.137  maxDD 1200.0R  stack 13  worst heat -107.09R  top3 =   7.3% of gains
+
+============================================================================================================================================
+F. ONE UNIT AT A TIME  -  no stacking. Enter at the lane open in the 4H direction,
+   hold until an opposing box trades. This was the only positive cell in section E.
+============================================================================================================================================
+  variant                        n      W      L    win%       PF      avgR      medR       totR      maxDD    hold
+    4H ema2050                2882   888W  1990L   30.8% PF  1.31 avgR +0.508 medR -1.665 totR  +1462.9 maxDD  109.8R hold  0.9d
+    4H px_e50                 2843   907W  1933L   31.9% PF  1.36 avgR +0.589 medR -1.702 totR  +1675.9 maxDD  141.8R hold  0.9d
+    4H px_e200                2884   913W  1968L   31.7% PF  1.33 avgR +0.539 medR -1.652 totR  +1554.2 maxDD   92.1R hold  0.9d
+    4H stack                  2148   676W  1469L   31.5% PF  1.39 avgR +0.634 medR -1.689 totR  +1361.7 maxDD  103.2R hold  0.9d
+    4H super_                 2847   906W  1936L   31.8% PF  1.35 avgR +0.568 medR -1.687 totR  +1618.2 maxDD  139.4R hold  0.9d
+    4H struct                  931   318W   612L   34.2% PF  1.38 avgR +0.568 medR -1.520 totR   +529.0 maxDD   90.1R hold  1.0d
+
+  best definition (px_e50) by era:
+    2004-2009                  899   274W   622L   30.5% PF  1.53 avgR +0.961 medR -1.875 totR   +864.0 maxDD   89.6R hold  0.5d
+    2010-2014                  682   220W   462L   32.3% PF  1.24 avgR +0.396 medR -1.680 totR   +270.3 maxDD   79.1R hold  0.9d
+    2015-2019                  581   182W   399L   31.3% PF  1.19 avgR +0.299 medR -1.619 totR   +173.9 maxDD  141.8R hold  1.2d
+    2020-2023                  479   158W   321L   33.0% PF  1.15 avgR +0.231 medR -1.651 totR   +110.7 maxDD   55.5R hold  1.2d
+    2024-2026                  202    73W   129L   36.1% PF  1.90 avgR +1.272 medR -1.258 totR   +256.9 maxDD   40.8R hold  1.5d
+    FX May-Aug 2026             22     5W    17L   22.7% PF  0.70 avgR -0.573 medR -1.811 totR    -12.6 maxDD   27.3R hold  1.7d
+
+  with a $0.25 round trip:
+    2004-2026 net             2843   887W  1956L   31.2% PF  1.22 avgR +0.393 medR -1.876 totR  +1116.3 maxDD  175.0R hold  0.9d
+    2024+ net                  202    72W   130L   35.6% PF  1.85 avgR +1.228 medR -1.281 totR   +248.0 maxDD   43.4R hold  1.5d
+
+  taking profit at the trend-side box instead of holding:
+    target the trend box      4656  2449W  2200L   52.6% PF  1.09 avgR +0.090 medR +0.479 totR   +421.3 maxDD   95.6R hold  0.2d
+
+  capping the hold:
+    max hold 1 days           3689  1228W  2456L   33.3% PF  1.27 avgR +0.431 medR -1.583 totR  +1590.2 maxDD  178.6R hold  0.5d
+    max hold 2 days           3222  1036W  2183L   32.2% PF  1.33 avgR +0.537 medR -1.684 totR  +1729.3 maxDD  146.4R hold  0.7d
+    max hold 3 days           3015   977W  2034L   32.4% PF  1.35 avgR +0.573 medR -1.690 totR  +1728.6 maxDD  147.4R hold  0.8d
+    max hold 5 days           2895   925W  1967L   32.0% PF  1.35 avgR +0.583 medR -1.692 totR  +1686.7 maxDD  156.1R hold  0.9d
+    max hold 10 days          2847   907W  1937L   31.9% PF  1.36 avgR +0.588 medR -1.706 totR  +1675.3 maxDD  141.8R hold  0.9d
+    max hold None days        2843   907W  1933L   31.9% PF  1.36 avgR +0.589 medR -1.702 totR  +1675.9 maxDD  141.8R hold  0.9d
+
+  exit reasons (px_e50, no caps):
+    {'opposing box': 2843}
+
+============================================================================================================================================
+G. IS IT JUST 'GOLD WENT UP'?  and how concentrated is the tail?
+============================================================================================================================================
+  LONGS only     n  1602  win  33.1%  PF  1.54  avgR +0.870  totR  +1393.5
+  SHORTS only    n  1241  win  30.3%  PF  1.13  avgR +0.228  totR   +282.3
+
+  all trades: totR +1675.9
+  best 1  +80.7R   best 10  +498.1R   best 50 +1630.3R   best 100 +2565.8R
+  remove the best 10  -> totR  +1177.8
+  remove the best 50  -> totR    +45.6
+  remove the best 100 -> totR   -889.9   (3.5% of trades carry this much)
+
+  worst single trade -27.5R    5th percentile -4.1R
+  loss distribution: median loss -2.34R  worst 1% -6.4R
+  win  distribution: median win  +4.41R  best 1% +27.5R
+
+  by year:
+    2004  n   87  win  26.4%  PF  1.24  totR    +36.4
+    2005  n  160  win  28.1%  PF  1.15  totR    +48.4
+    2006  n  160  win  30.6%  PF  1.40  totR   +116.9
+    2007  n  166  win  32.5%  PF  1.83  totR   +239.2
+    2008  n  164  win  29.9%  PF  1.68  totR   +190.0
+    2009  n  162  win  33.3%  PF  1.80  totR   +233.1
+    2010  n  164  win  30.5%  PF  1.07  totR    +20.8
+    2011  n  139  win  33.1%  PF  1.47  totR   +107.5
+    2012  n  137  win  28.5%  PF  0.81  totR    -46.7
+    2013  n  120  win  36.7%  PF  1.61  totR   +110.7
+    2014  n  122  win  33.6%  PF  1.45  totR    +78.1
+    2015  n  116  win  37.1%  PF  1.38  totR    +66.0
+    2016  n  106  win  34.9%  PF  1.37  totR    +52.1
+    2017  n  113  win  37.2%  PF  1.83  totR   +135.8
+    2018  n  117  win  25.6%  PF  0.70  totR    -63.1
+    2019  n  129  win  23.3%  PF  0.93  totR    -16.8
+    2020  n  114  win  33.3%  PF  1.21  totR    +33.1
+    2021  n  114  win  32.5%  PF  0.93  totR    -13.3
+    2022  n  127  win  33.9%  PF  1.23  totR    +44.9
+    2023  n  124  win  32.3%  PF  1.24  totR    +46.0
+    2024  n  113  win  32.7%  PF  1.18  totR    +33.2
+    2025  n   86  win  39.5%  PF  2.88  totR   +190.6
+    2026  n    3  win  66.7%  PF 16.60  totR    +33.2
