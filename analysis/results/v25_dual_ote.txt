@@ -1,0 +1,184 @@
+========================================================================================================================================
+A. THE RULE AS SPECIFIED  -  zones armed at midnight, 2024 to 2026-01-30
+========================================================================================================================================
+  variant                               n     W     L    BE    win%       PF       RR        risk      avgR       totR       DD
+    0.62 trigger, hold to target      396  118W  278L   0BE   29.8% PF  0.86 RR  2.34 risk $ 15.99 avgR -0.101 totR   -39.8 DD  42.2
+    0.79 trigger (deeper)             422   64W  358L   0BE   15.2% PF  0.84 RR  5.05 risk $  7.65 avgR -0.139 totR   -58.8 DD  59.9
+    0.62, flat at end of lane         396  136W  260L   0BE   34.3% PF  0.73 RR  2.34 risk $ 15.99 avgR -0.165 totR   -65.4 DD  67.8
+
+  what happens on the days with no trade:
+    filled                     396
+    already in a zone          100
+    neither zone tapped        10
+
+========================================================================================================================================
+B. WHEN ARE THE ZONES ARMED?  (hours from midnight NY)
+========================================================================================================================================
+  variant                               n     W     L    BE    win%       PF       RR        risk      avgR       totR       DD
+    00:00 - 24:00  all day            396  118W  278L   0BE   29.8% PF  0.86 RR  2.34 risk $ 15.99 avgR -0.101 totR   -39.8 DD  42.2
+    00:00 - 12:00                     387  114W  273L   0BE   29.5% PF  0.85 RR  2.34 risk $ 15.52 avgR -0.104 totR   -40.3 DD  42.6
+    00:00 - 08:00  pre-NY only        357   99W  258L   0BE   27.7% PF  0.79 RR  2.34 risk $ 14.10 avgR -0.150 totR   -53.5 DD  55.8
+    02:00 - 12:00                     304   99W  205L   0BE   32.6% PF  0.99 RR  2.34 risk $ 16.29 avgR -0.007 totR    -2.0 DD  15.7
+    03:00 - 11:00                     268   88W  180L   0BE   32.8% PF  0.99 RR  2.34 risk $ 16.24 avgR -0.006 totR    -1.5 DD  24.8
+    07:00 - 16:00  NY session         218   74W  144L   0BE   33.9% PF  1.03 RR  2.34 risk $ 17.69 avgR +0.021 totR    +4.6 DD  16.7
+    08:00 - 12:00  NY morning         195   65W  130L   0BE   33.3% PF  1.01 RR  2.34 risk $ 17.42 avgR +0.007 totR    +1.5 DD  19.2
+    08:00 - 16:00                     205   69W  136L   0BE   33.7% PF  1.00 RR  2.34 risk $ 18.55 avgR +0.002 totR    +0.4 DD  19.2
+    04:00 - 12:00                     241   74W  167L   0BE   30.7% PF  0.91 RR  2.34 risk $ 16.85 avgR -0.063 totR   -15.1 DD  38.0
+    00:00 - 04:00                     308   80W  228L   0BE   26.0% PF  0.74 RR  2.34 risk $ 13.75 avgR -0.192 totR   -59.2 DD  61.5
+    06:00 - 10:00                     184   62W  122L   0BE   33.7% PF  1.05 RR  2.34 risk $ 15.49 avgR +0.035 totR    +6.4 DD  17.4
+    09:00 - 13:00                     175   62W  113L   0BE   35.4% PF  1.11 RR  2.34 risk $ 18.48 avgR +0.072 totR   +12.5 DD  12.2
+    12:00 - 20:00                     116   44W   72L   0BE   37.9% PF  1.26 RR  2.34 risk $ 17.54 avgR +0.161 totR   +18.6 DD  18.4
+
+========================================================================================================================================
+C. BREAK-EVEN FILTER  -  move the stop to entry once this much is in favour
+========================================================================================================================================
+  variant                               n     W     L    BE    win%       PF       RR        risk      avgR       totR       DD
+    no break-even                     396  118W  278L   0BE   29.8% PF  0.86 RR  2.34 risk $ 15.99 avgR -0.101 totR   -39.8 DD  42.2
+    BE after $5 (50 pips)             396   32W  128L 236BE    8.1% PF  0.53 RR  2.34 risk $ 15.99 avgR -0.150 totR   -59.6 DD  60.2
+    BE after $10 (100 pips)           396   68W  192L 136BE   17.2% PF  0.74 RR  2.34 risk $ 15.99 avgR -0.127 totR   -50.4 DD  52.1
+    BE after $15 (150 pips)           396   88W  227L  81BE   22.2% PF  0.81 RR  2.34 risk $ 15.99 avgR -0.108 totR   -42.8 DD  42.8
+    BE after $20 (200 pips)           396  100W  245L  51BE   25.3% PF  0.85 RR  2.34 risk $ 15.99 avgR -0.090 totR   -35.8 DD  38.1
+    BE after $25 (250 pips)           396  107W  258L  31BE   27.0% PF  0.87 RR  2.34 risk $ 15.99 avgR -0.086 totR   -34.2 DD  38.3
+    BE after $30 (300 pips)           396  111W  266L  19BE   28.0% PF  0.85 RR  2.34 risk $ 15.99 avgR -0.100 totR   -39.5 DD  43.5
+    BE after $40 (400 pips)           396  113W  271L  12BE   28.5% PF  0.85 RR  2.34 risk $ 15.99 avgR -0.101 totR   -39.8 DD  43.9
+    BE after $50 (500 pips)           396  115W  275L   6BE   29.0% PF  0.85 RR  2.34 risk $ 15.99 avgR -0.103 totR   -40.6 DD  43.7
+
+========================================================================================================================================
+D. WITH COSTS, AND THE SAME RULE ON THE FULL HISTORY
+========================================================================================================================================
+  variant                               n     W     L    BE    win%       PF       RR        risk      avgR       totR       DD
+    2024-2026  gross                  396  118W  278L   0BE   29.8% PF  0.86 RR  2.34 risk $ 15.99 avgR -0.101 totR   -39.8 DD  42.2
+    2024-2026  net $0.25              396  118W  278L   0BE   29.8% PF  0.82 RR  2.34 risk $ 15.99 avgR -0.127 totR   -50.2 DD  52.6
+    2024-2026  net $0.50              396  118W  278L   0BE   29.8% PF  0.79 RR  2.34 risk $ 15.99 avgR -0.153 totR   -60.7 DD  63.0
+    2004-2026 gross                  4184 1222W 2962L   0BE   29.2% PF  0.91 RR  2.34 risk $  5.74 avgR -0.065 totR  -271.1 DD 283.6
+    2004-2014 gross                  1666  455W 1211L   0BE   27.3% PF  0.85 RR  2.34 risk $  3.68 avgR -0.107 totR  -178.3 DD 199.5
+    2014-2020 gross                  1270  394W  876L   0BE   31.0% PF  0.99 RR  2.34 risk $  4.28 avgR -0.004 totR    -4.7 DD  75.3
+    2020-2024 gross                   852  255W  597L   0BE   29.9% PF  0.92 RR  2.34 risk $  7.21 avgR -0.057 totR   -48.3 DD  54.9
+    2024-2026 gross                   396  118W  278L   0BE   29.8% PF  0.86 RR  2.34 risk $ 15.99 avgR -0.101 totR   -39.8 DD  42.2
+
+    2024                              206   58W  148L   0BE   28.2% PF  0.83 RR  2.34 risk $  9.85 avgR -0.123 totR   -25.4 DD  37.4
+    2025                              179   57W  122L   0BE   31.8% PF  0.89 RR  2.34 risk $ 21.91 avgR -0.075 totR   -13.5 DD  18.6
+    2026                               11    3W    8L   0BE   27.3% PF  0.88 RR  2.34 risk $ 34.60 avgR -0.089 totR    -1.0 DD   5.0
+
+E. WHY IT LOSES  -  which side does the tap put you on?
+========================================================================================================================================
+  dual-OTE trades that AGREE with the 04:00 direction call :   65 (16.4%)
+  dual-OTE trades that OPPOSE it                          :  331 (83.6%)
+
+  Tapping the LOWER zone means price has fallen half a box-range below the box.
+  At that moment the lower zone is the nearer one, so your own direction engine
+  calls SELL - and this rule makes you BUY. It is a systematic inversion of the
+  one component in this project that has a measured 71.5% edge.
+
+========================================================================================================================================
+F. THE INVERSION  -  treat the tap as a BREAKOUT instead of a discount
+========================================================================================================================================
+  variant                               n     W     L    BE    win%       PF       RR        risk      avgR       totR       DD
+    revert: tap low -> BUY far edge   396  118W  278L   0BE   29.8% PF  0.86 RR  2.34 risk $ 15.99 avgR -0.101 totR   -39.8 DD  42.2
+    break:  tap low -> SELL near edge  396  215W  181L   0BE   54.3% PF  1.18 RR  0.99 risk $ 16.07 avgR +0.081 totR   +32.2 DD   9.8
+    break:  stop on the 2.0 anchor    396  278W  118L   0BE   70.2% PF  1.17 RR  0.43 risk $ 37.44 avgR +0.043 totR   +17.0 DD   7.3
+    revert: target the box edge       396  181W  215L   0BE   45.7% PF  0.85 RR  1.01 risk $ 15.99 avgR -0.082 totR   -32.3 DD  34.4
+    break:  target the box edge      no trades
+
+  the breakout version on the full history:
+    break 2004-2014                  1666  904W  762L   0BE   54.3% PF  1.18 RR  0.99 risk $  3.70 avgR +0.082 totR  +136.9 DD  27.5
+    break 2014-2020                  1270  651W  619L   0BE   51.3% PF  1.05 RR  0.99 risk $  4.30 avgR +0.023 totR   +29.4 DD  32.1
+    break 2020-2024                   852  431W  421L   0BE   50.6% PF  1.02 RR  0.99 risk $  7.24 avgR +0.007 totR    +6.4 DD  36.8
+    break 2024-2026                   396  215W  181L   0BE   54.3% PF  1.18 RR  0.99 risk $ 16.07 avgR +0.081 totR   +32.2 DD   9.8
+    break 2004-2026                  4184 2201W 1983L   0BE   52.6% PF  1.10 RR  0.99 risk $  5.77 avgR +0.049 totR  +204.9 DD  36.8
+
+    break 2024-26 net $0.25           396  215W  181L   0BE   54.3% PF  1.12 RR  0.99 risk $ 16.07 avgR +0.055 totR   +21.8 DD  12.3
+
+========================================================================================================================================
+G. BEST TIME WINDOW FOR THE BREAKOUT VERSION
+========================================================================================================================================
+  variant                               n     W     L    BE    win%       PF       RR        risk      avgR       totR       DD
+    00:00-24:00                       396  215W  181L   0BE   54.3% PF  1.18 RR  0.99 risk $ 16.07 avgR +0.081 totR   +32.2 DD   9.8
+    00:00-12:00                       387  212W  175L   0BE   54.8% PF  1.20 RR  0.99 risk $ 15.60 avgR +0.091 totR   +35.2 DD   8.7
+    02:00-12:00                       304  156W  148L   0BE   51.3% PF  1.04 RR  0.99 risk $ 16.38 avgR +0.017 totR    +5.3 DD  15.8
+    07:00-16:00 NY                    218  108W  110L   0BE   49.5% PF  0.97 RR  0.99 risk $ 17.79 avgR -0.017 totR    -3.7 DD  16.5
+    08:00-12:00                       195   98W   97L   0BE   50.3% PF  1.00 RR  0.99 risk $ 17.51 avgR -0.002 totR    -0.5 DD  10.2
+    09:00-13:00                       175   85W   90L   0BE   48.6% PF  0.93 RR  0.99 risk $ 18.58 avgR -0.036 totR    -6.4 DD  16.1
+    12:00-20:00                       116   52W   64L   0BE   44.8% PF  0.80 RR  0.99 risk $ 17.63 avgR -0.107 totR   -12.4 DD  21.3
+    00:00-08:00                       357  199W  158L   0BE   55.7% PF  1.26 RR  0.99 risk $ 14.17 avgR +0.113 totR   +40.2 DD   6.6
+
+H. THE BREAKOUT VERSION, FULL HISTORY, WITH COSTS AND A SIGNIFICANCE TEST
+========================================================================================================================================
+  variant                               n     W     L    BE    win%       PF       RR        risk      avgR       totR       DD
+    2004-2026 all gross              4184 2201W 1983L   0BE   52.6% PF  1.10 RR  0.99 risk $  5.77 avgR +0.049 totR  +204.9 DD  36.8
+    2004-2026 all net $0.25          4184 2201W 1983L   0BE   52.6% PF  0.91 RR  0.99 risk $  5.77 avgR -0.045 totR  -186.6 DD 215.8
+    2004-2013 gross                  1666  904W  762L   0BE   54.3% PF  1.18 RR  0.99 risk $  3.70 avgR +0.082 totR  +136.9 DD  27.5
+    2004-2013 net $0.25              1666  904W  762L   0BE   54.3% PF  0.88 RR  0.99 risk $  3.70 avgR -0.065 totR  -108.9 DD 154.3
+    2014-2019 gross                  1270  651W  619L   0BE   51.3% PF  1.05 RR  0.99 risk $  4.30 avgR +0.023 totR   +29.4 DD  32.1
+    2014-2019 net $0.25              1270  651W  619L   0BE   51.3% PF  0.90 RR  0.99 risk $  4.30 avgR -0.054 totR   -69.0 DD  81.6
+    2020-2023 gross                   852  431W  421L   0BE   50.6% PF  1.02 RR  0.99 risk $  7.24 avgR +0.007 totR    +6.4 DD  36.8
+    2020-2023 net $0.25               852  431W  421L   0BE   50.6% PF  0.93 RR  0.99 risk $  7.24 avgR -0.036 totR   -30.5 DD  61.9
+    2024-2026 gross                   396  215W  181L   0BE   54.3% PF  1.18 RR  0.99 risk $ 16.07 avgR +0.081 totR   +32.2 DD   9.8
+    2024-2026 net $0.25               396  215W  181L   0BE   54.3% PF  1.12 RR  0.99 risk $ 16.07 avgR +0.055 totR   +21.8 DD  12.3
+
+  2004-2026: win 52.6%  break-even needs 50.1%  z +3.20  significant
+
+  2024-2026: win 54.3%  break-even needs 50.1%  z +1.66  INSIDE NOISE
+
+========================================================================================================================================
+I. THE 00:00-08:00 WINDOW, STRESSED BY ERA
+========================================================================================================================================
+  variant                               n     W     L    BE    win%       PF       RR        risk      avgR       totR       DD
+    2004-2013 gross                  1630  886W  744L   0BE   54.4% PF  1.18 RR  0.99 risk $  3.57 avgR +0.084 totR  +137.1 DD  28.5
+    2004-2013 net $0.25              1630  886W  744L   0BE   54.4% PF  0.88 RR  0.99 risk $  3.57 avgR -0.066 totR  -107.2 DD 156.5
+    2014-2019 gross                  1146  586W  560L   0BE   51.1% PF  1.04 RR  0.99 risk $  3.93 avgR +0.020 totR   +23.5 DD  32.1
+    2014-2019 net $0.25              1146  586W  560L   0BE   51.1% PF  0.88 RR  0.99 risk $  3.93 avgR -0.061 totR   -69.9 DD  72.4
+    2020-2023 gross                   794  404W  390L   0BE   50.9% PF  1.03 RR  0.99 risk $  7.05 avgR +0.015 totR   +11.8 DD  25.2
+    2020-2023 net $0.25               794  404W  390L   0BE   50.9% PF  0.94 RR  0.99 risk $  7.05 avgR -0.029 totR   -23.4 DD  49.3
+    2024-2026 gross                   357  199W  158L   0BE   55.7% PF  1.26 RR  0.99 risk $ 14.17 avgR +0.113 totR   +40.2 DD   6.6
+    2024-2026 net $0.25               357  199W  158L   0BE   55.7% PF  1.19 RR  0.99 risk $ 14.17 avgR +0.085 totR   +30.2 DD   8.4
+    all gross                        3927 2075W 1852L   0BE   52.8% PF  1.12 RR  0.99 risk $  5.34 avgR +0.054 totR  +212.5 DD  36.5
+    all net $0.25                    3927 2075W 1852L   0BE   52.8% PF  0.92 RR  0.99 risk $  5.34 avgR -0.043 totR  -170.2 DD 206.9
+
+  win 52.8%  needs 50.1%  z +3.39  significant
+
+========================================================================================================================================
+J. REFINEMENTS  (2024-2026)
+========================================================================================================================================
+  variant                               n     W     L    BE    win%       PF       RR        risk      avgR       totR       DD
+    breakout, as is                   396  215W  181L   0BE   54.3% PF  1.18 RR  0.99 risk $ 16.07 avgR +0.081 totR   +32.2 DD   9.8
+    + only if it agrees with the call  331  196W  135L   0BE   59.2% PF  1.45 RR  0.99 risk $ 15.74 avgR +0.182 totR   +60.2 DD   6.6
+    + confidence >= 0.15              212  146W   66L   0BE   68.9% PF  2.22 RR  0.99 risk $ 13.25 avgR +0.377 totR   +79.9 DD   4.0
+    + confidence >= 0.25              132  108W   24L   0BE   81.8% PF  4.60 RR  0.99 risk $ 12.34 avgR +0.637 totR   +84.1 DD   2.0
+
+    stop 0.50 R from entry            396   82W  314L   0BE   20.7% PF  0.78 RR  2.99 risk $  5.34 avgR -0.173 totR   -68.6 DD  77.6
+    stop 0.75 R from entry            396  138W  258L   0BE   34.8% PF  1.06 RR  1.99 risk $  8.01 avgR +0.039 totR   +15.4 DD  28.2
+    stop 1.00 R from entry            396  170W  226L   0BE   42.9% PF  1.12 RR  1.50 risk $ 10.69 avgR +0.066 totR   +26.2 DD  12.5
+    stop 1.50 R from entry            396  215W  181L   0BE   54.3% PF  1.18 RR  1.00 risk $ 16.03 avgR +0.083 totR   +32.7 DD   9.6
+
+    target 0.75 R from entry          396  271W  125L   0BE   68.4% PF  1.09 RR  0.50 risk $ 16.07 avgR +0.027 totR   +10.7 DD  14.1
+    target 1.00 R from entry          396  249W  147L   0BE   62.9% PF  1.13 RR  0.66 risk $ 16.07 avgR +0.047 totR   +18.5 DD   9.2
+    target 1.50 R from entry          396  214W  182L   0BE   54.0% PF  1.17 RR  1.00 risk $ 16.07 avgR +0.078 totR   +30.7 DD   9.6
+    target 2.00 R from entry          396  177W  219L   0BE   44.7% PF  1.06 RR  1.33 risk $ 16.07 avgR +0.034 totR   +13.5 DD  10.8
+    target 3.00 R from entry          396  141W  255L   0BE   35.6% PF  1.03 RR  1.99 risk $ 16.07 avgR +0.018 totR    +7.3 DD  27.6
+
+    2024                              194  111W   83L   0BE   57.2% PF  1.33 RR  0.99 risk $  9.31 avgR +0.140 totR   +27.1 DD   5.0
+    2025                              152   83W   69L   0BE   54.6% PF  1.21 RR  0.99 risk $ 18.88 avgR +0.093 totR   +14.1 DD   6.5
+    2026                               11    5W    6L   0BE   45.5% PF  0.83 RR  0.99 risk $ 34.78 avgR -0.093 totR    -1.0 DD   2.0
+
+========================================================================================================================================
+K. THE REFINEMENTS, LOOK-AHEAD REMOVED  -  zones armed at 04:00, filter read at 04:00
+========================================================================================================================================
+  In section J the filter was read at 04:00 but the fill could happen at 02:00,
+  so the filter was told what price did after the entry. Arming at 04:00 fixes it.
+
+  variant                               n     W     L    BE    win%       PF       RR        risk      avgR       totR       DD
+    2024-2026 breakout, armed 04:00   251  132W  119L   0BE   52.6% PF  1.09 RR  0.99 risk $ 17.73 avgR +0.041 totR   +10.2 DD  18.7
+    2024-2026  + agrees with the call  189   99W   90L   0BE   52.4% PF  1.08 RR  0.99 risk $ 17.14 avgR +0.039 totR    +7.3 DD  14.7
+    2024-2026  + confidence >= 0.15    48   28W   20L   0BE   58.3% PF  1.39 RR  0.99 risk $ 13.94 avgR +0.164 totR    +7.9 DD   4.0
+    2024-2026  + confidence >= 0.25  no trades
+    2024-2026  + call + conf >= 0.15 net   47   28W   19L   0BE   59.6% PF  1.39 RR  0.99 risk $ 14.01 avgR +0.163 totR    +7.7 DD   4.3
+
+    2004-2026 breakout, armed 04:00  2479 1305W 1174L   0BE   52.6% PF  1.10 RR  0.99 risk $  6.44 avgR +0.049 totR  +121.0 DD  30.9
+    2004-2026  + agrees with the call 1832  987W  845L   0BE   53.9% PF  1.16 RR  0.99 risk $  6.46 avgR +0.073 totR  +133.7 DD  34.9
+    2004-2026  + confidence >= 0.15   552  295W  257L   0BE   53.4% PF  1.14 RR  0.99 risk $  5.67 avgR +0.066 totR   +36.6 DD  17.9
+    2004-2026  + confidence >= 0.25  no trades
+    2004-2026  + call + conf >= 0.15 net  506  273W  233L   0BE   54.0% PF  0.98 RR  0.99 risk $  5.79 avgR -0.012 totR    -6.2 DD  30.4
+
+  and the leaky versions from J, for comparison:
+    2024-26 conf>=0.25 armed 00:00 (LEAKY)  132  108W   24L   0BE   81.8% PF  4.60 RR  0.99 risk $ 12.34 avgR +0.637 totR   +84.1 DD   2.0
