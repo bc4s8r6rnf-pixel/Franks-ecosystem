@@ -1,3 +1,4 @@
 __pycache__/
 *.pyc
 analysis/data_XAU_15m_2004_2026.csv
+analysis/*.pkl
