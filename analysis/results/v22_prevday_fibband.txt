@@ -1,0 +1,152 @@
+undecided-at-04:00 rows 2482   04:00 call 71.60%
+
+====================================================================================================
+O. PREVIOUS-DAY FEATURES, univariate, ranked by train AUC
+====================================================================================================
+  feature         trainAUC   testAUC  trainACC   testACC  verdict
+  pos_zone           0.774     0.775     71.1%     71.8%  HOLDS
+  v_p_close          0.660     0.696     62.9%     66.1%  HOLDS
+  in_p_rng           0.585     0.619     57.9%     57.7%  HOLDS
+  v_p_mid            0.566     0.598     55.8%     56.9%  HOLDS
+  v_p_high           0.565     0.595     57.1%     57.2%  HOLDS
+  v_p_low            0.559     0.598     54.2%     57.2%  HOLDS
+  sweep_pd           0.549     0.577     55.0%     53.7%  HOLDS
+  box_shift          0.467     0.477     53.1%     50.0%  flat
+  p_hit              0.477     0.481     52.2%     51.8%  flat
+  p_body             0.479     0.493     52.6%     50.6%  flat
+  R_ratio            0.518     0.479     54.0%     46.1%  flips
+  miss_dist          0.485     0.489     52.7%     49.9%  flat
+  p_rng_exp          0.491     0.500     52.4%     47.0%  flips
+  p_over             0.509     0.482     52.4%     46.8%  flips
+  conf               0.509     0.518     52.7%     50.1%  flat
+  box_ovlp           0.507     0.510     52.5%     47.8%  flat
+  p_close_pos        0.494     0.504     51.9%     48.5%  flips
+  inside             0.504     0.497     52.4%     46.7%  flips
+  streak             0.497     0.474     52.2%     51.8%  flat
+  p_rng_R            0.503     0.510     51.7%     46.9%  flat
+  miss_side          0.497     0.494     52.0%     46.9%  flat
+
+====================================================================================================
+P. DO THEY ADD CONFLUENCE?  accuracy of the 04:00 call, split by each prev-day feature
+====================================================================================================
+  feature / split                  n lo   acc lo   n hi   acc hi      gap  2018-26 gap
+  p_close_pos                      1241   70.02%   1241   73.17%   +3.14pp       +1.57pp
+  p_body                           1241   71.47%   1241   71.72%   +0.24pp       -1.44pp
+  p_rng_R                          1241   74.62%   1241   68.57%   -6.04pp       -9.58pp
+  p_rng_exp                        1241   71.39%   1241   71.80%   +0.40pp       -0.91pp
+  p_hit                            1249   71.50%   1233   71.70%   +0.20pp       +0.40pp
+  p_over                           1241   73.41%   1241   69.78%   -3.63pp       -6.91pp
+  v_p_high                         1241   70.59%   1241   72.60%   +2.01pp       +1.54pp
+  v_p_low                          1241   72.93%   1241   70.27%   -2.66pp       -3.71pp
+  v_p_close                        1241   71.31%   1241   71.88%   +0.56pp       +2.68pp
+  v_p_mid                          1241   71.80%   1241   71.39%   -0.40pp       -0.25pp
+  in_p_rng                         1241   71.72%   1241   71.47%   -0.24pp       -0.86pp
+  sweep_pd                         1996   71.44%    486   72.22%   +0.78pp       -0.58pp
+  box_shift                        1241   71.56%   1241   71.64%   +0.08pp       +0.06pp
+  box_ovlp                         1241   71.23%   1241   71.96%   +0.73pp       +2.11pp
+  R_ratio                          1241   69.38%   1241   73.81%   +4.43pp       +4.01pp
+  miss_side                        1266   71.48%   1216   71.71%   +0.23pp       -0.18pp
+  miss_dist                        1241   73.49%   1241   69.70%   -3.79pp       -3.31pp
+  streak                           1249   71.50%   1233   71.70%   +0.20pp       +0.40pp
+
+====================================================================================================
+Q. AGREEMENT: does yesterday's UNTOUCHED zone edge point the same way as today's call?
+====================================================================================================
+  call agrees with the unfilled edge     n  1206 (48.6%)  acc  71.64%   2018-26  73.91%
+  call opposes the unfilled edge         n  1276 (51.4%)  acc  71.55%   2018-26  71.48%
+
+  layered on the confidence filter (|pos-0.5| >= 0.15):
+  agrees with unfilled edge              n   582  acc  81.79%   2018-26  81.74%
+  opposes                                n   644  acc  78.88%   2018-26  80.41%
+
+====================================================================================================
+R. WALK-FORWARD: 04:00 call + all 19 previous-day features vs the call alone
+====================================================================================================
+  logistic         n  1835  model  71.23%  call  72.10%  delta  -0.87pp  (1 s.e. 1.05pp)
+  grad boosting    n  1835  model  69.16%  call  72.10%  delta  -2.94pp  (1 s.e. 1.05pp)
+  random forest    n  1835  model  71.06%  call  72.10%  delta  -1.04pp  (1 s.e. 1.05pp)
+
+n 2485   base 71.55%
+
+========================================================================================================
+S. CONFLUENCE GRID  -  today's 9pm box vs yesterday's full range  x  how lopsided the call is
+========================================================================================================
+  box/prevRange quartiles: 0.111 0.154 0.215
+
+                                conf<0.10        0.10-0.20        0.20-0.30       conf>=0.30
+  Q1 0.00-0.11 box smallest       55.9% n227        69.0% n171        76.8% n138        85.9% n85  
+  Q2 0.11-0.15                58.8% n221        69.0% n168        76.5% n149        79.5% n83  
+  Q3 0.15-0.21                60.4% n207        70.5% n207        79.8% n119        94.3% n88  
+  Q4 0.21-9.99 box largest       68.3% n221        75.8% n186        83.6% n134        92.6% n81  
+
+  the two ingredients on their own:
+    box/prevRange bottom quartile    n   621  all  68.28%  2018-26  66.09%
+    box/prevRange top quartile       n   622  all  77.01%  2018-26  77.08%
+
+  best combined cell, stressed by era:
+    box above median AND conf>=0.15   all        n   604  acc  83.77%
+    box above median AND conf>=0.15   2005-2017  n   292  acc  81.85%
+    box above median AND conf>=0.15   2018-2026  n   312  acc  85.58%
+    box above median AND conf>=0.15   2023-2026  n   135  acc  85.93%
+    box below median AND conf<0.15    all        n   620  acc  60.00%
+    box below median AND conf<0.15    2005-2017  n   415  acc  60.72%
+    box below median AND conf<0.15    2018-2026  n   205  acc  58.54%
+    box below median AND conf<0.15    2023-2026  n    66  acc  60.61%
+
+======================================================================================================================
+T. THE 0.62-0.70 RETRACEMENT BAND, drawn the moment the engine fires at 04:00
+======================================================================================================================
+  fib 0.62 sits 29.92% of the way from the 2.0 edge to the opposing 2.0 edge
+  fib 0.70 sits 23.62%   -> for a BUY the band is boxLow -0.504R .. -0.819R
+
+  HOW OFTEN IS THE BAND EVEN REACHED?
+    0.62 level       filled  2356 / 4512 =  52.2%   never reached  2156 (47.8%)   already past     0 ( 0.0%)
+    0.70 level       filled  2200 / 4512 =  48.8%   never reached  2312 (51.2%)   already past     0 ( 0.0%)
+    0.66 midpoint    filled  2264 / 4512 =  50.2%   never reached  2248 (49.8%)   already past     0 ( 0.0%)
+
+    when the 0.62 does fill, it improves on the 04:00 market price by $5.51 on average (median $4.18)
+
+  variant                              n      W      L    win%       PF       RR         risk    avgR      totR      DD
+    market at 04:00                 3502  2619W   883L   74.8% PF  1.24 RR  0.46 risk $  11.82 avgR +0.060 totR   +211.2 DD  21.0
+    enter 0.62                      2356   692W  1664L   29.4% PF  0.97 RR  2.34 risk $   3.78 avgR -0.023 totR    -55.2 DD  98.4
+    enter 0.66                      2264   593W  1671L   26.2% PF  0.96 RR  2.74 risk $   3.33 avgR -0.026 totR    -59.6 DD 105.8
+    enter 0.70                      2200   515W  1685L   23.4% PF  0.98 RR  3.23 risk $   2.92 avgR -0.015 totR    -32.0 DD  83.5
+
+  with the confidence filter |pos-0.5| >= 0.15:
+    market at 04:00                 2095  1743W   352L   83.2% PF  1.27 RR  0.27 risk $  12.89 avgR +0.045 totR    +94.8 DD  14.4
+    enter 0.62                      1451   442W  1009L   30.5% PF  1.02 RR  2.34 risk $   3.31 avgR +0.015 totR    +22.0 DD  38.0
+    enter 0.70                      1364   342W  1022L   25.1% PF  1.08 RR  3.23 risk $   2.55 avgR +0.058 totR    +78.4 DD  44.9
+
+  2023-2026 net of $0.25:
+    market at 04:00 NET              516   386W   130L   74.8% PF  1.27 RR  0.47 risk $  25.01 avgR +0.067 totR    +34.5 DD   9.3
+    enter 0.62 NET                   266    77W   189L   28.9% PF  0.87 RR  2.34 risk $   8.32 avgR -0.096 totR    -25.5 DD  39.6
+    enter 0.70 NET                   241    52W   189L   21.6% PF  0.81 RR  3.23 risk $   6.49 avgR -0.160 totR    -38.7 DD  50.1
+
+  PAIRED TEST - only the days the 0.62 actually filled, market vs 0.62 on those same days
+  variant                              n      W      L    win%       PF       RR         risk    avgR      totR      DD
+    market at 04:00 (same days)     1935  1055W   880L   54.5% PF  0.52 RR  0.51 risk $   9.23 avgR -0.219 totR   -424.5 DD 424.8
+    enter 0.62      (same days)     1935   566W  1369L   29.3% PF  0.96 RR  2.34 risk $   4.11 avgR -0.029 totR    -55.3 DD  75.6
+
+  0.62 entry, year by year:
+    2005                             137    41W    96L   29.9% PF  1.00 RR  2.34 risk $   0.74 avgR +0.000 totR     +0.0 DD  24.6
+    2006                             136    32W   104L   23.5% PF  0.72 RR  2.34 risk $   1.62 avgR -0.214 totR    -29.1 DD  39.5
+    2007                             145    42W   103L   29.0% PF  0.96 RR  2.34 risk $   1.22 avgR -0.032 totR     -4.6 DD  18.9
+    2008                             147    47W   100L   32.0% PF  1.10 RR  2.34 risk $   3.10 avgR +0.069 totR    +10.1 DD  13.7
+    2009                             142    36W   106L   25.4% PF  0.80 RR  2.34 risk $   2.48 avgR -0.153 totR    -21.7 DD  23.9
+    2010                             154    45W   109L   29.2% PF  0.97 RR  2.34 risk $   2.49 avgR -0.023 totR     -3.6 DD  18.8
+    2011                             125    37W    88L   29.6% PF  0.98 RR  2.34 risk $   4.93 avgR -0.011 totR     -1.3 DD  15.9
+    2012                             128    39W    89L   30.5% PF  1.03 RR  2.34 risk $   3.92 avgR +0.018 totR     +2.3 DD  20.6
+    2013                              97    26W    71L   26.8% PF  0.86 RR  2.34 risk $   4.54 avgR -0.104 totR    -10.1 DD  30.6
+    2014                             102    36W    66L   35.3% PF  1.28 RR  2.34 risk $   2.96 avgR +0.180 totR    +18.3 DD  11.0
+    2015                             106    33W    73L   31.1% PF  1.03 RR  2.34 risk $   3.21 avgR +0.023 totR     +2.4 DD  16.3
+    2016                              88    29W    59L   33.0% PF  1.15 RR  2.34 risk $   3.96 avgR +0.101 totR     +8.9 DD  17.0
+    2017                             110    34W    76L   30.9% PF  1.05 RR  2.34 risk $   2.61 avgR +0.033 totR     +3.6 DD  12.5
+    2018                              76    19W    57L   25.0% PF  0.78 RR  2.34 risk $   2.71 avgR -0.164 totR    -12.5 DD  29.9
+    2019                             111    27W    84L   24.3% PF  0.75 RR  2.34 risk $   3.45 avgR -0.187 totR    -20.8 DD  27.8
+    2020                              86    28W    58L   32.6% PF  1.13 RR  2.34 risk $   6.42 avgR +0.088 totR     +7.6 DD  18.3
+    2021                              98    25W    73L   25.5% PF  0.76 RR  2.34 risk $   5.33 avgR -0.175 totR    -17.2 DD  25.6
+    2022                             102    39W    63L   38.2% PF  1.42 RR  2.34 risk $   5.02 avgR +0.257 totR    +26.3 DD  11.6
+    2023                             109    31W    78L   28.4% PF  0.92 RR  2.34 risk $   5.11 avgR -0.059 totR     -6.4 DD  21.9
+    2024                              92    27W    65L   29.3% PF  0.97 RR  2.34 risk $   7.46 avgR -0.019 totR     -1.8 DD  18.0
+    2025                              60    18W    42L   30.0% PF  0.90 RR  2.34 risk $  13.98 avgR -0.068 totR     -4.1 DD  10.9
+    2026                               5     1W     4L   20.0% PF  0.59 RR  2.34 risk $  26.26 avgR -0.332 totR     -1.7 DD   4.0
