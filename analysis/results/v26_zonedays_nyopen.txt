@@ -1,0 +1,77 @@
+====================================================================================================================================
+A. THE 'ALREADY IN A ZONE' DAYS NOW COUNT  -  2024 to 2026-01-30
+====================================================================================================================================
+  variant                                 n     W     L    win%       PF       RR        risk      avgR       totR       DD
+
+  --- revert ---
+    skip them (what I ran before)       396  118W  278L   29.8% PF  0.86 RR  2.34 risk $ 15.99 avgR -0.101 totR   -39.8 DD  42.2
+    count them, enter at the open       496  134W  362L   27.0% PF  0.78 RR  3.69 risk $ 14.69 avgR -0.160 totR   -79.4 DD  81.8
+    count them, wait for the 0.62       486  138W  348L   28.4% PF  0.82 RR  2.34 risk $ 15.38 avgR -0.130 totR   -63.2 DD  65.5
+       ...of which: opened inside       100   16W   84L   16.0% PF  0.52 RR  9.02 risk $  9.57 avgR -0.396 totR   -39.6 DD  41.1
+       ...of which: normal taps         396  118W  278L   29.8% PF  0.86 RR  2.34 risk $ 15.99 avgR -0.101 totR   -39.8 DD  42.2
+
+  --- break ---
+    skip them (what I ran before)       396  215W  181L   54.3% PF  1.18 RR  0.99 risk $ 16.07 avgR +0.081 totR   +32.2 DD   9.8
+    count them, enter at the open       492  291W  201L   59.1% PF  1.27 RR  0.92 risk $ 16.06 avgR +0.110 totR   +54.3 DD   6.8
+    count them, wait for the 0.62       486  277W  209L   57.0% PF  1.31 RR  0.99 risk $ 15.46 avgR +0.133 totR   +64.5 DD   8.1
+       ...of which: opened inside        96   76W   20L   79.2% PF  2.11 RR  0.61 risk $ 16.01 avgR +0.231 totR   +22.2 DD   3.2
+       ...of which: normal taps         396  215W  181L   54.3% PF  1.18 RR  0.99 risk $ 16.07 avgR +0.081 totR   +32.2 DD   9.8
+
+====================================================================================================================================
+B. ACTIVATION TIME  -  including the days that open inside a zone
+====================================================================================================================================
+
+  --- revert ---
+  variant                                 n     W     L    win%       PF       RR        risk      avgR       totR       DD
+    armed 00:00 midnight                496  134W  362L   27.0% PF  0.78 RR  3.69 risk $ 14.69 avgR -0.160 totR   -79.4 DD  81.8
+    armed 02:00                         495  127W  368L   25.7% PF  0.78 RR 28.33 risk $ 13.76 avgR -0.162 totR   -80.0 DD  82.4
+    armed 03:00                         495  124W  371L   25.1% PF  0.77 RR 60750793983.99 risk $ 13.37 avgR -0.171 totR   -84.6 DD  84.6
+    armed 04:00                         493  114W  379L   23.1% PF  0.79 RR 97907830560.03 risk $ 12.96 avgR -0.162 totR   -80.1 DD  83.7
+    armed 07:00                         491  106W  385L   21.6% PF  0.67 RR  9.92 risk $ 12.73 avgR -0.258 totR  -126.6 DD 143.9
+    armed 08:00 NY open                 487   98W  389L   20.1% PF  0.70 RR 19.12 risk $ 12.72 avgR -0.239 totR  -116.3 DD 122.5
+    armed 09:00                         492   96W  396L   19.5% PF  0.65 RR  7.51 risk $ 13.65 avgR -0.279 totR  -137.3 DD 144.8
+    armed 09:30 NY equities open        488   93W  395L   19.1% PF  0.60 RR 90349213694.17 risk $ 13.57 avgR -0.323 totR  -157.6 DD 171.4
+    armed 10:00                         485   80W  405L   16.5% PF  0.53 RR 11.78 risk $ 13.31 avgR -0.393 totR  -190.8 DD 193.2
+    armed 13:00                         467   77W  390L   16.5% PF  0.56 RR 21.20 risk $ 13.22 avgR -0.367 totR  -171.2 DD 172.5
+
+  --- break ---
+  variant                                 n     W     L    win%       PF       RR        risk      avgR       totR       DD
+    armed 00:00 midnight                492  291W  201L   59.1% PF  1.27 RR  0.92 risk $ 16.06 avgR +0.110 totR   +54.3 DD   6.8
+    armed 02:00                         469  281W  188L   59.9% PF  1.19 RR  0.85 risk $ 17.01 avgR +0.075 totR   +35.1 DD  10.7
+    armed 03:00                         461  280W  181L   60.7% PF  1.15 RR  0.82 risk $ 17.57 avgR +0.059 totR   +27.1 DD  22.0
+    armed 04:00                         441  273W  168L   61.9% PF  1.13 RR  0.78 risk $ 18.37 avgR +0.049 totR   +21.8 DD  18.5
+    armed 07:00                         400  243W  157L   60.8% PF  1.07 RR  0.77 risk $ 19.03 avgR +0.029 totR   +11.5 DD  10.4
+    armed 08:00 NY open                 391  242W  149L   61.9% PF  1.05 RR  0.74 risk $ 19.69 avgR +0.018 totR    +7.0 DD   8.7
+    armed 09:00                         360  221W  139L   61.4% PF  1.07 RR  0.75 risk $ 19.86 avgR +0.027 totR    +9.8 DD   8.4
+    armed 09:30 NY equities open        345  209W  136L   60.6% PF  1.05 RR  0.74 risk $ 20.40 avgR +0.019 totR    +6.6 DD  11.1
+    armed 10:00                         329  197W  132L   59.9% PF  0.94 RR  0.71 risk $ 20.58 avgR -0.025 totR    -8.2 DD  21.0
+    armed 13:00                         270  159W  111L   58.9% PF  0.77 RR  0.65 risk $ 21.23 avgR -0.092 totR   -24.8 DD  33.6
+
+====================================================================================================================================
+C. NY-OPEN VERSIONS ACROSS ERAS, AND NET OF COSTS
+====================================================================================================================================
+  variant                                 n     W     L    win%       PF       RR        risk      avgR       totR       DD
+
+  --- revert, armed 08:00 NY ---
+    2004-2013 gross                    2340  272W 2068L   11.6% PF  0.42 RR 223802302705.99 risk $  3.68 avgR -0.512 totR -1197.8 DD 1204.4
+    2014-2019 gross                    1497  280W 1217L   18.7% PF  0.68 RR 24531521965.51 risk $  3.51 avgR -0.262 totR  -392.1 DD 400.9
+    2020-2023 gross                    1004  195W  809L   19.4% PF  0.69 RR 12.14 risk $  5.71 avgR -0.252 totR  -252.6 DD 252.6
+    2024-2026 gross                     487   98W  389L   20.1% PF  0.70 RR 19.12 risk $ 12.72 avgR -0.239 totR  -116.3 DD 122.5
+    all gross                          5328  845W 4483L   15.9% PF  0.56 RR 105184136024.01 risk $  4.84 avgR -0.368 totR -1958.8 DD 1961.8
+    2024-26 net $0.25                   487   98W  389L   20.1% PF  0.57 RR 19.12 risk $ 12.72 avgR -0.405 totR  -197.0 DD 202.6
+
+  --- break, armed 08:00 NY ---
+    2004-2013 gross                    1251  766W  485L   61.2% PF  0.93 RR  0.68 risk $  5.10 avgR -0.026 totR   -32.4 DD  39.7
+    2014-2019 gross                    1138  665W  473L   58.4% PF  0.92 RR  0.74 risk $  5.24 avgR -0.034 totR   -38.8 DD  65.9
+    2020-2023 gross                     790  478W  312L   60.5% PF  0.98 RR  0.74 risk $  8.59 avgR -0.006 totR    -4.7 DD  32.3
+    2024-2026 gross                     391  242W  149L   61.9% PF  1.05 RR  0.74 risk $ 19.69 avgR +0.018 totR    +7.0 DD   8.7
+    all gross                          3570 2151W 1419L   60.3% PF  0.95 RR  0.72 risk $  7.52 avgR -0.019 totR   -69.0 DD  99.3
+    2024-26 net $0.25                   391  238W  153L   60.9% PF  0.99 RR  0.74 risk $ 19.69 avgR -0.003 totR    -1.1 DD  13.5
+
+====================================================================================================================================
+D. WHAT MY 2026 SAMPLE ACTUALLY IS
+====================================================================================================================================
+  sessions in the file for 2026: 13
+  first 2026-01-02   last 2026-01-29
+  file's final bar: 2026-01-30 16:45:00-05:00
+  -> the year you backtested by hand is almost entirely absent from my data.
