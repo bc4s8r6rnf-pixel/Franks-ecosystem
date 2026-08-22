@@ -69,12 +69,16 @@ trTgt   = input.string("2.0", "Target edge", options = ["2.0", "2.5"],
      group = "Trade", tooltip = "MT5 PF: 2.0 1.14, 2.5 1.10.")
 trBoth  = input.bool(true, "Draw both sides", group = "Trade")
 
-fzA1 = input.bool(true,  "Today's zone edge", inline = "fa", group = "Anchors")
-fzA2 = input.bool(true,  "Asia",              inline = "fa", group = "Anchors")
-fzA3 = input.bool(true,  "Yesterday's swing", inline = "fb", group = "Anchors")
-fzA4 = input.bool(false, "Yesterday's zone",  inline = "fb", group = "Anchors",
-     tooltip = "Off by default - 0 for 12 in the 2026 sample and the only anchor " +
-               "negative over the full history.")
+// Two anchors carry the method. Asia's extreme almost always lands on the same
+// swing as the previous day's last pivot, so it is off by default rather than
+// drawing the same fib twice; yesterday's 2.0 edge went 0 for 12 in the 2026
+// sample and is the only anchor negative over the full history.
+fzA1 = input.bool(true,  "Zone to zone",       inline = "fa", group = "Anchors")
+fzA3 = input.bool(true,  "Yesterday's swing",  inline = "fa", group = "Anchors")
+fzA2 = input.bool(false, "Asia",               inline = "fb", group = "Anchors",
+     tooltip = "Usually duplicates yesterday's swing.")
+fzA4 = input.bool(false, "Yesterday's zone",   inline = "fb", group = "Anchors",
+     tooltip = "0 for 12 in the 2026 sample; negative over the full history.")
 fzPiv   = input.int(5, "Swing strength", minval = 1, maxval = 30, group = "Anchors")
 fzSwSrc = input.string("Last swing before the day", "Which swing", group = "Anchors",
      options = ["Last swing before the day", "Deepest swing of the previous day"])
