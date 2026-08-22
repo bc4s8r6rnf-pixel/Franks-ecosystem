@@ -2,7 +2,7 @@
 
 //@version=6
 // ============================================================================
-// RXWLES DIRECTION CALL  v3.5
+// RXWLES DIRECTION CALL  v3.6
 //
 // CORRECTION FIRST. Every figure quoted in v1.2 through v1.6 was produced by a
 // backtest that reconstructed the VWAP anchored at midnight New York from
@@ -233,12 +233,17 @@ trMode  = input.string("Optimal", "Mode", group = "Trade",
                "side arm, then keeps whichever target trades first and mutes the " +
                "rest. Optimal reads better than it trades: it settles the side " +
                "after the fact, which you cannot do live.")
+// No confirm = true on these. With it, TradingView refuses to run the script
+// until the point has been placed on the chart, which stalls the whole
+// indicator for a feature that is off by default. Set them in the settings
+// instead, or drag the handles once they are on the chart.
 mpOn    = input.bool(false, "Manual pick overrides one day", group = "Trade",
-     tooltip = "Drag the point into a zone and that zone claims its lane. One " +
-               "lane at a time, so it is for working a single session.")
+     tooltip = "Set the date and price below to a point inside a zone and that " +
+               "zone claims its lane. One lane at a time, so it is for working " +
+               "a single session rather than reviewing history.")
 mpTime  = input.time(timestamp("2026-08-20 00:00 -0400"), "    pick: when",
-     group = "Trade", confirm = true)
-mpPrice = input.price(0.0, "    pick: price", group = "Trade", confirm = true)
+     group = "Trade")
+mpPrice = input.price(0.0, "    pick: price", group = "Trade")
 
 srcHour  = input.int(21, "Source candle hour (NY)", minval = 0, maxval = 23, group = "Method",
      tooltip = "Must match RXWLES PRO's Enigma Source Hour.")
