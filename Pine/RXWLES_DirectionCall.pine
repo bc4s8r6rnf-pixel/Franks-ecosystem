@@ -2,7 +2,7 @@
 
 //@version=6
 // ============================================================================
-// RXWLES DIRECTION CALL  v4.0
+// XAU //PRO 79 JECT  v4.0.2
 //
 // Rebuilt around one engine. Everything up to v3.6 carried the original VWAP
 // trade engine alongside the fib zones - two systems drawing at once, which is
@@ -36,7 +36,7 @@
 //   SPENT    price closed through - finished, and it cannot re-arm
 // ============================================================================
 
-indicator("RXWLES Direction Call", "DirCall", overlay = true,
+indicator("XAU //PRO 79 JECT", "XAU79", overlay = true,
      max_labels_count = 500, max_lines_count = 500, max_boxes_count = 500)
 
 const string TZ = "America/New_York"
