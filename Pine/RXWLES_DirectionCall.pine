@@ -335,7 +335,10 @@ type Zone
 var array<Zone> ZS = array.new<Zone>()
 
 f_zNew(float A_, float T_, int sd, int x1) =>
-    Zone z = Zone.new(A_, T_, sd, 0, na, na, na, na, na, na, na, laneDay, x1, x1, false)
+    // Named arguments: positional was one na short of the sixteen fields, which
+    // silently shifted laneDay onto res. Everything unnamed defaults to na.
+    Zone z = Zone.new(A = A_, T = T_, side = sd, st = 0, lane = laneDay,
+         x1 = x1, x2 = x1, dead = false)
     float u = f_lv(A_, T_, 0.62)
     float d = f_lv(A_, T_, 0.79)
     z.bx := box.new(x1, math.max(u, d), x1, math.min(u, d),
