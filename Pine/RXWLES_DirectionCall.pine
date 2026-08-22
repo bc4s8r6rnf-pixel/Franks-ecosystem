@@ -2,181 +2,38 @@
 
 //@version=6
 // ============================================================================
-// RXWLES DIRECTION CALL  v3.6
+// RXWLES DIRECTION CALL  v4.0
 //
-// CORRECTION FIRST. Every figure quoted in v1.2 through v1.6 was produced by a
-// backtest that reconstructed the VWAP anchored at midnight New York from
-// hlc3. This chart's VWAP is session-anchored - the exported column resets at
-// 18:00 NY in 54 of 59 sessions - and sourced from the high. The two series
-// disagree by a median of $7.13 and by as much as $111.65. Every VWAP-based
-// conclusion had to be re-tested, and two of them reversed.
+// Rebuilt around one engine. Everything up to v3.6 carried the original VWAP
+// trade engine alongside the fib zones - two systems drawing at once, which is
+// where the stray TP/SL tags, the second set of entry markers and the target
+// sitting on 2.45 instead of 2.0 were all coming from. The old engine is gone.
 //
-//   DIRECTION  04:00 NY, whichever zone is closer.
-//   NO TRADE   if a position is still open, if the 2.0 zone already went before
-//              the call, or if the 9pm range is over the limit.
-//   STOP LEVEL the 9pm box edge plus a $1.00 buffer.
-//   ENTRY      a VWAP tap before 14:00 NY. Both are fixed, not inputs.
-//   CANCEL     if the box stop level or the zone is reached before the fill.
-//   TARGET     just inside the far edge of the zone - 2.5 R less 0.05.
-//   EXIT       target or stop. No time exit, no break-even.
+// What is left is a single idea, drawn once per day and locked to that day:
 //
-// What reversed. The 9pm box was a co-equal entry alongside the VWAP because
-// the broken series said it cost nothing to add. Against the real VWAP it
-// dilutes rather than adds, so the box entry is gone and the VWAP tap is the
-// only trigger. The entry cutoff moves from 11:00 to 14:00, which is a clean
-// step rather than a spike - 10:00 through 13:00 all give +32.7 R, 14:00
-// through 16:00 all give +34.8 R.
+//   ANCHOR   the 1 sits on a fixed reference - today's opposing 2.0 edge, the
+//            Asia extreme, yesterday's last swing, or yesterday's 2.0 edge
+//   TARGET   the -0.27 sits on the projection edge in that direction
+//   ENTRY    a fib level between them, 0.62 / 0.70 / 0.79
+//   STOP     0.88 / 0.95 / the 1 anchor
 //
-// Both are hard-coded in v1.8 rather than offered as settings. That is a
-// deliberate narrowing: the alternatives below were all measured and all lost,
-// so the only thing an input would buy is a way to set it wrong.
+//   price(f) = A + (1 - f) / 1.27 x (T - A)
 //
-// 59 sessions of 15m gold, measured against the chart's own VWAP:
+// Measured over 3,482-3,673 trades, 2004-2026, anchored to yesterday's swing:
 //
-//   entry                         n    W/L    win%   PF   avgRR   avgR    totR
-//   VWAP tap, cutoff 14:00       31  18W/13L  58.1%  3.68  3.16   +1.12  +34.8
-//   VWAP tap, cutoff 11:00       31  17W/14L  54.8%  3.33  3.28   +1.05  +32.7
-//   first of either (v1.6)       35  19W/16L  54.3%  2.68  2.34   +0.77  +26.9
-//   box touch only               34  18W/16L  52.9%     -  2.44   +0.76  +25.9
-//   close with VWAP behind       42  28W/14L  66.7%  2.90  1.68   +0.63  +26.7
+//   entry   0.62  PF 1.15      stop  0.88  PF 1.16      target  2.0  PF 1.14
+//           0.70  PF 1.14            0.95  PF 1.14              2.5  PF 1.10
+//           0.79  PF 1.14            1.00  PF 1.05
 //
-// The close-with-VWAP-behind entry is the one genuine alternative and it is
-// worth knowing about even though it is not in here: it converts nothing, it
-// adds ten sessions the tap entry misses of which nine win, and it drops three
-// that were losses. It pays for that with a wider stop, $32.23 against $23.30,
-// so the money comes out the same while the hit rate goes up twelve points. If
-// you ever want it, it is one line - enter at the close of the first bar that
-// closes with the VWAP behind price, instead of on the tap.
+// 0.95 wins on both samples: 0.88 halves the win rate, the 1 anchor doubles
+// drawdown. The direction call itself is 72.5% on 2,597 undecided sessions.
 //
-// Stops, same 59 sessions:
-//
-//   behind the 9pm box           35  19W/16L  54.3%  PF 2.68  max DD 4.0 R
-//   60 pips beyond the VWAP      36  11W/25L  30.6%  PF 2.14  max DD 6.5 R
-//
-// The VWAP stop reaches a similar total on a third of the dollar risk, but a
-// 30.6% win rate with a six-loss streak is a different thing to hold. 30 pips
-// - the tightest asked about - goes 6W/29L for -8.5 R, because $3.00 sits
-// inside a single 15m bar's range more often than not.
-//
-// Left out on purpose, all re-tested against the real VWAP and all still dead:
-// break-even part-way to target (every level from 40% to 90% loses), any time
-// exit, turning off the one-position lock, and a range filter anywhere other
-// than $40. The minimum-RR floor now measures positive but wobbles - none
-// +34.8, 2.0 +37.0, 2.5 +35.4, 3.0 +39.5 - which is noise on 31 trades, not a
-// setting.
-//
-// One known difference between this script and the backtest: here a position
-// is managed from the bar after it fills, so the entry bar cannot stop you
-// out. The backtest assumed the worse case for tap entries. It barely matters
-// at a $23 stop and matters a lot at a $3 one.
-//
-// ONE CHANGE IN v1.9: the target moves from the near edge of the zone to the
-// far one, 2.0 R to 2.5 R. It is the only change here because it is the only
-// one with a mechanism behind it rather than a number.
-//
-//   config                          n    W/L    win%   PF    avgR    totR
-//   v1.8: 2.0 edge                 31  18W/13L  58.1%  3.68  +1.12  +34.8
-//   v1.9: 2.5 edge                 32  18W/14L  56.2%  4.18  +1.39  +44.5
-//
-//   split           2.0 edge    2.5 edge
-//   first half       +16.5 R     +21.6 R    (8W/6L either way)
-//   second half      +18.3 R     +22.9 R
-//
-// Max drawdown stays at 3.0 R. It holds in both halves independently, and it
-// peaks at exactly the far edge and falls away past it - 2.75 drops to +35.1 R
-// - which is what you would expect if the zone is a real destination rather
-// than a fitted number.
-//
-// The stop buffer was measured in the same pass and left alone. It costs money
-// on paper - the record is 18W/14L at every width from $0.00 to $3.00 while
-// the total falls +47.8 R to +30.2 R - but the reason is that no winning trade
-// ever came within $2.54 of the box edge, so the wick-and-recover event a
-// buffer exists for never once arose. That makes it untested, not useless, and
-// $1.00 stays until a bigger sample can rule on it.
-//
-// Tried in the same pass and rejected: delaying the entry past the call bar
-// (every delay loses), a minimum RR to enter (raises PF to 4.22, cuts total R
-// to +29.0), a dollar cap on risk (all worse), and trading one direction only
-// (shorts 60% and +21.6 R, longs 42.9% and +10.2 R - but both make money and
-// 14 longs decide nothing).
-//
-// v2.0 ADDS ONE THING: the take profit rests a twentieth of a box inside the
-// far edge rather than on it. The argument is execution, not statistics - an
-// order sitting on the exact edge of a level every other chart draws is at the
-// back of that queue.
-//
-//   target                          n    W/L    win%   PF    totR
-//   on the 2.50 edge (v1.9)        32  18W/14L  56.2%  4.18  +44.5
-//   0.05 R inside it (v2.0)        32  19W/13L  59.4%  4.57  +46.5
-//
-// 2026-08-18 is the case that prompted it. Price came within 8 cents of the
-// untouched edge, turned, and stopped out for -1.00 R. Worse, the position was
-// still open at the next morning's call, so the one-position lock skipped a
-// session that went on to run. A 0.05 R pull-in banks that trade at 21:00 the
-// same evening and hands the next day back. One change, both problems.
-//
-// Softening the lock directly was tried and does not work: unlimited positions
-// gives +42.3 R, letting a second through once the open one clears +0.5 R
-// gives +43.5 R, and every threshold at +1.0 R or above never triggers. The
-// blockage is worth fixing at its cause, not by loosening the rule that caught
-// it.
-//
-// Anything from 0.02 to 0.25 R rescues the same trade - the W/L is 19W/13L
-// across that whole band - so the size is not fitted, only the amount of the
-// other winners you hand back. Split: first half +21.1 R against +21.6, second
-// half +25.4 R against +22.9. It costs a little on every winner and rescues
-// one loss, and the rescue happened in the second half.
-//
-// v2.1 ADDS THE OPPOSING-CALL EXIT. The next day's direction call closes an
-// open position that disagrees with it - but only one that is not yet in
-// profit. A winner is left alone.
-//
-//   handling of a call that arrives with a trade open    n   W/L    PF   totR   DD
-//   skip the call, keep the trade (v2.0)                32  19W/13L 4.57 +46.5 3.0
-//   cut every opposing call                             35  20W/15L 4.05 +41.6 3.0
-//   cut only while the trade is under water (v2.1)      34  20W/14L 4.72 +47.1 2.8
-//
-// Cutting every opposing call fails on one trade: 2026-07-28 was closed for
-// +0.74 R with a 5.23 R target still live, and that single decision costs more
-// than the three saves it made. Restricting the cut to positions under water
-// keeps the saves and leaves the winners alone. Better in both halves - first
-// +21.2 against +21.1, second +25.8 against +25.4 - though the margin is thin.
-//
-// Anything from 0.00 to +0.50 R gives the same result. At +1.00 R it starts
-// cutting winners and collapses back to +41.6 R.
-//
-// The lock stays on. The six sessions it discarded over the sample were 1W/4L
-// worth -2.2 R, so it is filtering rather than costing, and three separate
-// tests - defer until close, unlimited positions, cut every opposing call -
-// all came back worse.
-//
-// v2.2 IS A FULL RE-SWEEP, every knob moved one at a time against the finished
-// rule set rather than against whatever the rule set looked like when that knob
-// was first tested. Everything held at its existing value except the stop
-// buffer, which moves $1.00 -> $0.50.
-//
-//   knob            values tried                       best      kept
-//   call hour       3 / 4 / 5 / 6                      4         4
-//   entry cutoff    10 / 11 / 12 / 14 / 16             14 = 16   14
-//   zone edge       2.0 / 2.25 / 2.4 / 2.5 / 2.6/2.75  2.5       2.5
-//   target pull-in  0 / .02 / .05 / .10 / .20          0.02      0.05
-//   stop buffer     0 / .25 / .50 / 1.00 / 2.00        0.00      0.50
-//   range filter    off / 35 / 40 / 45 / 50            40        40
-//   cut-below       0 / .25 / .50 / 1.00               .25 = .50 0.25
-//   break-even      off / 40% / 50% / 75%              off       off
-//   lock            on / off                           on        on
-//   opposing cut    on / off                           on        on
-//
-// Two places where the measured optimum was not taken, both for the same
-// reason - a backtest cannot see the spread. The 0.02 R pull-in is 64 cents on
-// a $32 box, inside the spread on gold, so 0.05 stays. And the $0.00 buffer
-// scores +50.2 R but drops a winner and lifts the drawdown to 3.0 R, where
-// $0.50 keeps 20W/14L at 2.8 R.
-//
-//   FINAL: 34 trades  20W/14L  58.8%  PF 4.85  +1.43 R avg  +48.7 R  DD 2.8 R
-//
-// 34 trades. The range filter rests on 7 observations. XAUUSD only, costs are
-// still not modelled, and the split-sample check is two halves of one quarter.
+// A zone's life, and its look follows it:
+//   DORMANT  a muted fill and a faint border
+//   LIVE     price inside - lighter fill, the three levels appear
+//   ARMED    price left the way it came - the stop and target lines appear
+//   WON      the target traded - the result prints inside the day
+//   SPENT    price closed through - finished, and it cannot re-arm
 // ============================================================================
 
 indicator("RXWLES Direction Call", "DirCall", overlay = true,
@@ -184,664 +41,188 @@ indicator("RXWLES Direction Call", "DirCall", overlay = true,
 
 const string TZ = "America/New_York"
 
-// Hard-coded, not inputs. These two are the version: a VWAP tap, before 14:00
-// New York. Measured 18W/13L, PF 3.68, +34.8 R over 59 sessions of 15m gold,
-// against 19W/16L and PF 2.68 for the box-inclusive entry it replaced. The
-// cutoff is a step and not a spike - 10:00 to 13:00 all give +32.7 R and
-// 14:00 to 16:00 all give +34.8 R.
-const int cutHour = 14
-
 //=============================================================================
-// METHOD
+// INPUTS
 //=============================================================================
 
-// Every figure in these dropdowns is measured. MT5 is 3,482-3,673 trades over
-// 2004-2026; OANDA is the 26-34 trade window that reconciles to your chart.
-// The anchor is yesterday's swing throughout.
+srcHour  = input.int(21, "Source candle hour (NY)", minval = 0, maxval = 23,
+     group = "Method", tooltip = "Must match RXWLES PRO's Enigma Source Hour.")
+readHour = input.int(4, "Direction read hour (NY)", minval = 0, maxval = 23,
+     group = "Method")
+endHour  = input.int(17, "Day block ends (NY hour)", minval = 1, maxval = 24,
+     group = "Method",
+     tooltip = "Everything for a day is locked between midnight and this hour. " +
+               "Nothing runs into the next day, including results.")
 
-trEntry = input.string("Fib 0.79   MT5 PF 1.14 / OANDA 3.51", "Entry", group = "Trade",
-     options = ["Fib 0.62   MT5 PF 1.15 / OANDA 2.13",
-                "Fib 0.70   MT5 PF 1.14 / OANDA 2.59",
-                "Fib 0.79   MT5 PF 1.14 / OANDA 3.51",
-                "VWAP tap   OANDA PF 2.42, n 51",
-                "Origin box edge   MT5 PF 0.58  (not advised)"],
-     tooltip = "The box-edge entry is here for comparison only. Against a fib stop " +
-               "its risk collapses toward zero, which inflates the printed RR and " +
-               "flatters a variant that loses money.")
-trStop  = input.string("Fib 0.95   MT5 PF 1.14 / OANDA 3.51", "Stop", group = "Trade",
-     options = ["Fib 0.88   MT5 PF 1.16 / OANDA 2.80",
-                "Fib 0.95   MT5 PF 1.14 / OANDA 3.51",
-                "Fib 1.0 anchor   MT5 PF 1.05 / OANDA 2.67",
-                "Origin box edge + padding",
-                "VWAP + padding"])
-trTgt   = input.string("2.0 edge   MT5 PF 1.14 / OANDA 3.51", "Target", group = "Trade",
-     options = ["2.0 edge   MT5 PF 1.14 / OANDA 3.51",
-                "2.5 edge   MT5 PF 1.10 / OANDA 4.18"],
-     tooltip = "2.0 is better over the long history, 2.5 in the recent window.")
-trPad   = input.float(0.50, "    padding for the box / VWAP stop ($)", step = 0.10,
-     minval = 0.0, group = "Trade")
-
-// Pine cannot put a click handler on a drawing, so "pick" is done with the one
-// interactive input TradingView does offer: a draggable point. Drop it inside a
-// zone and that zone becomes the day's trade. It selects one day at a time, so
-// it is a tool for working through a single session, not for reviewing history.
 trMode  = input.string("Optimal", "Mode", group = "Trade",
      options = ["Direction engine", "Optimal"],
-     tooltip = "Direction engine trades only the side the 04:00 call names - the " +
-               "opposing zones mute the moment it fires, and the fib entry rules " +
-               "still decide whether it triggers. Optimal lets any zone on either " +
-               "side arm, then keeps whichever target trades first and mutes the " +
-               "rest. Optimal reads better than it trades: it settles the side " +
+     tooltip = "Direction engine trades only the side the read-hour call names. " +
+               "Optimal lets either side arm and keeps whichever target trades " +
+               "first. Optimal reads better than it trades - it settles the side " +
                "after the fact, which you cannot do live.")
-// No confirm = true on these. With it, TradingView refuses to run the script
-// until the point has been placed on the chart, which stalls the whole
-// indicator for a feature that is off by default. Set them in the settings
-// instead, or drag the handles once they are on the chart.
-mpOn    = input.bool(false, "Manual pick overrides one day", group = "Trade",
-     tooltip = "Set the date and price below to a point inside a zone and that " +
-               "zone claims its lane. One lane at a time, so it is for working " +
-               "a single session rather than reviewing history.")
-mpTime  = input.time(timestamp("2026-08-20 00:00 -0400"), "    pick: when",
-     group = "Trade")
-mpPrice = input.price(0.0, "    pick: price", group = "Trade")
+trEntry = input.string("0.62", "Entry fib", options = ["0.62", "0.70", "0.79"],
+     group = "Trade", tooltip = "MT5 PF: 0.62 1.15, 0.70 1.14, 0.79 1.14.")
+trStop  = input.string("0.95", "Stop fib", options = ["0.88", "0.95", "1.00"],
+     group = "Trade", tooltip = "MT5 PF: 0.88 1.16, 0.95 1.14, 1.00 1.05. " +
+               "0.88 halves the win rate, the 1 anchor doubles drawdown.")
+trTgt   = input.string("2.0", "Target edge", options = ["2.0", "2.5"],
+     group = "Trade", tooltip = "MT5 PF: 2.0 1.14, 2.5 1.10.")
+trBoth  = input.bool(true, "Draw both sides", group = "Trade")
 
-srcHour  = input.int(21, "Source candle hour (NY)", minval = 0, maxval = 23, group = "Method",
-     tooltip = "Must match RXWLES PRO's Enigma Source Hour.")
-readHour = input.int(4,  "Direction read hour (NY)", minval = 0, maxval = 23, group = "Method")
-lvl1     = input.float(2.5, "Zone edge used as the target (R)", step = 0.05,
-     group = "Method",
-     tooltip = "RXWLES PRO draws the zone as 2.0 to 2.5 R. Aiming at the far edge "
-             + "rather than the near one measures better and there is a reason: of "
-             + "the 34 sessions that reach 2.0, 30 carry on to 2.5 - 88.2% "
-             + "follow-through. You give up a ninth of your winners to be paid a "
-             + "quarter more on each. 2.5 gives 18W/14L, PF 4.18, +44.5 R against "
-             + "2.0's 18W/13L, PF 3.68, +34.8 R, and it holds in both halves of "
-             + "the sample. Past 2.5 it falls away - 2.75 drops to +35.1 R, "
-             + "because that is asking price to leave the zone rather than reach it.")
-tgtPull  = input.float(0.05, "    take profit this far inside the edge (R)", step = 0.01,
-     minval = 0.0, maxval = 1.0, group = "Method",
-     tooltip = "Do not rest the order on the exact edge of a level every other "
-             + "chart draws. You are at the back of that queue. Pulling it a "
-             + "twentieth of a box inside - $1.60 on a $32 box, about 16 pips - "
-             + "takes 18W/14L and PF 4.18 to 19W/13L and PF 4.57. On 2026-08-18 "
-             + "the low came within 8 cents of the untouched edge, reversed and "
-             + "stopped out for -1.00 R; a 0.05 R pull-in banks it at 21:00 the "
-             + "same evening, which also frees the next day's call that the "
-             + "one-position lock would otherwise have skipped. Anything from "
-             + "0.02 to 0.25 R rescues the same trade - past that you are just "
-             + "paying more of the winners away.")
-vwAnc    = input.string("Session", "VWAP anchor", group = "Method",
-     options = ["Session", "Midnight NY (lane open)"],
-     tooltip = "Session is what TradingView's own VWAP indicator uses - pick this "
-             + "and the line sits exactly on top of yours. Midnight NY was the old "
-             + "v1.3 behaviour and does not match the built-in VWAP.")
-vwSrc    = input.source(high, "VWAP source", group = "Method",
-     tooltip = "Set to match the Source in your own VWAP indicator's settings. "
-             + "High is what yours uses. On 59 sessions of 15m gold, high fills "
-             + "23W/12L +0.91 R against hlc3's 22W/12L +0.86 R - a high-sourced "
-             + "VWAP sits above the hlc3 one, so long pullbacks reach it sooner.")
+fzA1 = input.bool(true,  "Today's zone edge", inline = "fa", group = "Anchors")
+fzA2 = input.bool(true,  "Asia",              inline = "fa", group = "Anchors")
+fzA3 = input.bool(true,  "Yesterday's swing", inline = "fb", group = "Anchors")
+fzA4 = input.bool(false, "Yesterday's zone",  inline = "fb", group = "Anchors",
+     tooltip = "Off by default - 0 for 12 in the 2026 sample and the only anchor " +
+               "negative over the full history.")
+fzPiv   = input.int(5, "Swing strength", minval = 1, maxval = 30, group = "Anchors")
+fzSwSrc = input.string("Last swing before the day", "Which swing", group = "Anchors",
+     options = ["Last swing before the day", "Deepest swing of the previous day"])
+fzAsiaW = input.string("19:00 - 00:00", "Asia window (NY)", group = "Anchors",
+     options = ["19:00 - 00:00", "18:00 - 00:00", "20:00 - 02:00", "19:00 - 02:00"])
 
-stopMode = input.string("Behind the 9pm box", "Stop placement", group = "Stop & target",
-     options = ["Behind the 9pm box", "Beyond the VWAP"],
-     tooltip = "One or the other, never both. The box stop measures 19W/16L, PF "
-             + "2.68, max drawdown 4.0 R. The VWAP stop at 60 pips reaches a "
-             + "similar +28.4 R on a third of the dollar risk, but on an 11W/25L "
-             + "record - a 30.6% win rate, a 6.5 R drawdown and a six-loss streak.")
-bufD     = input.float(0.50, "    box stop: buffer beyond the box ($)", step = 0.10,
-     minval = 0.0, group = "Stop & target",
-     tooltip = "The buffer costs money and never once saved a trade. Across 59 "
-             + "sessions the record is 18W/14L at every buffer from $0.00 to "
-             + "$3.00 - identical - while the total falls from +47.8 R to +30.2 R "
-             + "as the stop widens. $0.00 measures best and holds in both halves. "
-             + "Re-swept against the full v2.2 rule set: $2.00 gives +44.1 R, "
-             + "$1.00 +47.1, $0.50 +48.7, $0.25 +49.3 and $0.00 +50.2. But the "
-             + "two tightest drop a winner and push the drawdown from 2.8 R to "
-             + "3.0, so $0.50 is the pick - it keeps 20W/14L and the lower "
-             + "drawdown while banking most of the gain. It also leaves a little "
-             + "cushion against the spread taking a stop that rests exactly on a "
-             + "level everyone can see, which no backtest can measure. $0.00 is "
-             + "worth +1.5 R more if you disagree.")
-stopPips = input.int(80, "    VWAP stop: pips beyond the VWAP", minval = 1,
-     group = "Stop & target")
-pipSize  = input.float(0.10, "    what one pip is worth ($)", step = 0.01, minval = 0.0001,
-     group = "Stop & target",
-     tooltip = "0.10 for gold, so 30 pips is $3.00 and 80 pips is $8.00.")
-useBE    = input.bool(false, "Break-even once price is part-way to target",
-     group = "Stop & target",
-     tooltip = "Re-measured against the 2.5 target, where it is a much closer "
-             + "call than it was against 2.0. Off: 18W/14L, PF 4.18, +44.5 R, "
-             + "3.0 R drawdown. Armed at 50%: 15W/9L/9BE, PF 5.70, +42.3 R, "
-             + "2.0 R drawdown - five losses become scratches, but three winners "
-             + "do too, and those three were worth 7.2 R between them. Anywhere "
-             + "from 40% to 60% gives exactly the same result, so it is a wide "
-             + "plateau rather than a lucky number. Fewer losses and a third off "
-             + "the drawdown for 2.2 R. It stays off because total R is a coin "
-             + "flip between the two halves of the sample - the first half prefers "
-             + "it, the second does not - while the loss count and the profit "
-             + "factor improve in both.")
-beFrac   = input.float(50.0, "    at this % of the entry-to-target distance",
-     step = 5.0, minval = 1.0, maxval = 99.0, group = "Stop & target")
-maxDays  = input.int(5, "Give up on an unresolved trade after (days)", minval = 1, maxval = 20,
-     group = "Stop & target",
-     tooltip = "A safety valve, not a strategy rule. Only one trade in the sample "
-             + "ever reached it.")
+fzTheme = input.string("Dark", "Theme", options = ["Dark", "Light grey", "White"],
+     group = "Look")
+fzDorm  = input.color(color.new(#8899a6, 93), "Dormant fill",  inline = "l1", group = "Look")
+fzDormB = input.color(color.new(#8899a6, 82), "border",        inline = "l1", group = "Look")
+fzLive  = input.color(color.new(#b8c6d1, 85), "Live fill",     inline = "l2", group = "Look")
+fzEdge  = input.color(color.new(#b8c6d1, 60), "border",        inline = "l2", group = "Look")
+fzWonF  = input.color(color.new(#4db6a0, 94), "Won fill",      inline = "l3", group = "Look")
+fzWonB  = input.color(color.new(#4db6a0, 72), "border",        inline = "l3", group = "Look")
+fzLine  = input.color(color.new(#c8d4de, 55), "Level lines",   inline = "l4", group = "Look")
+fzTgtC  = input.color(color.new(#8fb3a8, 50), "Target",        inline = "l4", group = "Look")
+fzStpC  = input.color(color.new(#c08a8a, 50), "Stop",          inline = "l4", group = "Look")
+fzTxt   = input.string("Tiny", "Level text", options = ["Tiny", "Small", "Normal"],
+     group = "Look")
+fzShowN = input.bool(true, "Level numbers when live", group = "Look")
 
-lockOne  = input.bool(true, "One position at a time - skip the call while open",
-     group = "Filters",
-     tooltip = "The six sessions this discarded were 1W/4L worth -2.2 R, so it is "
-             + "filtering rather than costing. Letting them all through measures "
-             + "+40.4 R against +46.5 R. A call arriving while a trade is open is "
-             + "a call on a day whose box has usually already been breached.")
-cutOpp   = input.bool(true, "Close a losing trade when the next call opposes it",
-     group = "Filters",
-     tooltip = "The new day's direction call doubles as an exit, but only for a "
-             + "position that is not yet in profit - a winner is left alone to "
-             + "run. Cutting every opposing call regardless measures +41.6 R, "
-             + "because on 2026-07-28 it closed a 5.23 R winner for +0.74 R. "
-             + "Cutting only the ones under water gives 20W/14L, PF 4.72, "
-             + "+47.1 R and a 2.8 R drawdown, against 19W/13L, PF 4.57, +46.5 R "
-             + "and 3.0 R for skipping. Better in both halves of the sample, "
-             + "though only just. It also frees the day the closed trade was "
-             + "blocking.")
-cutBelow = input.float(0.25, "    only if it is below this many R", step = 0.05,
-     minval = -1.0, maxval = 2.0, group = "Filters",
-     tooltip = "0.00 through 0.50 all measure the same. At +1.00 R it starts "
-             + "cutting winners and collapses back to +41.6 R.")
-useRngF  = input.bool(true, "Skip days with an oversized 9pm range", group = "Filters",
-     tooltip = "Sessions at or above the limit went 1W/6L.")
-maxRng   = input.float(40.0, "    range limit ($)", step = 1.0, minval = 1.0, group = "Filters")
+eeShow  = input.bool(true, "End-to-end box", inline = "e1", group = "End to end")
+eeFill  = input.color(color.new(#8899a6, 96), "fill",   inline = "e1", group = "End to end")
+eeBord  = input.color(color.new(#a8b8c4, 78), "border", inline = "e1", group = "End to end")
+eeEdge  = input.color(color.new(#b8c6d1, 55), "2.0 edges", inline = "e2", group = "End to end")
+
+dvShow  = input.bool(true, "Midnight divider", inline = "dv", group = "Divider")
+dvCol   = input.color(color.new(#8899a6, 85), "", inline = "dv", group = "Divider")
+dvStyle = input.string("Dotted", "", options = ["Solid", "Dashed", "Dotted"],
+     inline = "dv", group = "Divider")
+
+dShow   = input.bool(true, "Direction marker", inline = "d1", group = "Marker")
+dUpCol  = input.color(color.new(#4db6a0, 35), "up",   inline = "d1", group = "Marker")
+dDnCol  = input.color(color.new(#c96a6a, 35), "down", inline = "d1", group = "Marker")
+dSize   = input.string("Tiny", "size", inline = "d2", group = "Marker",
+     options = ["Tiny", "Small", "Normal"])
+dConf   = input.bool(true, "confidence %", inline = "d2", group = "Marker")
+dConfC  = input.color(color.new(#8899a6, 35), "", inline = "d2", group = "Marker")
+dOff    = input.float(0.25, "Offset (R)", step = 0.05, minval = 0.0, group = "Marker")
+
+acBal   = input.float(500.0, "Account balance ($)", minval = 1, group = "Risk")
+acRisk  = input.float(0.5, "Risk per trade (%)", minval = 0.01, step = 0.05, group = "Risk")
+acFrom  = input.time(timestamp("2026-01-01 00:00 -0500"), "Track from", group = "Risk")
+acShow  = input.bool(true, "Print results on the chart", group = "Risk")
+acSize  = input.string("Tiny", "Result text", options = ["Tiny", "Small", "Normal"],
+     group = "Risk")
+acWinC  = input.color(#4db6a0, "win", inline = "ac", group = "Risk")
+acLosC  = input.color(#c96a6a, "loss", inline = "ac", group = "Risk")
+
+pnShow  = input.bool(true, "Show panel", group = "Panel")
+pnPos   = input.string("Top right", "Position", group = "Panel",
+     options = ["Top right", "Top left", "Bottom right", "Bottom left", "Middle right"])
+pnSize  = input.string("Tiny", "Text", options = ["Tiny", "Small", "Normal"],
+     group = "Panel")
 
 //=============================================================================
-// APPEARANCE
+// HELPERS
 //=============================================================================
-
-f_style(string s) =>
-    s == "Dashed" ? line.style_dashed : s == "Dotted" ? line.style_dotted : line.style_solid
 
 f_size(string s) =>
     s == "Tiny" ? size.tiny : s == "Normal" ? size.normal : s == "Large" ? size.large :
      s == "Huge" ? size.huge : size.small
 
-f_cfPos(string s) =>
-    s == "Bottom left"   ? position.bottom_left   : s == "Bottom centre" ? position.bottom_center :
-     s == "Top right"    ? position.top_right     : s == "Top left"      ? position.top_left :
-     s == "Middle right" ? position.middle_right  : s == "Middle left"   ? position.middle_left :
-     position.bottom_right
+f_style(string s) =>
+    s == "Dashed" ? line.style_dashed : s == "Dotted" ? line.style_dotted : line.style_solid
 
-// The measured hit rate for a reading. Grid = lopsidedness x range ratio.
-f_cfHit(float raw, int q, bool grid) =>
-    float h = na
-    if grid and q > 0
-        int c = raw < 0.10 ? 1 : raw < 0.20 ? 2 : raw < 0.30 ? 3 : 4
-        h := q == 1 ? (c == 1 ? 55.9 : c == 2 ? 69.0 : c == 3 ? 76.8 : 85.9) :
-             q == 2 ? (c == 1 ? 58.8 : c == 2 ? 69.0 : c == 3 ? 76.5 : 79.5) :
-             q == 3 ? (c == 1 ? 60.4 : c == 2 ? 70.5 : c == 3 ? 79.8 : 94.3) :
-                      (c == 1 ? 68.3 : c == 2 ? 75.8 : c == 3 ? 83.6 : 92.6)
-    else
-        h := raw < 0.05 ? 57.7 : raw < 0.10 ? 64.0 : raw < 0.15 ? 68.2 :
-             raw < 0.20 ? 74.8 : raw < 0.25 ? 78.4 : raw < 0.35 ? 81.3 : 94.9
-    h
+f_theme(color c) =>
+    fzTheme == "Dark" ? c :
+     color.new(fzTheme == "Light grey" ? #4a5a66 : #2b3740, color.t(c))
 
-f_shape(string s, int dir) =>
-    s == "Arrow (auto)"          ? (dir > 0 ? label.style_arrowup : label.style_arrowdown) :
-     s == "Speech bubble (auto)" ? (dir > 0 ? label.style_label_up : label.style_label_down) :
-     s == "Circle"               ? label.style_circle :
-     s == "Square"               ? label.style_square :
-     s == "Diamond"              ? label.style_diamond :
-     s == "Flag"                 ? label.style_flag :
-     s == "Cross"                ? label.style_cross :
-     s == "X"                    ? label.style_xcross :
-     s == "Text only"            ? label.style_none :
-     s == "Emoji"                ? label.style_none :
-     (dir > 0 ? label.style_triangleup : label.style_triangledown)
-
-dShow  = input.bool(true, "Show direction marker", group = "Direction marker")
-dShape = input.string("Triangle (auto)", "Shape", group = "Direction marker",
-     options = ["Triangle (auto)", "Arrow (auto)", "Speech bubble (auto)", "Circle", "Square",
-                "Diamond", "Flag", "Cross", "X", "Text only", "Emoji"])
-dUpEmo = input.string("🔼", "Emoji up", inline = "de", group = "Direction marker")
-dDnEmo = input.string("🔽", "down", inline = "de", group = "Direction marker")
-dSize  = input.string("Tiny", "Size", group = "Direction marker",
-     options = ["Tiny", "Small", "Normal", "Large", "Huge"])
-dUpCol = input.color(#26a69a, "Up", inline = "dc", group = "Direction marker")
-dDnCol = input.color(#ef5350, "Down", inline = "dc", group = "Direction marker")
-dTrans = input.int(35, "Transparency", minval = 0, maxval = 100, group = "Direction marker")
-dOff   = input.float(0.20, "Offset from the candle (R)", step = 0.05, minval = 0.0,
-     group = "Direction marker")
-dConf  = input.bool(true, "Confidence % beside the marker", group = "Direction marker")
-dConfC = input.color(color.new(#8899a6, 25), "    its colour", group = "Direction marker")
-dSkip  = input.bool(true, "Mark calls skipped because a trade is open",
-     group = "Direction marker")
-dSkipCol = input.color(color.new(color.gray, 40), "    skip colour", group = "Direction marker")
-
-eShow  = input.bool(true, "Show entry marker", group = "Entry marker")
-eShape = input.string("Arrow (auto)", "Shape", group = "Entry marker",
-     options = ["Triangle (auto)", "Arrow (auto)", "Speech bubble (auto)", "Circle", "Square",
-                "Diamond", "Flag", "Cross", "X", "Text only", "Emoji"])
-eUpEmo = input.string("🎯", "Emoji up", inline = "ee", group = "Entry marker")
-eDnEmo = input.string("🎯", "down", inline = "ee", group = "Entry marker")
-eSize  = input.string("Normal", "Size", group = "Entry marker",
-     options = ["Tiny", "Small", "Normal", "Large", "Huge"])
-eUpCol = input.color(#00e676, "Up", inline = "ec", group = "Entry marker")
-eDnCol = input.color(#ff1744, "Down", inline = "ec", group = "Entry marker")
-eTrans = input.int(0, "Transparency", minval = 0, maxval = 100, group = "Entry marker")
-eText  = input.string("RR", "Text", options = ["None", "Price", "RR", "Price + RR"],
-     group = "Entry marker")
-eTxtCol = input.color(color.white, "Text colour", group = "Entry marker")
-eOff   = input.float(0.45, "Offset from the candle (R)", step = 0.05, minval = 0.0,
-     group = "Entry marker")
-
-xShow   = input.bool(true, "Show the result", group = "Exit marker")
-xShape  = input.string("Text only", "Shape", group = "Exit marker",
-     options = ["Triangle (auto)", "Arrow (auto)", "Speech bubble (auto)", "Circle", "Square",
-                "Diamond", "Flag", "Cross", "X", "Text only", "Emoji"])
-xWinEmo = input.string("✅", "Emoji win", inline = "xe", group = "Exit marker")
-xLosEmo = input.string("❌", "loss", inline = "xe", group = "Exit marker")
-xBeEmo  = input.string("➖", "flat", inline = "xe", group = "Exit marker")
-xSize   = input.string("Small", "Size", group = "Exit marker",
-     options = ["Tiny", "Small", "Normal", "Large", "Huge"])
-xWinCol = input.color(#00e676, "Win", inline = "xc", group = "Exit marker")
-xLosCol = input.color(#ff1744, "Loss", inline = "xc", group = "Exit marker")
-xBeCol  = input.color(#ffab00, "Flat", inline = "xc", group = "Exit marker")
-xTrans  = input.int(0, "Transparency", minval = 0, maxval = 100, group = "Exit marker")
-xText   = input.string("R result", "Text", group = "Exit marker",
-     options = ["None", "R result", "Words", "Words + R result"])
-xTxtCol = input.color(color.white, "Text colour (shapes only)", group = "Exit marker",
-     tooltip = "Text-only and emoji markers are tinted with the win / loss / flat colour.")
-xPlace  = input.string("Win above, loss below", "Placement", group = "Exit marker",
-     options = ["Win above, loss below", "Always above", "Always below",
-                "Clear of the zones", "Above the zones"],
-     tooltip = "Clear of the zones parks the marker just outside the projection " +
-               "box on the side the trade was on, so candles never sit on top of it.")
-xOff    = input.float(0.35, "Offset from the candle (R)", step = 0.05, minval = 0.0,
-     group = "Exit marker")
-xTally  = input.bool(true, "Running R tally in the panel", group = "Exit marker")
-
-shEntry = input.bool(true, "Entry", inline = "e", group = "Levels")
-cEntry  = input.color(color.new(#b0bec5, 0), "", inline = "e", group = "Levels")
-sEntry  = input.string("Dotted", "", options = ["Solid", "Dashed", "Dotted"], inline = "e", group = "Levels")
-wEntry  = input.int(1, "", minval = 1, maxval = 4, inline = "e", group = "Levels")
-
-shStop  = input.bool(true, "Stop", inline = "s", group = "Levels")
-cStop   = input.color(#ff1744, "", inline = "s", group = "Levels")
-sStop   = input.string("Solid", "", options = ["Solid", "Dashed", "Dotted"], inline = "s", group = "Levels")
-wStop   = input.int(2, "", minval = 1, maxval = 4, inline = "s", group = "Levels")
-
-shTgt   = input.bool(true, "Target", inline = "t", group = "Levels")
-cTgt    = input.color(#00e676, "", inline = "t", group = "Levels")
-sTgt    = input.string("Solid", "", options = ["Solid", "Dashed", "Dotted"], inline = "t", group = "Levels")
-wTgt    = input.int(2, "", minval = 1, maxval = 4, inline = "t", group = "Levels")
-
-shBE    = input.bool(true, "Break-even trigger (when enabled)", inline = "b", group = "Levels")
-cBE     = input.color(#ffab00, "", inline = "b", group = "Levels")
-sBE     = input.string("Dashed", "", options = ["Solid", "Dashed", "Dotted"], inline = "b", group = "Levels")
-
-shVwap  = input.bool(true, "VWAP while waiting", inline = "v", group = "Levels")
-cVwap   = input.color(color.new(#ffffff, 0), "", inline = "v", group = "Levels")
-
-priceTag = input.bool(true, "Price tag on each level", group = "Levels")
-tagSize  = input.string("Tiny", "Tag size", options = ["Tiny", "Small", "Normal"], group = "Levels")
-
-//-----------------------------------------------------------------------------
-// CONFIDENCE DASHBOARD
-//
-// The score is how lopsided the call is: where the reading price sits between
-// the two 2.0 zone edges, measured as the distance from dead centre. It is the
-// only thing found in 4,449 sessions of 15m gold, 2004-2026, that predicts
-// whether the call is right - and it does so cleanly and monotonically.
-//
-//   |pos-0.5|      n     hit rate     2005-17   2018-26   2023-26
-//   0.00 - 0.05   402      57.7%       53.96%    61.50%    63.38%
-//   0.05 - 0.10   442      64.0%       63.80%    64.42%    66.07%
-//   0.10 - 0.15   377      68.2%       69.08%    67.06%    61.54%
-//   0.15 - 0.20   341      74.8%       72.11%    78.15%    77.97%
-//   0.20 - 0.25   282      78.4%       76.39%    80.43%    79.17%
-//   0.25 - 0.35   411      81.3%       82.70%    79.31%    81.01%
-//   0.35 +        156      94.9%       96.55%    92.75%    96.88%
-//
-// The confluence grid adds today's 9pm range divided by yesterday's full lane
-// range. A bigger box against yesterday means a better call, at every level of
-// lopsidedness, and the effect holds out of sample (+4.0pp on 2018-26):
-//
-//                     conf<0.10   0.10-0.20   0.20-0.30   conf>=0.30
-//   Q1 box smallest     55.9%       69.0%       76.8%       85.9%
-//   Q2                  58.8%       69.0%       76.5%       79.5%
-//   Q3                  60.4%       70.5%       79.8%       94.3%
-//   Q4 box largest      68.3%       75.8%       83.6%       92.6%
-//
-// These are measured historical rates on this instrument, not a forecast. The
-// dashboard fires at the read hour every single day, whatever the trade engine
-// is doing - an open position from yesterday never suppresses it.
-//-----------------------------------------------------------------------------
-
-//-----------------------------------------------------------------------------
-// FIB ZONES
-//
-// Every zone is the same construction: -0.27 pinned to a 2.0 projection edge,
-// the 1 on a fixed reference. Both directions are drawn, so the flipped side is
-// always on the chart if you disagree with the call.
-//
-//   price(f) = A + (1 - f) / 1.27 x (T - A)
-//   0.62 -> 2.34:1   0.70 -> 3.23:1   0.79 -> 5.05:1   with the stop on the 1
-//
-// Measured on 3,294 trades over 22 years and again on the OANDA-matched window,
-// the 0.95 stop beat both the 0.88 and the 1 anchor. 0.88 collapses the win
-// rate, the 1 anchor roughly doubles drawdown.
-//
-// A zone moves through five states and its look follows the state:
-//
-//   DORMANT  a muted fill, nothing else
-//   LIVE     price is inside it - lighter fill, faint border, the three levels
-//   ARMED    price left the way it came - levels turn green, the stop appears
-//   WON      the target traded - the result prints
-//   SPENT    price closed through it - back to dormant, sunk into the chart
-//-----------------------------------------------------------------------------
-
-fzOn    = input.bool(true, "Draw the fib zones", group = "Fib zones")
-fzTheme = input.string("Dark", "Theme", options = ["Dark", "Light grey", "White"],
-     group = "Fib zones",
-     tooltip = "Sets the whole palette. Every colour below can still be overridden.")
-fzBoth  = input.bool(true, "Draw both sides of the market", group = "Fib zones",
-     tooltip = "On: the call's side and the flipped side. Off: the call's side only.")
-fzEndH  = input.int(17, "Boxes run to (NY hour)", minval = 1, maxval = 24,
-     group = "Fib zones",
-     tooltip = "Midnight to this hour. 17 keeps the day's block tight; 24 runs " +
-               "midnight to midnight so the blocks butt up against each other.")
-
-fzA1 = input.bool(true,  "Today's zone edge",   inline = "fa", group = "Fib zones")
-fzA2 = input.bool(true,  "Asia",                inline = "fa", group = "Fib zones")
-fzA3 = input.bool(true,  "Yesterday's swing",   inline = "fb", group = "Fib zones")
-fzA4 = input.bool(false, "Yesterday's zone",    inline = "fb", group = "Fib zones",
-     tooltip = "Off by default. It went 0 for 12 in the 2026 sample and is the " +
-               "only anchor negative over the full history.")
-fzPiv = input.int(5, "Swing strength", minval = 1, maxval = 30, group = "Fib zones",
-     tooltip = "Bars either side needed for a pivot to confirm. Bigger means " +
-               "fewer, more significant swings.")
-fzSwSrc = input.string("Last swing before the lane opened", "Which swing",
-     group = "Fib zones",
-     options = ["Last swing before the lane opened", "Deepest swing of the previous day"])
-fzAsiaW = input.string("19:00 - 00:00", "Asia window (NY)", group = "Fib zones",
-     options = ["19:00 - 00:00", "18:00 - 00:00", "20:00 - 02:00", "19:00 - 02:00"])
-
-//--- palette ---------------------------------------------------------------
-fzDorm  = input.color(color.new(#8899a6, 92), "Dormant fill",  inline = "p1", group = "Fib look")
-fzLive  = input.color(color.new(#b8c6d1, 82), "Live fill",     inline = "p1", group = "Fib look")
-fzEdge  = input.color(color.new(#b8c6d1, 55), "Live border",   inline = "p2", group = "Fib look")
-fzLine  = input.color(color.new(#c8d4de, 45), "Level lines",   inline = "p2", group = "Fib look")
-fzWin   = input.color(color.new(#4db6a0, 72), "Won border",    inline = "p3", group = "Fib look")
-fzDormB = input.color(color.new(#8899a6, 78), "Dormant border", inline = "p3", group = "Fib look")
-fzWonF  = input.color(color.new(#4db6a0, 94), "Won fill",      inline = "p4", group = "Fib look")
-fzWonL  = input.color(color.new(#c8d4de, 45), "Won levels",    inline = "p4", group = "Fib look")
-fzTgtC  = input.color(color.new(#8fb3a8, 45), "Target line",   inline = "p5", group = "Fib look")
-fzStpC  = input.color(color.new(#c08a8a, 45), "Stop line",     inline = "p5", group = "Fib look")
-fzLnW   = input.int(1, "their width", minval = 1, maxval = 3, inline = "p5", group = "Fib look")
-
-eeShow  = input.bool(true, "Draw the end-to-end zone box", group = "End to end")
-eeFill  = input.color(color.new(#8899a6, 95), "fill",   inline = "ee", group = "End to end")
-eeBord  = input.color(color.new(#a8b8c4, 70), "border", inline = "ee", group = "End to end")
-eeW     = input.int(1, "border width", minval = 1, maxval = 3, inline = "ee", group = "End to end")
-dvShow  = input.bool(true, "Midnight divider", inline = "dv", group = "Divider")
-dvCol   = input.color(color.new(#8899a6, 75), "", inline = "dv", group = "Divider")
-dvStyle = input.string("Dotted", "", options = ["Solid", "Dashed", "Dotted"],
-     inline = "dv", group = "Divider")
-dvW     = input.int(1, "", minval = 1, maxval = 3, inline = "dv", group = "Divider")
-dvExt   = input.string("Whole chart", "Extends", group = "Divider",
-     options = ["Whole chart", "The day's block only"],
-     tooltip = "The block option ties the divider to the same vertical span as " +
-               "the zones, so nothing runs past the day's frame.")
-
-eeEdge  = input.color(color.new(#b8c6d1, 45), "2.0 edge lines", inline = "e2", group = "End to end")
-eeEdgeW = input.int(1, "width", minval = 1, maxval = 3, inline = "e2", group = "End to end")
-fzTxt   = input.string("Tiny", "Level text", options = ["Tiny", "Small", "Normal"],
-     group = "Fib look")
-fzShowN = input.bool(true, "Show level numbers when live", group = "Fib look")
-
-//--- account ---------------------------------------------------------------
-acBal   = input.float(500.0, "Account balance ($)", minval = 1, group = "Risk")
-acRisk  = input.float(0.5, "Risk per trade (%)", minval = 0.01, step = 0.05, group = "Risk")
-acShow  = input.bool(true, "Print the result on the chart", group = "Risk")
-acSize  = input.string("Small", "Result text", options = ["Tiny", "Small", "Normal"],
-     group = "Risk")
-acWinC  = input.color(#4db6a0, "Win", inline = "ac", group = "Risk")
-acLosC  = input.color(#c96a6a, "Loss", inline = "ac", group = "Risk")
-acFrom  = input.time(timestamp("2026-01-01 00:00 -0500"), "Track from", group = "Risk",
-     tooltip = "Only trades on or after this date count toward the panel.")
-
-cfShow   = input.bool(false, "Show the corner dashboard", group = "Confidence",
-     tooltip = "Off by default - the score now sits beside the direction marker.")
-cfPos    = input.string("Bottom right", "Position", group = "Confidence",
-     options = ["Bottom right", "Bottom left", "Bottom centre", "Top right", "Top left",
-                "Middle right", "Middle left"])
-cfMode   = input.string("Hit rate", "Score shown", group = "Confidence",
-     options = ["Hit rate", "Lopsidedness", "Both"],
-     tooltip = "Hit rate = the measured historical accuracy for this reading. " +
-               "Lopsidedness = the raw |pos-0.5| number it comes from, 0.00 to 0.50.")
-cfGrid   = input.bool(true, "Use the range-ratio confluence grid", group = "Confidence",
-     tooltip = "Off = score from lopsidedness alone. On = the two-factor grid, " +
-               "which also reads today's 9pm range against yesterday's full range.")
-
-cfDot    = input.string("●", "Circle glyph", group = "Confidence",
-     tooltip = "Any character. ● filled, ○ hollow, ⬤ heavy, or an emoji.")
-cfDotBy  = input.string("Direction", "Circle colour by", group = "Confidence",
-     options = ["Direction", "Confidence tier", "Direction, dimmed when weak"])
-cfUpCol  = input.color(#00e676, "Up", inline = "cfd", group = "Confidence")
-cfDnCol  = input.color(#ff1744, "Down", inline = "cfd", group = "Confidence")
-cfNaCol  = input.color(#78909c, "None yet", inline = "cfd", group = "Confidence")
-cfNumCol = input.color(#ffffff, "Score text", group = "Confidence")
-
-cfDotTr  = input.int(0,  "Transparency   circle", minval = 0, maxval = 100,
-     inline = "cftr", group = "Confidence")
-cfNumTr  = input.int(0,  "score", minval = 0, maxval = 100, inline = "cftr", group = "Confidence")
-
-cfDotSz  = input.string("Huge", "Circle size", inline = "cfsz", group = "Confidence",
-     options = ["Tiny", "Small", "Normal", "Large", "Huge"])
-cfNumSz  = input.string("Large", "score", inline = "cfsz", group = "Confidence",
-     options = ["Tiny", "Small", "Normal", "Large", "Huge"])
-
-cfFloor  = input.float(0.10, "Weak below (lopsidedness)", step = 0.01,
-     minval = 0.0, maxval = 0.5, group = "Confidence",
-     tooltip = "Below 0.10 the call ran 55.9% to 68.3% - close to a coin flip, " +
-               "and that is roughly a third of all days. Only used to dim the " +
-               "circle when the colour mode asks for it.")
-cfT1     = input.float(0.10, "Tier 2 starts at", step = 0.01, minval = 0.0, maxval = 0.5,
-     inline = "cft", group = "Confidence")
-cfT2     = input.float(0.20, "tier 3", step = 0.01, minval = 0.0, maxval = 0.5,
-     inline = "cft", group = "Confidence")
-cfT3     = input.float(0.30, "tier 4", step = 0.01, minval = 0.0, maxval = 0.5,
-     inline = "cft", group = "Confidence")
-cfC1     = input.color(#ef5350, "Tier 1", inline = "cfc", group = "Confidence")
-cfC2     = input.color(#ffa726, "2", inline = "cfc", group = "Confidence")
-cfC3     = input.color(#9ccc65, "3", inline = "cfc", group = "Confidence")
-cfC4     = input.color(#00e676, "4", inline = "cfc", group = "Confidence")
-
-cfQ1     = input.float(0.111, "Range-ratio quartiles", step = 0.005, minval = 0.001,
-     inline = "cfq", group = "Confidence")
-cfQ2     = input.float(0.154, "", step = 0.005, minval = 0.001, inline = "cfq", group = "Confidence")
-cfQ3     = input.float(0.215, "", step = 0.005, minval = 0.001, inline = "cfq", group = "Confidence")
-
-showPanel = input.bool(true, "Show panel", group = "Panel")
-panelPos  = input.string("Top right", "Position", group = "Panel",
-     options = ["Top right", "Top left", "Bottom right", "Bottom left", "Middle right"])
-panelSize = input.string("Small", "Text size", options = ["Tiny", "Small", "Normal"], group = "Panel")
-
-//=============================================================================
-// EFFECTIVE SETTINGS
-//
-// v1.0 is the frozen original: the 2.0 edge as the zone, a market entry at the
-// read hour, stop and target both 1.5 R from that entry, and no filters at all.
-// Selecting it overrides the inputs below rather than hiding them, so you can
-// see exactly what changes.
-//=============================================================================
-
-float trTgtMul = str.contains(trTgt, "2.5") ? 2.5 : 2.0
-float trEntF   = str.contains(trEntry, "0.62") ? 0.62 :
-     str.contains(trEntry, "0.70") ? 0.70 : 0.79
-bool  trEntVW  = str.contains(trEntry, "VWAP")
-bool  trEntBox = str.contains(trEntry, "Origin box")
-float trStopFb = str.contains(trStop, "0.88") ? 0.88 :
-     str.contains(trStop, "0.95") ? 0.95 : 1.0
-bool  trStopVW = str.contains(trStop, "VWAP")
-bool  trStopBx = str.contains(trStop, "Origin box")
-
-float e_lvl1   = lvl1
-float e_pull   = tgtPull
-bool  e_BE     = useBE
-bool  e_lock   = lockOne
-bool  e_cutOpp = cutOpp
-bool  e_rngF   = useRngF
-
-//=============================================================================
-// CALENDAR + SOURCE CANDLE
-//=============================================================================
+f_lv(float a_, float t_, float f) => a_ + (1.0 - f) / 1.27 * (t_ - a_)
 
 f_midnight(int t) =>
     timestamp(TZ, year(t, TZ), month(t, TZ), dayofmonth(t, TZ), 0, 0, 0)
 
-f_nextMidnight(int t) =>
-    f_midnight(f_midnight(t) + 26 * 3600000)
-
-f_src() =>
-    var float sH = na
-    var float sL = na
-    var int   sD = na
-    if hour(time[1], TZ) == srcHour
-        sH := high[1]
-        sL := low[1]
-        sD := f_nextMidnight(time[1])
-    [sH, sL, sD]
-
-[srcHigh, srcLow, srcDay] = request.security(syminfo.tickerid, "60", f_src(),
-     lookahead = barmerge.lookahead_off)
+float trEntF = str.tonumber(trEntry)
+float trStpF = str.tonumber(trStop)
+float trTgtM = str.tonumber(trTgt)
 
 //=============================================================================
-// STATE
+// SOURCE CANDLE, LANE, AND THE REFERENCES THE ANCHORS COME FROM
 //=============================================================================
-// Lane state resets every night. Trade state does not - the position outlives
-// the session that opened it, which is the whole point of this version.
-
-var float  R        = na
-var float  upEdge   = na
-var float  dnEdge   = na
-var float  boxHi    = na
-var float  boxLo    = na
-var int    laneDay  = na
-var bool   called   = false
-var bool   waiting  = false
-var bool   dead     = false
-var bool   preHit   = false
-var int    side     = 0
-var string why      = ""
-
-var bool   tOpen    = false      // a position is live
-var int    tSide    = 0
-var int    tLane    = na         // the lane it was opened in
-var float  tEntry   = na
-var float  tStop    = na
-var float  tTgt     = na
-var float  tRR      = na
-var float  tRisk    = na
-var float  tBE      = na         // the break-even arming level, when enabled
-var bool   tBeDone  = false
-var string tHow     = ""         // what filled it
-var string lastOut  = ""
-var int    lastKind = 0          // 1 win, 2 loss, 3 flat
-var float  z20u     = na         // the true 2.0 edges
-var float  z20d     = na
-// the running record, counted from the account start date
-var int    stW      = 0
-var int    stL      = 0
-var float  stRw     = 0.0
-var float  stRl     = 0.0
-var int    stCallW  = 0
-var int    stCallN  = 0
-var int    lastLoss = 0          // the lane a loss was last booked against
-var float  pz20u    = na         // and yesterday's pair
-var float  pz20d    = na
-var float  lastR    = na         // the R won or lost
-var float  sumR     = 0.0
-var int    nWin     = 0
-var int    nLos     = 0
-
-var line   lnE      = na
-var line   lnS      = na
-var line   lnT      = na
-var line   lnB      = na
-var label  tagS     = na
-var label  tagT     = na
 
 bool intraday = not timeframe.isdwm
-bool newSrc = intraday and not na(srcDay) and not na(srcHigh) and (na(laneDay) or srcDay != laneDay)
 
-bool laneOpen = intraday and not na(laneDay) and time >= laneDay and time[1] < laneDay
-// "Session" is the built-in VWAP's own anchor, so the two lines coincide.
-float vwSess = ta.vwap(vwSrc)
-float vwLane = ta.vwap(vwSrc, laneOpen)
-float vw = vwAnc == "Session" ? vwSess : vwLane
+var float srcHigh = na
+var float srcLow  = na
+var int   srcDay  = na
+if intraday and hour(time[1], TZ) == srcHour
+    srcHigh := na(srcHigh) or hour(time[2], TZ) != srcHour ? high[1] : math.max(srcHigh, high[1])
+    srcLow  := na(srcLow)  or hour(time[2], TZ) != srcHour ? low[1]  : math.min(srcLow,  low[1])
+    srcDay  := f_midnight(f_midnight(time[1]) + 26 * 3600000)
+
+var int   laneDay = na
+var float boxHi   = na
+var float boxLo   = na
+var float R       = na
+var float z20u    = na
+var float z20d    = na
+var float pz20u   = na
+var float pz20d   = na
+var int   side    = 0
+var bool  called  = false
+
+// running record, from the account start date
+var int   stW     = 0
+var int   stL     = 0
+var float stRw    = 0.0
+var float stRl    = 0.0
+var int   stCallW = 0
+var int   stCallN = 0
+var int   lastLoss = 0
+
+bool newSrc = intraday and not na(srcDay) and not na(srcHigh)
+     and (na(laneDay) or srcDay != laneDay)
 
 if newSrc and (srcHigh - srcLow) > 0
+    // This block runs at 22:00, an hour before the lane opens, so yesterday's
+    // 2.0 pair is banked here before the new one overwrites it.
+    pz20u   := z20u
+    pz20d   := z20d
     laneDay := srcDay
     boxHi   := srcHigh
     boxLo   := srcLow
     R       := srcHigh - srcLow
-    // The order rests just inside the edge, so the drawn level and the level
-    // actually worked are not the same thing.
-    float tgtLvl = math.max(e_lvl1 - e_pull, 0.1)
-    upEdge  := srcHigh + tgtLvl * R
-    dnEdge  := srcLow  - tgtLvl * R
-    // The true 2.0 edges. The fibs and the confidence score are both built from
-    // these, not from the pulled-in target level. This block runs at 22:00, an
-    // hour before the lane opens, so yesterday's pair is banked here - by the
-    // time laneOpen runs the new values are already in place.
-    pz20u   := z20u
-    pz20d   := z20d
     z20u    := srcHigh + 2.0 * R
     z20d    := srcLow  - 2.0 * R
     called  := false
-    waiting := false
-    dead    := false
-    preHit  := false
     side    := 0
-    why     := (e_rngF and R >= maxRng)
-         ? "range $" + str.tostring(R, "#.##") + " over the $"
-           + str.tostring(maxRng, "#") + " limit - no trade"
-         : "waiting for " + str.format("{0,number,00}:00", readHour) + " NY"
-    if e_rngF and R >= maxRng
-        dead := true
 
-bool inLane = intraday and not na(laneDay) and time >= laneDay and time < laneDay + 86400000
+bool laneOpen = intraday and not na(laneDay) and time >= laneDay and time[1] < laneDay
+bool inLane   = intraday and not na(laneDay) and time >= laneDay
+     and time < laneDay + 86400000
+bool inBlock  = inLane and hour(time, TZ) < endHour
 
-//=============================================================================
-// CONFIDENCE ENGINE
-//
-// Deliberately separate from the trade engine and gated by nothing it does.
-// An open position from yesterday, an oversized range, a zone already taken -
-// none of them suppress the reading. It fires at the read hour every day.
-//=============================================================================
-
-var float cfRaw   = na          // |pos - 0.5| between the true 2.0 edges
-var int   cfSide  = 0
-var float cfHit   = na          // measured historical hit rate, %
-var float cfRatio = na          // today's R / yesterday's full lane range
-var int   cfQ     = 0           // which quartile that ratio falls in
-var int   cfTier  = 0
-var bool  cfDone  = false
 var float laneHi  = na
 var float laneLo  = na
-var float prevRng = na
-var float prevHi  = na          // yesterday's lane extremes, frozen at the open
-var float prevLo  = na
-var float pvHi    = na          // running last confirmed swing, either side
+var float pvHi    = na
 var float pvLo    = na
-var float dayPvHi = na          // the previous lane's swings, frozen at the open
+var float dayPvHi = na
 var float dayPvLo = na
-var float asHi    = na          // Asia, accumulating
+var float asHi    = na
 var float asLo    = na
-var float asiaHi  = na          // Asia, frozen for this lane
+var float asiaHi  = na
 var float asiaLo  = na
 
-// Asia builds in the hours before the lane opens. It is accumulated while the
-// window is open and frozen on the bar the window closes, which handles both
-// the windows that end at midnight and the ones that run past it.
+// Asia accumulates while its window is open and freezes on the bar it closes,
+// which handles both the windows that end at midnight and those that run past.
 int asH = hour(time, TZ)
 bool inAsia = fzAsiaW == "18:00 - 00:00" ? (asH >= 18) :
      fzAsiaW == "20:00 - 02:00"          ? (asH >= 20 or asH < 2) :
@@ -852,13 +233,12 @@ if intraday
         asLo := low
     else if inAsia
         asHi := math.max(nz(asHi, high), high)
-        asLo := math.min(nz(asLo, low), low)
+        asLo := math.min(nz(asLo, low),  low)
     else if inAsia[1]
         asiaHi := asHi
         asiaLo := asLo
 
-// Swing pivots. ta.pivothigh confirms fzPiv bars after the fact, so the value
-// is only ever read once it is settled - no repainting.
+// Pivots confirm fzPiv bars after the fact, so what is read is already settled.
 float _ph = ta.pivothigh(high, fzPiv, fzPiv)
 float _pl = ta.pivotlow(low,  fzPiv, fzPiv)
 if not na(_ph)
@@ -867,44 +247,45 @@ if not na(_pl)
     pvLo := _pl
 
 if laneOpen
-    prevRng := na(laneHi) or na(laneLo) ? na : laneHi - laneLo
-    prevHi  := laneHi
-    prevLo  := laneLo
-    // Whatever the last confirmed swing was as the day turned over is, by
-    // definition, yesterday's most recent swing point.
     dayPvHi := fzSwSrc == "Deepest swing of the previous day" ? laneHi : pvHi
     dayPvLo := fzSwSrc == "Deepest swing of the previous day" ? laneLo : pvLo
     laneHi  := high
     laneLo  := low
-    cfDone  := false
-    cfRaw   := na
-    cfHit   := na
-    cfRatio := na
-    cfSide  := 0
-    cfQ     := 0
-    cfTier  := 0
 else if inLane
     laneHi := na(laneHi) ? high : math.max(laneHi, high)
     laneLo := na(laneLo) ? low  : math.min(laneLo, low)
 
-if inLane and not cfDone and not na(R) and R > 0 and hour(time, TZ) >= readHour
-    cfDone := true
+//=============================================================================
+// THE CALL, AND THE CONFIDENCE THAT GOES WITH IT
+//
+// The score is how lopsided the call is - where the reading price sits between
+// the two 2.0 edges, as a distance from dead centre. Measured on 4,449 sessions,
+// 2004-2026: 57.7% at the midpoint rising to 94.9% at the extreme.
+//=============================================================================
+
+var float cfRaw  = na
+var float cfHit  = na
+var int   cfTier = 0
+
+f_cfHit(float raw) =>
+    raw < 0.05 ? 57.7 : raw < 0.10 ? 64.0 : raw < 0.15 ? 68.2 :
+     raw < 0.20 ? 74.8 : raw < 0.25 ? 78.4 : raw < 0.35 ? 81.3 : 94.9
+
+if inLane and not called and not na(R) and R > 0 and hour(time, TZ) >= readHour
+    called := true
     float pz = (open - z20d) / (z20u - z20d)
     cfRaw  := math.abs(pz - 0.5)
-    cfSide := pz > 0.5 ? 1 : -1
-    cfRatio := na(prevRng) or prevRng <= 0 ? na : R / prevRng
-    cfQ := na(cfRatio) ? 0 :
-         cfRatio < cfQ1 ? 1 : cfRatio < cfQ2 ? 2 : cfRatio < cfQ3 ? 3 : 4
-    cfHit  := f_cfHit(cfRaw, cfQ, cfGrid)
-    cfTier := cfRaw < cfT1 ? 1 : cfRaw < cfT2 ? 2 : cfRaw < cfT3 ? 3 : 4
+    cfHit  := f_cfHit(cfRaw)
+    cfTier := cfRaw < 0.10 ? 1 : cfRaw < 0.20 ? 2 : cfRaw < 0.30 ? 3 : 4
+    side   := pz > 0.5 ? 1 : -1
 
-bool cfJust = inLane and cfDone and not cfDone[1]
+bool justCalled = inLane and called and not called[1]
 
-// The call's own record, settled the moment either 2.0 edge trades.
+// the call's own record, settled the moment either 2.0 edge trades
 var int  clSide = 0
 var bool clOpen = false
-if cfJust and cfSide != 0 and time >= acFrom
-    clSide := cfSide
+if justCalled and side != 0 and time >= acFrom
+    clSide := side
     clOpen := true
 if clOpen and not na(z20u)
     bool hu = high >= z20u
@@ -914,379 +295,65 @@ if clOpen and not na(z20u)
         stCallW += ((hu and clSide > 0) or (hd and clSide < 0)) ? 1 : 0
         clOpen  := false
 
-//=============================================================================
-// MANAGE THE OPEN POSITION - before anything else, so a call cannot fire on a
-// bar that also closes the trade
-//=============================================================================
-
-bool justWon  = false
-bool justLost = false
-bool justBE   = false
-bool justOut  = false
-
-if intraday and tOpen
-    // The stop is tested first, against the stop as it stands. Only then can
-    // this bar arm break-even - so a bar that reaches both is a loss, not a
-    // save, which is the honest reading when you cannot see inside the bar.
-    bool hitStop = (tSide > 0 and low <= tStop) or (tSide < 0 and high >= tStop)
-    if hitStop
-        tOpen   := false
-        lastR   := tBeDone ? 0.0 : -1.0
-        lastOut := tBeDone ? "closed at break-even, 0.00R" : "stopped out, -1.00R"
-        justBE   := tBeDone
-        justLost := not tBeDone
-    else
-        if e_BE and not tBeDone and not na(tBE)
-            if (tSide > 0 and high >= tBE) or (tSide < 0 and low <= tBE)
-                tBeDone := true
-                tStop   := tEntry
-        bool hitTgt = (tSide > 0 and high >= tTgt) or (tSide < 0 and low <= tTgt)
-        if hitTgt
-            tOpen   := false
-            lastR   := tRR
-            lastOut := "target hit, +" + str.tostring(tRR, "#.##") + "R"
-            justWon := true
-        else if not na(tLane) and time > tLane + maxDays * 86400000
-            tOpen   := false
-            lastR   := na(tRisk) or tRisk <= 0 ? 0.0 : tSide * (close - tEntry) / tRisk
-            lastOut := "unresolved after " + str.tostring(maxDays) + " days - closed at "
-                 + (lastR >= 0 ? "+" : "") + str.tostring(lastR, "0.00") + "R"
-            justWon  := lastR > 0
-            justLost := lastR < 0
-            justBE   := lastR == 0
-
-    justOut := justWon or justLost or justBE
-    if justOut
-        lastKind := justWon ? 1 : justLost ? 2 : 3
-        sumR     := sumR + lastR
-        nWin     := nWin + (lastR > 0 ? 1 : 0)
-        nLos     := nLos + (lastR < 0 ? 1 : 0)
-
-//=============================================================================
-// PRE-CALL: has the 2.0 zone already gone?
-//=============================================================================
-
-if inLane and not called and not dead
-    if high >= upEdge or low <= dnEdge
-        preHit := true
-
-//=============================================================================
-// THE CALL
-//=============================================================================
-
-bool skipped = false
-
-if inLane and not dead and not called and hour(time, TZ) >= readHour
-    called := true
-    float px  = open
-    float gUp = (upEdge - px) / R
-    float gDn = (px - dnEdge) / R
-    side := gUp < gDn ? 1 : -1
-    bool gone = side > 0 ? px >= upEdge : px <= dnEdge
-
-    // A call that opposes an open position is an exit signal for it - but only
-    // while it is under water. A winner is left alone to reach its target.
-    if e_cutOpp and tOpen and tSide != side and not na(tRisk) and tRisk > 0
-        float prog = tSide * (px - tEntry) / tRisk
-        if prog <= cutBelow
-            tOpen   := false
-            lastR   := prog
-            lastOut := "closed by an opposing call, "
-                 + (prog >= 0 ? "+" : "") + str.tostring(prog, "0.00") + "R"
-            justWon  := prog > 0
-            justLost := prog < 0
-            justBE   := prog == 0
-            justOut  := true
-            lastKind := justWon ? 1 : justLost ? 2 : 3
-            sumR     := sumR + prog
-            nWin     := nWin + (prog > 0 ? 1 : 0)
-            nLos     := nLos + (prog < 0 ? 1 : 0)
-
-    if e_lock and tOpen
-        dead    := true
-        skipped := true
-        why     := "still in a " + (tSide > 0 ? "long" : "short") + " - call skipped"
-    else if preHit or gone
-        dead := true
-        why  := "the zone had already gone before the call - no trade"
-    else
-        waiting := true
-        why     := "called - waiting for a VWAP tap before "
-             + str.format("{0,number,00}:00", cutHour)
-
-//=============================================================================
-// WAITING FOR THE TAP
-//=============================================================================
-
-bool justFilled = false
-
-if inLane and waiting and not dead
-    float proj = side > 0 ? upEdge : dnEdge
-    float stopWould = side > 0 ? boxLo - bufD : boxHi + bufD
-    if (side > 0 and low <= stopWould) or (side < 0 and high >= stopWould)
-        waiting := false
-        dead    := true
-        why     := "stop level reached before the entry - cancelled"
-    else if (side > 0 and high >= proj) or (side < 0 and low <= proj)
-        waiting := false
-        dead    := true
-        why     := "the zone was reached before the entry - cancelled"
-    else if hour(time, TZ) >= cutHour
-        waiting := false
-        dead    := true
-        why     := "no entry trigger before the cutoff - no trade"
-    else
-        // The one trigger. A tap of the VWAP, intrabar, not on the close.
-        float ent = na
-        string how = ""
-        if not na(vw) and low <= vw and vw <= high
-            ent := vw
-            how := "VWAP"
-
-        if not na(ent)
-            // The box level always decides whether the setup is still alive
-            // above; only the live stop changes with the mode.
-            float useStop = stopMode == "Beyond the VWAP" and not na(vw)
-                 ? vw - side * stopPips * pipSize : stopWould
-            bool  badStop = (side > 0 and useStop >= ent) or (side < 0 and useStop <= ent)
-            float risk = badStop ? 0.0 : math.abs(ent - useStop)
-            if risk > 0
-                waiting := false
-                tOpen   := true
-                tSide   := side
-                tLane   := laneDay
-                tEntry  := ent
-                tStop   := useStop
-                tRisk   := risk
-                tHow    := how
-                tTgt    := proj
-                tBE     := ent + side * (beFrac / 100.0) * math.abs(proj - ent)
-                tBeDone := false
-                tRR     := math.abs(proj - ent) / risk
-                justFilled := true
-                why := "filled on " + how + " - target is the "
-                     + str.tostring(lvl1, "#.##") + " edge at "
-                     + str.tostring(tRR, "#.##") + ":1, stop "
-                     + (stopMode == "Beyond the VWAP" ? "beyond the VWAP" : "behind the box")
-
-bool justCalled = inLane and called and not called[1]
-
-
-
-//=============================================================================
-// DRAWING
-//=============================================================================
-
-f_mark(int dir, string shape, string emoUp, string emoDn, string txt, color col,
-       string sz, float off, color txtCol, int transp) =>
-    string body = shape == "Emoji" ? (dir > 0 ? emoUp : emoDn) + (txt == "" ? "" : " " + txt) : txt
-    float yv = dir > 0 ? low - off * R : high + off * R
-    label.new(bar_index, yv, body, style = f_shape(shape, dir),
-         color = shape == "Emoji" or shape == "Text only" ? color.new(col, 100) : color.new(col, transp),
-         textcolor = shape == "Emoji" ? color.new(color.white, 0) : txtCol,
-         size = f_size(sz), yloc = yloc.price)
-
-if justCalled and side != 0
-    if skipped and dSkip
-        f_mark(side, dShape, dUpEmo, dDnEmo, "", dSkipCol, dSize, dOff, color.white, 60)
-    else if dShow and not dead
-        f_mark(side, dShape, dUpEmo, dDnEmo, "", side > 0 ? dUpCol : dDnCol,
-             dSize, dOff, color.white, dTrans)
-    // The score rides alongside the marker rather than sitting in a corner, so
-    // the day's reading is where the day's call is.
+if dShow and justCalled and side != 0 and not na(R)
+    label.new(bar_index, side > 0 ? low - dOff * R : high + dOff * R, "",
+         style = side > 0 ? label.style_triangleup : label.style_triangledown,
+         color = side > 0 ? dUpCol : dDnCol, size = f_size(dSize), yloc = yloc.price)
     if dConf and not na(cfHit)
-        label.new(bar_index, side > 0 ? low - (dOff + 0.28) * R : high + (dOff + 0.28) * R,
+        label.new(bar_index, side > 0 ? low - (dOff + 0.30) * R
+                                      : high + (dOff + 0.30) * R,
              str.tostring(cfHit, "#") + "%", style = label.style_none,
              color = color.new(color.black, 100), textcolor = dConfC,
              size = f_size(dSize), yloc = yloc.price)
 
-if justFilled and eShow
-    string et = eText == "None" ? "" :
-         eText == "Price" ? str.tostring(tEntry, format.mintick) :
-         eText == "RR" ? str.tostring(tRR, "#.##") + "R" :
-         str.tostring(tEntry, format.mintick) + "  " + str.tostring(tRR, "#.##") + "R"
-    f_mark(tSide, eShape, eUpEmo, eDnEmo, et, tSide > 0 ? eUpCol : eDnCol,
-         eSize, eOff, eTxtCol, eTrans)
-
-f_exit(int kind, float rres) =>
-    color  c   = kind == 1 ? xWinCol : kind == 2 ? xLosCol : xBeCol
-    string emo = kind == 1 ? xWinEmo : kind == 2 ? xLosEmo : xBeEmo
-    string rt  = (rres > 0 ? "+" : "") + str.tostring(rres, "0.00") + "R"
-    string wd  = kind == 1 ? "TARGET" : kind == 2 ? "STOP" : "FLAT"
-    string txt = xText == "None" ? "" : xText == "R result" ? rt :
-         xText == "Words" ? wd : wd + "  " + rt
-    string body = xShape == "Emoji" ? emo + (txt == "" ? "" : " " + txt) : txt
-    bool above = xPlace == "Always above" or
-         (xPlace == "Win above, loss below" and kind != 2)
-    float pad = na(R) ? syminfo.mintick * 100 : xOff * R
-    // "Clear of the zones" parks the marker outside the projection box, where no
-    // candle can reach it. "Above the zones" always puts it over the top edge.
-    float yv = na
-    if xPlace == "Above the zones" and not na(upEdge)
-        yv := upEdge + pad
-    else if xPlace == "Clear of the zones" and not na(upEdge) and not na(dnEdge)
-        yv := tSide < 0 or (tSide == 0 and side < 0) ? dnEdge - pad : upEdge + pad
-    else
-        yv := above ? high + pad : low - pad
-    bool flat = xShape == "Emoji" or xShape == "Text only"
-    label.new(bar_index, yv, body, style = f_shape(xShape, kind == 2 ? -1 : 1),
-         color = flat ? color.new(c, 100) : color.new(c, xTrans),
-         textcolor = flat ? c : xTxtCol, size = f_size(xSize), yloc = yloc.price)
-
-if xShow and justOut
-    f_exit(lastKind, lastR)
-
-f_tag(float y, string txt, color c) =>
-    label.new(bar_index, y, txt, style = label.style_label_left,
-         color = color.new(c, 85), textcolor = c, size = f_size(tagSize),
-         yloc = yloc.price)
-
-if justFilled
-    if shEntry
-        lnE := line.new(bar_index, tEntry, bar_index + 1, tEntry, color = cEntry,
-             style = f_style(sEntry), width = wEntry)
-    if shStop
-        lnS := line.new(bar_index, tStop, bar_index + 1, tStop, color = cStop,
-             style = f_style(sStop), width = wStop)
-    if shTgt
-        lnT := line.new(bar_index, tTgt, bar_index + 1, tTgt, color = cTgt,
-             style = f_style(sTgt), width = wTgt)
-    if useBE and shBE and not na(tBE)
-        lnB := line.new(bar_index, tBE, bar_index + 1, tBE, color = cBE,
-             style = f_style(sBE), width = 1)
-    if priceTag
-        tagS := f_tag(tStop, "SL " + str.tostring(tStop, format.mintick), cStop)
-        tagT := f_tag(tTgt,  "TP " + str.tostring(tTgt, format.mintick)
-             + "  " + str.tostring(tRR, "#.##") + "R", cTgt)
-
-// The lines run for as long as the position does, and the stop follows break-even.
-if tOpen
-    if not na(lnE)
-        line.set_x2(lnE, bar_index)
-    if not na(lnS)
-        line.set_x2(lnS, bar_index)
-        line.set_y1(lnS, tStop)
-        line.set_y2(lnS, tStop)
-    if not na(lnT)
-        line.set_x2(lnT, bar_index)
-    if not na(lnB)
-        line.set_x2(lnB, bar_index)
-    if priceTag
-        if not na(tagS)
-            label.set_x(tagS, bar_index)
-            label.set_y(tagS, tStop)
-            label.set_text(tagS, (tBeDone ? "BE " : "SL ") + str.tostring(tStop, format.mintick))
-        if not na(tagT)
-            label.set_x(tagT, bar_index)
-
-plot(shVwap and inLane and (waiting or tOpen) ? vw : na, "VWAP",
-     color = cVwap, style = plot.style_linebr, linewidth = 1)
-
 //=============================================================================
-// PANEL
-//=============================================================================
-
-f_cell(table t, int c, int r, string s, color bg, color fg, string sz) =>
-    table.cell(t, c, r, s, bgcolor = bg, text_color = fg, text_size = sz,
-         text_halign = c == 0 ? text.align_left : text.align_right)
-
-var table T = na
-
-if barstate.islast and showPanel and intraday
-    string pos = panelPos == "Top left" ? position.top_left :
-         panelPos == "Bottom right" ? position.bottom_right :
-         panelPos == "Bottom left" ? position.bottom_left :
-         panelPos == "Middle right" ? position.middle_right : position.top_right
-    if not na(T)
-        table.delete(T)
-    T := table.new(pos, 2, 7, border_width = 0, frame_width = 0,
-         bgcolor = color.new(color.black, 100))
-    string sz = f_size(panelSize)
-
-    int   n    = stW + stL
-    float totR = stRw - stRl
-    float pnl  = acBal * acRisk / 100.0 * totR
-    color fg   = color.new(#c8d4de, 12)
-    color dim  = color.new(#c8d4de, 52)
-    color bg   = color.new(color.black, 100)
-
-    f_cell(T, 0, 0, "W / L", bg, dim, sz)
-    f_cell(T, 1, 0, str.tostring(stW) + " / " + str.tostring(stL), bg, fg, sz)
-    f_cell(T, 0, 1, "win rate", bg, dim, sz)
-    f_cell(T, 1, 1, n == 0 ? "-" : str.tostring(100.0 * stW / n, "#.#") + "%", bg, fg, sz)
-    f_cell(T, 0, 2, "total R", bg, dim, sz)
-    f_cell(T, 1, 2, (totR >= 0 ? "+" : "") + str.tostring(totR, "#.#"), bg,
-         totR >= 0 ? acWinC : acLosC, sz)
-    f_cell(T, 0, 3, "P&L", bg, dim, sz)
-    f_cell(T, 1, 3, (pnl >= 0 ? "+$" : "-$") + str.tostring(math.abs(pnl), "#.##"), bg,
-         pnl >= 0 ? acWinC : acLosC, sz)
-    f_cell(T, 0, 4, "avg R", bg, dim, sz)
-    f_cell(T, 1, 4, n == 0 ? "-" : (totR / n >= 0 ? "+" : "")
-         + str.tostring(totR / n, "0.00"), bg, fg, sz)
-    f_cell(T, 0, 5, "avg win", bg, dim, sz)
-    f_cell(T, 1, 5, stW == 0 ? "-" : "+" + str.tostring(stRw / stW, "0.00") + "R",
-         bg, fg, sz)
-    f_cell(T, 0, 6, "call", bg, dim, sz)
-    f_cell(T, 1, 6, stCallN == 0 ? "-" : str.tostring(100.0 * stCallW / stCallN, "#.#")
-         + "%  " + str.tostring(stCallN), bg, fg, sz)
-
-//=============================================================================
-// FIB ZONES
+// THE ZONES
 //
-// One object per zone while it sleeps, so a chart holds plenty of history. The
-// levels and the stop are only created when a zone actually goes live.
+// Each zone owns its own left and right edge, fixed to the day it belongs to.
+// Nothing a zone draws - lines, levels, results - ever leaves that day's block,
+// however long the trade itself takes to resolve.
 //=============================================================================
 
 type Zone
-    float   A                   // the 1 anchor
-    float   T                   // the -0.27 target, a 2.0 projection edge
-    int     side                // +1 long, -1 short
-    int     st                  // 0 dormant 1 live 2 armed 3 won 4 spent
-    box     bx
-    line    l1
-    line    l2
-    line    l3
-    line    ls                  // the stop
-    line    lt                  // the target
-    label   tag
-    label   res
-    int     lane
-    bool    dead
+    float A
+    float T
+    int   side
+    int   st        // 0 dormant  1 live  2 armed  3 won  4 spent
+    box   bx
+    line  l1
+    line  l2
+    line  l3
+    line  ls
+    line  lt
+    label tag
+    label res
+    int   lane
+    int   x1
+    int   x2
+    bool  dead
 
 var array<Zone> ZS = array.new<Zone>()
 
-f_lv(float a_, float t_, float f) => a_ + (1.0 - f) / 1.27 * (t_ - a_)
-
-// Dark charts want a lighter fill than the background, light charts a darker
-// one. The transparency the user set is preserved either way.
-f_theme(color c) =>
-    fzTheme == "Dark" ? c :
-     color.new(fzTheme == "Light grey" ? #4a5a66 : #2b3740, color.t(c))
-
-f_zEnd(int laneT) => laneT + fzEndH * 3600000
-
-// Build one zone, dormant, as a single box.
-f_zNew(float A_, float T_, int sd, int x1, int x2) =>
-    Zone z = Zone.new(A_, T_, sd, 0, na, na, na, na, na, na, na, na, laneDay, false)
-    float e = f_lv(A_, T_, trEntF)
-    float d = f_lv(A_, T_, 0.79)
+f_zNew(float A_, float T_, int sd, int x1) =>
+    Zone z = Zone.new(A_, T_, sd, 0, na, na, na, na, na, na, na, laneDay, x1, x1, false)
     float u = f_lv(A_, T_, 0.62)
-    z.bx := box.new(x1, math.max(u, d), x2, math.min(u, d),
-         border_color = color.new(color.black, 100),
-         bgcolor = f_theme(fzDorm), xloc = xloc.bar_index)
+    float d = f_lv(A_, T_, 0.79)
+    z.bx := box.new(x1, math.max(u, d), x1, math.min(u, d),
+         border_color = f_theme(fzDormB), bgcolor = f_theme(fzDorm),
+         xloc = xloc.bar_index)
     array.push(ZS, z)
     z
 
-f_zLevels(Zone z, int x1, int x2) =>
+f_zLevels(Zone z) =>
     color c = f_theme(fzLine)
-    z.l1 := line.new(x1, f_lv(z.A, z.T, 0.62), x2, f_lv(z.A, z.T, 0.62),
+    z.l1 := line.new(z.x1, f_lv(z.A, z.T, 0.62), z.x2, f_lv(z.A, z.T, 0.62),
          xloc = xloc.bar_index, color = c, style = line.style_dotted)
-    z.l2 := line.new(x1, f_lv(z.A, z.T, 0.70), x2, f_lv(z.A, z.T, 0.70),
+    z.l2 := line.new(z.x1, f_lv(z.A, z.T, 0.70), z.x2, f_lv(z.A, z.T, 0.70),
          xloc = xloc.bar_index, color = c, style = line.style_dotted)
-    z.l3 := line.new(x1, f_lv(z.A, z.T, 0.79), x2, f_lv(z.A, z.T, 0.79),
+    z.l3 := line.new(z.x1, f_lv(z.A, z.T, 0.79), z.x2, f_lv(z.A, z.T, 0.79),
          xloc = xloc.bar_index, color = c, style = line.style_dotted)
     if fzShowN
-        z.tag := label.new(x1, f_lv(z.A, z.T, 0.70), "0.62\n0.70\n0.79",
+        z.tag := label.new(z.x1, f_lv(z.A, z.T, 0.70), "0.62\n0.70\n0.79",
              style = label.style_label_right, color = color.new(color.black, 100),
              textcolor = c, size = f_size(fzTxt), xloc = xloc.bar_index)
 
@@ -1298,18 +365,10 @@ f_zRecolour(Zone z) =>
         box.set_bgcolor(z.bx, f_theme(fzLive))
         box.set_border_color(z.bx, f_theme(fzEdge))
     else
-        // A won zone is a hue, not a highlight. The levels stay grey so the green
-        // reads as a tint over the chart rather than a block of colour.
+        // A won zone is a hue, not a highlight. The levels stay grey.
         box.set_bgcolor(z.bx, f_theme(fzWonF))
-        box.set_border_color(z.bx, f_theme(fzWin))
-        if not na(z.l1)
-            line.set_color(z.l1, f_theme(fzWonL))
-            line.set_color(z.l2, f_theme(fzWonL))
-            line.set_color(z.l3, f_theme(fzWonL))
-        if not na(z.tag)
-            label.set_textcolor(z.tag, f_theme(fzWonL))
+        box.set_border_color(z.bx, f_theme(fzWonB))
 
-// Everything the zone drew, gone.
 f_zStrip(Zone z) =>
     if not na(z.l1)
         line.delete(z.l1)
@@ -1326,11 +385,11 @@ f_zStrip(Zone z) =>
         line.delete(z.lt)
         z.lt := na
 
-// Once the day's trade is settled every other zone on that lane stops running.
+// Once the day's trade is settled, every other zone on that lane stops.
 f_zSole(int lane, int keep) =>
     for jj = 0 to array.size(ZS) - 1
         Zone o = array.get(ZS, jj)
-        if o.lane == lane and jj != keep and o.st != 3
+        if o.lane == lane and jj != keep and o.st != 3 and not o.dead
             o.st   := 4
             o.dead := true
             f_zStrip(o)
@@ -1339,24 +398,17 @@ f_zSole(int lane, int keep) =>
                 label.delete(o.res)
                 o.res := na
 
-
-// The per-bar driver. The day's zones are built once at the lane open, then each
-// is walked through its states. Every transition is decided on a closed bar.
-var int fzX1 = na
-var int fzX2 = na
-
 f_zSpawn(float A_, int sd) =>
     if not na(A_) and not na(R) and R > 0
-        float T_ = sd > 0 ? (boxHi + trTgtMul * R) : (boxLo - trTgtMul * R)
+        float T_ = sd > 0 ? (boxHi + trTgtM * R) : (boxLo - trTgtM * R)
         float z_ = sd > 0 ? z20u : z20d          // the fib is always built to 2.0
         if (sd > 0 and z_ - A_ > 0) or (sd < 0 and z_ - A_ < 0)
-            f_zNew(A_, T_, sd, bar_index, bar_index + 1)
+            f_zNew(A_, T_, sd, bar_index)
 
-if fzOn and intraday and laneOpen and not na(z20u)
-    fzX1 := bar_index
-    int only = side != 0 ? side : 1
-    for k = 0 to (fzBoth ? 1 : 0)
-        int sd = fzBoth ? (k == 0 ? 1 : -1) : only
+if intraday and laneOpen and not na(z20u)
+    int only = 1
+    for k = 0 to (trBoth ? 1 : 0)
+        int sd = trBoth ? (k == 0 ? 1 : -1) : only
         if fzA1
             f_zSpawn(sd > 0 ? z20d : z20u, sd)
         if fzA2
@@ -1366,129 +418,99 @@ if fzOn and intraday and laneOpen and not na(z20u)
         if fzA4
             f_zSpawn(sd > 0 ? pz20d : pz20u, sd)
 
-// the midnight divider, drawn on the same bar the blocks start from
-if dvShow and intraday and laneOpen
-    if dvExt == "Whole chart"
-        line.new(bar_index, high, bar_index, low, xloc = xloc.bar_index,
-             extend = extend.both, color = dvCol, style = f_style(dvStyle), width = dvW)
-    else
-        line.new(bar_index, na(z20u) ? high : z20u, bar_index,
-             na(z20d) ? low : z20d, xloc = xloc.bar_index, color = dvCol,
-             style = f_style(dvStyle), width = dvW)
-
-// the end-to-end box: the day's two extremes, so the outer frame is always there
+// the midnight divider and the end-to-end frame, on the same bar the day starts
 var box  eeBx = na
 var line eeUp = na
 var line eeDn = na
-if eeShow and intraday and laneOpen and not na(z20u)
-    eeBx := box.new(bar_index, z20u, bar_index + 1, z20d, border_color = eeBord,
-         border_width = eeW, bgcolor = eeFill, xloc = xloc.bar_index)
-    eeUp := line.new(bar_index, z20u, bar_index + 1, z20u, xloc = xloc.bar_index,
-         color = eeEdge, width = eeEdgeW)
-    eeDn := line.new(bar_index, z20d, bar_index + 1, z20d, xloc = xloc.bar_index,
-         color = eeEdge, width = eeEdgeW)
+if intraday and laneOpen and not na(z20u)
+    if dvShow
+        line.new(bar_index, z20u, bar_index, z20d, xloc = xloc.bar_index,
+             extend = extend.both, color = dvCol, style = f_style(dvStyle))
+    if eeShow
+        eeBx := box.new(bar_index, z20u, bar_index, z20d, border_color = eeBord,
+             bgcolor = eeFill, xloc = xloc.bar_index)
+        eeUp := line.new(bar_index, z20u, bar_index, z20u, xloc = xloc.bar_index,
+             color = eeEdge)
+        eeDn := line.new(bar_index, z20d, bar_index, z20d, xloc = xloc.bar_index,
+             color = eeEdge)
 
-// everything drawn for the day shares one right edge, so the blocks line up
-bool inBlock = inLane and hour(time, TZ) < fzEndH
-if intraday and inBlock
-    fzX2 := bar_index + 1
-    if not na(eeBx)
-        box.set_right(eeBx, fzX2)
-        line.set_x2(eeUp, fzX2)
-        line.set_x2(eeDn, fzX2)
+if intraday and inBlock and not na(eeBx)
+    box.set_right(eeBx, bar_index)
+    line.set_x2(eeUp, bar_index)
+    line.set_x2(eeDn, bar_index)
 
-// Manual pick: whichever zone contains the dragged point owns that lane.
-var bool mpDone = false
-if fzOn and intraday and mpOn and not mpDone
-     and not na(mpPrice) and mpPrice > 0 and array.size(ZS) > 0
-    for i = 0 to array.size(ZS) - 1
-        Zone z = array.get(ZS, i)
-        if f_midnight(mpTime) == f_midnight(z.lane)
-            float hiP = math.max(f_lv(z.A, z.T, 0.62), f_lv(z.A, z.T, 0.79))
-            float loP = math.min(f_lv(z.A, z.T, 0.62), f_lv(z.A, z.T, 0.79))
-            if mpPrice >= loP and mpPrice <= hiP
-                f_zSole(z.lane, i)
-                mpDone := true
-                break
+//=============================================================================
+// THE STATE MACHINE
+//
+// A zone's drawings stop at the end of its own day block. The trade itself can
+// still resolve later - a target hit on the following morning still counts, and
+// its result still prints inside the day the setup came from.
+//=============================================================================
 
-if fzOn and intraday and array.size(ZS) > 0
+if intraday and array.size(ZS) > 0
     for i = 0 to array.size(ZS) - 1
         Zone z = array.get(ZS, i)
         if z.dead
             continue
-        // Direction-engine mode: once the call has fired, zones facing the other
-        // way stop. Both sides are still drawn so the map stays complete - only
-        // the called side is allowed to trade, and the fib entry rules still
-        // decide whether it actually triggers.
-        if trMode == "Direction engine" and called and side != 0 and z.side != side
-             and z.lane == laneDay
+        // the right edge grows only while its own day is still running
+        if z.lane == laneDay and inBlock
+            z.x2 := bar_index
+            box.set_right(z.bx, z.x2)
+            if not na(z.l1)
+                line.set_x2(z.l1, z.x2)
+                line.set_x2(z.l2, z.x2)
+                line.set_x2(z.l3, z.x2)
+            if not na(z.ls)
+                line.set_x2(z.ls, z.x2)
+            if not na(z.lt)
+                line.set_x2(z.lt, z.x2)
+        // Direction-engine mode: once the call is in, the other side stops. Both
+        // sides stay drawn so the map is complete; only the called side trades.
+        if trMode == "Direction engine" and z.lane == laneDay and called and side != 0
+             and z.side != side
             z.st   := 4
             z.dead := true
             f_zStrip(z)
             f_zRecolour(z)
-            if not na(z.res)
-                label.delete(z.res)
-                z.res := na
             continue
-        // A dormant zone stays inside its own day block so the blocks line up.
-        // Once it is live it follows price, and it keeps following past midnight
-        // - a trade runs until it resolves, however many days that takes.
-        int x2 = z.st == 0 and z.lane == laneDay and not na(fzX2) ? fzX2 :
-             z.st == 0 ? box.get_right(z.bx) : bar_index + 1
-        box.set_right(z.bx, x2)
-        if not na(z.l1)
-            line.set_x2(z.l1, x2)
-            line.set_x2(z.l2, x2)
-            line.set_x2(z.l3, x2)
-        if not na(z.ls)
-            line.set_x2(z.ls, x2)
-        if not na(z.lt)
-            line.set_x2(z.lt, x2)
         float hi  = math.max(f_lv(z.A, z.T, 0.62), f_lv(z.A, z.T, 0.79))
         float lo  = math.min(f_lv(z.A, z.T, 0.62), f_lv(z.A, z.T, 0.79))
         float ent = f_lv(z.A, z.T, trEntF)
-        float stp = trStopBx ? (z.side > 0 ? boxLo - trPad : boxHi + trPad) :
-             trStopVW and not na(vw) ? vw - z.side * trPad :
-             f_lv(z.A, z.T, trStopFb)
-        bool inBox = low <= hi and high >= lo
-        if z.st == 0 and inBox
+        float stp = f_lv(z.A, z.T, trStpF)
+        float risk = math.abs(ent - stp)
+        float rr   = risk > 0 ? math.abs(z.T - ent) / risk : 0.0
+        bool touch = low <= hi and high >= lo
+        if z.st == 0 and touch
             z.st := 1
-            f_zLevels(z, fzX1, x2)
+            f_zLevels(z)
             f_zRecolour(z)
         else if z.st == 1
             bool through = z.side > 0 ? close < lo : close > hi
             bool backOut = z.side > 0 ? low > hi : high < lo
             if through
-                // Closed through: finished. Price coming back later cannot
-                // re-arm it - only a zone that was respected can be entered.
-                z.st := 4
+                // Closed through: finished. Price returning later cannot re-arm
+                // it - only a zone that was respected can be entered.
+                z.st   := 4
                 z.dead := true
-                box.set_right(z.bx, math.max(box.get_right(z.bx),
-                     na(fzX2) ? bar_index : fzX2))
                 f_zStrip(z)
                 f_zRecolour(z)
             else if backOut
                 z.st := 2
                 f_zRecolour(z)
-                z.ls := line.new(fzX1, stp, x2, stp, xloc = xloc.bar_index,
-                     color = fzStpC, width = fzLnW)
-                z.lt := line.new(fzX1, z.T, x2, z.T, xloc = xloc.bar_index,
-                     color = fzTgtC, width = fzLnW)
+                z.ls := line.new(z.x1, stp, z.x2, stp, xloc = xloc.bar_index,
+                     color = fzStpC)
+                z.lt := line.new(z.x1, z.T, z.x2, z.T, xloc = xloc.bar_index,
+                     color = fzTgtC)
         else if z.st == 2
             bool hitT  = z.side > 0 ? high >= z.T : low <= z.T
             bool hitS  = z.side > 0 ? low <= stp : high >= stp
             bool count = time >= acFrom
-            float risk = math.abs(ent - stp)
-            float rr   = risk > 0 ? math.abs(z.T - ent) / risk : 0.0
             if hitS
-                // Both sides get taken, so one of them stopping is not a losing
-                // trade - it is the side you would not have chosen. The day only
-                // books a loss once EVERY zone on that lane is gone with no
-                // target reached.
-                z.st := 4
+                // Both sides are taken by design, so one stopping is the side you
+                // would not have chosen. A lane books a loss only once every zone
+                // on it is gone with no target reached.
+                z.st   := 4
                 z.dead := true
-                box.set_right(z.bx, math.max(box.get_right(z.bx),
-                     na(fzX2) ? bar_index : fzX2))
                 f_zStrip(z)
                 f_zRecolour(z)
                 bool anyAlive = false
@@ -1503,7 +525,7 @@ if fzOn and intraday and array.size(ZS) > 0
                     stL  += 1
                     stRl += 1.0
                     if acShow
-                        z.res := label.new(fzX1, stp, "-1.00R   -$"
+                        z.res := label.new(z.x1, stp, "-1.00R  -$"
                              + str.tostring(acBal * acRisk / 100.0, "#.##"),
                              style = z.side > 0 ? label.style_label_upper_right
                                                 : label.style_label_lower_right,
@@ -1512,83 +534,73 @@ if fzOn and intraday and array.size(ZS) > 0
             else if hitT
                 stW  += count ? 1 : 0
                 stRw += count ? rr : 0.0
-                z.st := 3
+                z.st   := 3
                 z.dead := true
                 f_zRecolour(z)
-                // exactly one green zone a day - every other zone on this lane
-                // mutes, and its result label goes with it
-                for jj = 0 to array.size(ZS) - 1
-                    Zone o = array.get(ZS, jj)
-                    if o.lane == z.lane and jj != i and o.st != 3
-                        o.st := 4
-                        o.dead := true
-                        f_zStrip(o)
-                        f_zRecolour(o)
-                        if not na(o.res)
-                            label.delete(o.res)
-                            o.res := na
+                f_zSole(z.lane, i)
                 if acShow
-                    z.res := label.new(fzX1, z.T, "+" + str.tostring(rr, "#.##")
-                         + "R   +$" + str.tostring(acBal * acRisk / 100.0 * rr, "#.##"),
+                    z.res := label.new(z.x1, z.T, "+" + str.tostring(rr, "#.##")
+                         + "R  +$" + str.tostring(acBal * acRisk / 100.0 * rr, "#.##"),
                          style = z.side > 0 ? label.style_label_lower_right
                                             : label.style_label_upper_right,
                          color = color.new(color.black, 100), textcolor = acWinC,
                          size = f_size(acSize), xloc = xloc.bar_index)
 
 //=============================================================================
-// CONFIDENCE DASHBOARD
-//
-// Two transparent cells, no frame, no border, no background. Just the circle
-// and the number.
+// PANEL
 //=============================================================================
 
-var table CF = na
+var table T = na
 
-if barstate.islast and cfShow and intraday
-    if not na(CF)
-        table.delete(CF)
-    CF := table.new(f_cfPos(cfPos), 2, 1, border_width = 0, frame_width = 0,
-         bgcolor = color.new(color.black, 100),
-         frame_color = color.new(color.black, 100),
-         border_color = color.new(color.black, 100))
+// Pine wants functions at top level, so the cell helper takes the table and the
+// size rather than closing over them.
+f_cell(table t, int c, int r, string txt, color col, string sz) =>
+    table.cell(t, c, r, txt, bgcolor = color.new(color.black, 100),
+         text_color = col, text_size = sz,
+         text_halign = c == 0 ? text.align_left : text.align_right)
 
-    color tierCol = cfTier == 1 ? cfC1 : cfTier == 2 ? cfC2 : cfTier == 3 ? cfC3 :
-         cfTier == 4 ? cfC4 : cfNaCol
-    color dirCol  = cfSide > 0 ? cfUpCol : cfSide < 0 ? cfDnCol : cfNaCol
-    color dotCol  = cfDotBy == "Confidence tier" ? tierCol :
-         cfDotBy == "Direction, dimmed when weak" and not na(cfRaw) and cfRaw < cfFloor
-         ? color.new(dirCol, 55) : dirCol
+if barstate.islast and pnShow and intraday
+    string pos = pnPos == "Top left" ? position.top_left :
+         pnPos == "Bottom right" ? position.bottom_right :
+         pnPos == "Bottom left" ? position.bottom_left :
+         pnPos == "Middle right" ? position.middle_right : position.top_right
+    if not na(T)
+        table.delete(T)
+    T := table.new(pos, 2, 7, border_width = 0, frame_width = 0,
+         bgcolor = color.new(color.black, 100))
+    string sz = f_size(pnSize)
+    int   n    = stW + stL
+    float totR = stRw - stRl
+    float pnl  = acBal * acRisk / 100.0 * totR
+    color fg   = color.new(#c8d4de, 12)
+    color dim  = color.new(#c8d4de, 52)
 
-    string score = na(cfRaw) ? "-" :
-         cfMode == "Lopsidedness" ? str.tostring(cfRaw, "0.000") :
-         cfMode == "Both" ? str.tostring(cfHit, "#.#") + "%  " + str.tostring(cfRaw, "0.000") :
-         str.tostring(cfHit, "#.#") + "%"
-
-    table.cell(CF, 0, 0, cfDot, bgcolor = color.new(color.black, 100),
-         text_color = color.new(dotCol, cfDotTr), text_size = f_size(cfDotSz),
-         text_halign = text.align_right, text_valign = text.align_center)
-    table.cell(CF, 1, 0, score, bgcolor = color.new(color.black, 100),
-         text_color = color.new(cfNumCol, cfNumTr), text_size = f_size(cfNumSz),
-         text_halign = text.align_left, text_valign = text.align_center)
+    f_cell(T, 0, 0, "W / L", dim, sz)
+    f_cell(T, 1, 0, str.tostring(stW) + " / " + str.tostring(stL), fg, sz)
+    f_cell(T, 0, 1, "win rate", dim, sz)
+    f_cell(T, 1, 1, n == 0 ? "-" : str.tostring(100.0 * stW / n, "#.#") + "%", fg, sz)
+    f_cell(T, 0, 2, "total R", dim, sz)
+    f_cell(T, 1, 2, (totR >= 0 ? "+" : "") + str.tostring(totR, "#.#"),
+         totR >= 0 ? acWinC : acLosC, sz)
+    f_cell(T, 0, 3, "P&L", dim, sz)
+    f_cell(T, 1, 3, (pnl >= 0 ? "+$" : "-$") + str.tostring(math.abs(pnl), "#.##"),
+         pnl >= 0 ? acWinC : acLosC, sz)
+    f_cell(T, 0, 4, "avg R", dim, sz)
+    f_cell(T, 1, 4, n == 0 ? "-" : (totR / n >= 0 ? "+" : "")
+         + str.tostring(totR / n, "0.00"), fg, sz)
+    f_cell(T, 0, 5, "avg win", dim, sz)
+    f_cell(T, 1, 5, stW == 0 ? "-" : "+" + str.tostring(stRw / stW, "0.00") + "R", fg, sz)
+    f_cell(T, 0, 6, "call", dim, sz)
+    f_cell(T, 1, 6, stCallN == 0 ? "-" : str.tostring(100.0 * stCallW / stCallN, "#.#")
+         + "%  " + str.tostring(stCallN), fg, sz)
 
 //=============================================================================
 // ALERTS
 //=============================================================================
 
-alertcondition(justCalled and side ==  1 and not skipped, "Direction: UP",   "Direction call: UP")
-alertcondition(justCalled and side == -1 and not skipped, "Direction: DOWN", "Direction call: DOWN")
-alertcondition(justCalled and skipped, "Call skipped", "Call skipped - already in a position")
-alertcondition(justFilled, "Entry filled", "Entry trigger hit - stop and target set")
-alertcondition(e_BE and tBeDone and not tBeDone[1], "Break-even",
-     "Part-way to target - stop moved to break-even")
-alertcondition(justWon,  "Trade won",  "Target hit at the far zone edge")
-alertcondition(justLost, "Trade lost", "Stopped out, -1R")
-alertcondition(justBE,   "Trade flat", "Closed flat, 0R")
-
-alertcondition(cfJust, "Confidence: reading ready", "Confidence score set for the day")
-alertcondition(cfJust and cfTier >= 3, "Confidence: strong or better",
-     "A strong call - lopsidedness is in the top two tiers")
-alertcondition(cfJust and cfTier == 4, "Confidence: prime",
-     "A prime call - lopsidedness is in the top tier")
-alertcondition(cfJust and cfTier <= 1, "Confidence: weak",
-     "A weak call - close to a coin flip, consider sitting out")
+alertcondition(justCalled and side ==  1, "Direction: UP",   "Direction call: UP")
+alertcondition(justCalled and side == -1, "Direction: DOWN", "Direction call: DOWN")
+alertcondition(justCalled and cfTier >= 3, "Confidence: strong",
+     "A strong call - the reading is in the top two tiers")
+alertcondition(justCalled and cfTier <= 1, "Confidence: weak",
+     "A weak call - close to a coin flip")
