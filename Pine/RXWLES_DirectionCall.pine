@@ -2,7 +2,7 @@
 
 //@version=6
 // ============================================================================
-// RXWLES DIRECTION CALL  v3.3
+// RXWLES DIRECTION CALL  v3.4
 //
 // CORRECTION FIRST. Every figure quoted in v1.2 through v1.6 was produced by a
 // backtest that reconstructed the VWAP anchored at midnight New York from
@@ -225,14 +225,17 @@ trPad   = input.float(0.50, "    padding for the box / VWAP stop ($)", step = 0.
 // interactive input TradingView does offer: a draggable point. Drop it inside a
 // zone and that zone becomes the day's trade. It selects one day at a time, so
 // it is a tool for working through a single session, not for reviewing history.
-trMode  = input.string("Optimal - show the day's winner", "Mode", group = "Trade",
-     options = ["Optimal - show the day's winner",
-                "First to arm - the first setup is the trade",
-                "Manual pick - drag the point onto a zone"],
-     tooltip = "Optimal reviews which side you should have taken. First to arm " +
-               "is the honest mechanical rule - whichever zone triggers first " +
-               "becomes the trade and the rest stop firing. Manual pick lets you " +
-               "choose one, for one day.")
+trMode  = input.string("Optimal", "Mode", group = "Trade",
+     options = ["Direction engine", "Optimal"],
+     tooltip = "Direction engine trades only the side the 04:00 call names - the " +
+               "opposing zones mute the moment it fires, and the fib entry rules " +
+               "still decide whether it triggers. Optimal lets any zone on either " +
+               "side arm, then keeps whichever target trades first and mutes the " +
+               "rest. Optimal reads better than it trades: it settles the side " +
+               "after the fact, which you cannot do live.")
+mpOn    = input.bool(false, "Manual pick overrides one day", group = "Trade",
+     tooltip = "Drag the point into a zone and that zone claims its lane. One " +
+               "lane at a time, so it is for working a single session.")
 mpTime  = input.time(timestamp("2026-08-20 00:00 -0400"), "    pick: when",
      group = "Trade", confirm = true)
 mpPrice = input.price(0.0, "    pick: price", group = "Trade", confirm = true)
@@ -1063,6 +1066,8 @@ if inLane and waiting and not dead
 
 bool justCalled = inLane and called and not called[1]
 
+
+
 //=============================================================================
 // DRAWING
 //=============================================================================
@@ -1389,7 +1394,7 @@ if intraday and inBlock
 
 // Manual pick: whichever zone contains the dragged point owns that lane.
 var bool mpDone = false
-if fzOn and intraday and str.contains(trMode, "Manual pick") and not mpDone
+if fzOn and intraday and mpOn and not mpDone
      and not na(mpPrice) and mpPrice > 0 and array.size(ZS) > 0
     for i = 0 to array.size(ZS) - 1
         Zone z = array.get(ZS, i)
@@ -1405,6 +1410,20 @@ if fzOn and intraday and array.size(ZS) > 0
     for i = 0 to array.size(ZS) - 1
         Zone z = array.get(ZS, i)
         if z.dead
+            continue
+        // Direction-engine mode: once the call has fired, zones facing the other
+        // way stop. Both sides are still drawn so the map stays complete - only
+        // the called side is allowed to trade, and the fib entry rules still
+        // decide whether it actually triggers.
+        if trMode == "Direction engine" and called and side != 0 and z.side != side
+             and z.lane == laneDay
+            z.st   := 4
+            z.dead := true
+            f_zStrip(z)
+            f_zRecolour(z)
+            if not na(z.res)
+                label.delete(z.res)
+                z.res := na
             continue
         // A dormant zone stays inside its own day block so the blocks line up.
         // Once it is live it follows price, and it keeps following past midnight
@@ -1441,11 +1460,6 @@ if fzOn and intraday and array.size(ZS) > 0
             else if backOut
                 z.st := 2
                 f_zRecolour(z)
-                // In "first to arm" the first zone to trigger is the day's trade
-                // and every other one stops there. That is the mechanical rule -
-                // no hindsight in it.
-                if str.contains(trMode, "First to arm")
-                    f_zSole(z.lane, i)
                 z.ls := line.new(fzX1, stp, x2, stp, xloc = xloc.bar_index,
                      color = fzStpC, width = fzLnW)
                 z.lt := line.new(fzX1, z.T, x2, z.T, xloc = xloc.bar_index,
