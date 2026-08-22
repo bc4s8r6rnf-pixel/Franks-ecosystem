@@ -1,0 +1,119 @@
+============================================================================================================================
+  OANDA-matched window, 27 May - 19 Aug 2026   59 lanes
+============================================================================================================================
+
+  --- entry at the 0.62  (2.34 : 1) ---
+  anchor                      n     W     L    win%       PF       RR         risk      avgR     totR      DD
+    Z  today's zone edge     14    7W    7L   50.0% PF  2.34 RR  2.34 risk $  35.77 avgR +0.671 totR    +9.4 DD   3.0
+    A  Asia extreme          33   14W   19L   42.4% PF  1.73 RR  2.34 risk $  27.78 avgR +0.418 totR   +13.8 DD   4.0
+    P  yesterday's swing     33   15W   18L   45.5% PF  1.95 RR  2.34 risk $  27.15 avgR +0.519 totR   +17.1 DD   4.0
+    PZ yesterday's zone      12    0W   12L    0.0% PF  0.00 RR  2.34 risk $  24.77 avgR -1.000 totR   -12.0 DD  12.0
+
+  --- entry at the 0.70  (3.23 : 1) ---
+  anchor                      n     W     L    win%       PF       RR         risk      avgR     totR      DD
+    Z  today's zone edge     11    5W    6L   45.5% PF  2.69 RR  3.23 risk $  28.30 avgR +0.924 totR   +10.2 DD   3.0
+    A  Asia extreme          29    9W   20L   31.0% PF  1.45 RR  3.23 risk $  22.21 avgR +0.314 totR    +9.1 DD   5.0
+    P  yesterday's swing     28   11W   17L   39.3% PF  2.09 RR  3.23 risk $  21.67 avgR +0.663 totR   +18.6 DD   4.0
+    PZ yesterday's zone      13    1W   12L    7.7% PF  0.27 RR  3.23 risk $  19.67 avgR -0.674 totR    -8.8 DD   8.8
+
+  --- entry at the 0.79  (5.05 : 1) ---
+  anchor                      n     W     L    win%       PF       RR         risk      avgR     totR      DD
+    Z  today's zone edge     10    4W    6L   40.0% PF  3.37 RR  5.05 risk $  20.37 avgR +1.419 totR   +14.2 DD   3.0
+    A  Asia extreme          26    8W   18L   30.8% PF  2.24 RR  5.05 risk $  14.58 avgR +0.861 totR   +22.4 DD   6.0
+    P  yesterday's swing     25    9W   16L   36.0% PF  2.84 RR  5.05 risk $  14.38 avgR +1.177 totR   +29.4 DD   4.0
+    PZ yesterday's zone      12    1W   11L    8.3% PF  0.46 RR  5.05 risk $  13.26 avgR -0.496 totR    -6.0 DD   8.0
+
+  fill behaviour at the 0.62:
+    Z  today's zone edge     filled   14 (23.7%)   never reached   45   already through    0   no anchor   0   past target   0
+    A  Asia extreme          filled   33 (55.9%)   never reached   20   already through    6   no anchor   0   past target   0
+    P  yesterday's swing     filled   33 (55.9%)   never reached   19   already through    7   no anchor   0   past target   0
+    PZ yesterday's zone      filled   12 (20.3%)   never reached   36   already through    9   no anchor   1   past target   1
+
+============================================================================================================================
+  MT5, 2004-2026   5454 lanes
+============================================================================================================================
+
+  --- entry at the 0.62  (2.34 : 1) ---
+  anchor                      n     W     L    win%       PF       RR         risk      avgR     totR      DD
+    Z  today's zone edge   2859  903W 1956L   31.6% PF  1.05 RR  2.34 risk $   4.44 avgR +0.031 totR   +89.7 DD  77.4
+    A  Asia extreme        3472 1090W 2382L   31.4% PF  1.06 RR  2.34 risk $   3.43 avgR +0.043 totR  +151.0 DD  52.2
+    P  yesterday's swing   3294 1046W 2248L   31.8% PF  1.08 RR  2.34 risk $   3.42 avgR +0.055 totR  +181.1 DD  46.9
+    PZ yesterday's zone    1574  480W 1094L   30.5% PF  0.96 RR  2.34 risk $   5.00 avgR -0.024 totR   -38.4 DD  71.8
+
+  --- entry at the 0.70  (3.23 : 1) ---
+  anchor                      n     W     L    win%       PF       RR         risk      avgR     totR      DD
+    Z  today's zone edge   2592  661W 1931L   25.5% PF  1.07 RR  3.23 risk $   3.34 avgR +0.053 totR  +136.6 DD  58.4
+    A  Asia extreme        3561  900W 2661L   25.3% PF  1.09 RR  3.23 risk $   2.76 avgR +0.063 totR  +226.0 DD  50.2
+    P  yesterday's swing   3440  864W 2576L   25.1% PF  1.07 RR  3.23 risk $   2.73 avgR +0.056 totR  +191.9 DD  72.7
+    PZ yesterday's zone    1449  355W 1094L   24.5% PF  1.00 RR  3.23 risk $   3.64 avgR +0.001 totR    +0.9 DD  71.6
+
+  --- entry at the 0.79  (5.05 : 1) ---
+  anchor                      n     W     L    win%       PF       RR         risk      avgR     totR      DD
+    Z  today's zone edge   2309  433W 1876L   18.8% PF  1.13 RR  5.05 risk $   2.19 avgR +0.107 totR  +246.7 DD  62.8
+    A  Asia extreme        3493  606W 2887L   17.3% PF  1.05 RR  5.05 risk $   1.94 avgR +0.040 totR  +139.6 DD  80.0
+    P  yesterday's swing   3455  604W 2851L   17.5% PF  1.06 RR  5.05 risk $   1.89 avgR +0.048 totR  +164.7 DD 111.2
+    PZ yesterday's zone    1340  228W 1112L   17.0% PF  1.01 RR  5.05 risk $   2.40 avgR +0.010 totR   +13.3 DD  72.4
+
+  fill behaviour at the 0.62:
+    Z  today's zone edge     filled 2859 (52.4%)   never reached 2595   already through    0   no anchor   0   past target   0
+    A  Asia extreme          filled 3472 (63.7%)   never reached 1446   already through  536   no anchor   0   past target   0
+    P  yesterday's swing     filled 3294 (60.4%)   never reached 1432   already through  722   no anchor   0   past target   6
+    PZ yesterday's zone      filled 1574 (28.9%)   never reached 2546   already through  598   no anchor   1   past target 735
+
+============================================================================================================================
+  SIGNIFICANCE, COSTS, AND WHETHER THE RECENT WINDOW IS SPECIAL
+============================================================================================================================
+
+  sample                             anchor                    n    win%    need       z  verdict
+  OANDA window 2026 @ 0.62           Z  today's zone edge     14   50.0%   29.9%   +1.64  INSIDE NOISE
+  OANDA window 2026 @ 0.62           A  Asia extreme          33   42.4%   29.9%   +1.57  INSIDE NOISE
+  OANDA window 2026 @ 0.62           P  yesterday's swing     33   45.5%   29.9%   +1.95  INSIDE NOISE
+  OANDA window 2026 @ 0.62           PZ yesterday's zone      12    0.0%   29.9%   -2.26  significant
+  OANDA window 2026 @ 0.79           Z  today's zone edge     10   40.0%   16.5%   +2.00  significant
+  OANDA window 2026 @ 0.79           A  Asia extreme          26   30.8%   16.5%   +1.95  INSIDE NOISE
+  OANDA window 2026 @ 0.79           P  yesterday's swing     25   36.0%   16.5%   +2.62  significant
+  OANDA window 2026 @ 0.79           PZ yesterday's zone      12    8.3%   16.5%   -0.76  INSIDE NOISE
+
+  MT5 2004-2026 @ 0.62               Z  today's zone edge   2859   31.6%   29.9%   +1.94  INSIDE NOISE
+  MT5 2004-2026 @ 0.62               A  Asia extreme        3472   31.4%   29.9%   +1.90  INSIDE NOISE
+  MT5 2004-2026 @ 0.62               P  yesterday's swing   3294   31.8%   29.9%   +2.30  significant
+  MT5 2004-2026 @ 0.62               PZ yesterday's zone    1574   30.5%   29.9%   +0.50  INSIDE NOISE
+  MT5 2004-2026 @ 0.79               Z  today's zone edge   2309   18.8%   16.5%   +2.87  significant
+  MT5 2004-2026 @ 0.79               A  Asia extreme        3493   17.3%   16.5%   +1.29  INSIDE NOISE
+  MT5 2004-2026 @ 0.79               P  yesterday's swing   3455   17.5%   16.5%   +1.50  INSIDE NOISE
+  MT5 2004-2026 @ 0.79               PZ yesterday's zone    1340   17.0%   16.5%   +0.47  INSIDE NOISE
+
+  MT5 by era, anchor P (yesterday's swing) at the 0.62 and the 0.79:
+  anchor                      n     W     L    win%       PF       RR         risk      avgR     totR      DD
+    2004-2009 @ 0.62        858  250W  608L   29.1% PF  0.96 RR  2.34 risk $   1.39 avgR -0.026 totR   -22.5 DD  44.5
+    2010-2014 @ 0.62        787  261W  526L   33.2% PF  1.15 RR  2.34 risk $   3.15 avgR +0.097 totR   +76.7 DD  46.9
+    2015-2019 @ 0.62        757  231W  526L   30.5% PF  1.02 RR  2.34 risk $   2.68 avgR +0.012 totR    +8.8 DD  28.4
+    2020-2023 @ 0.62        612  200W  412L   32.7% PF  1.12 RR  2.34 risk $   4.55 avgR +0.080 totR   +49.2 DD  32.8
+    2024-2026 @ 0.62        280  104W  176L   37.1% PF  1.40 RR  2.34 risk $   9.92 avgR +0.246 totR   +68.9 DD  14.6
+
+    2004-2009 @ 0.79        883  134W  749L   15.2% PF  0.90 RR  5.05 risk $   0.76 avgR -0.082 totR   -72.6 DD 111.2
+    2010-2014 @ 0.79        807  146W  661L   18.1% PF  1.10 RR  5.05 risk $   1.66 avgR +0.086 totR   +69.2 DD  46.8
+    2015-2019 @ 0.79        811  140W  671L   17.3% PF  1.03 RR  5.05 risk $   1.55 avgR +0.028 totR   +22.8 DD  55.2
+    2020-2023 @ 0.79        660  124W  536L   18.8% PF  1.15 RR  5.05 risk $   2.51 avgR +0.122 totR   +80.4 DD  54.4
+    2024-2026 @ 0.79        294   60W  234L   20.4% PF  1.28 RR  5.05 risk $   5.42 avgR +0.221 totR   +64.9 DD  31.7
+
+  net of a $0.25 round trip:
+  anchor                      n     W     L    win%       PF       RR         risk      avgR     totR      DD
+    OANDA 2026 Z  @0.62      14    7W    7L   50.0% PF  2.32 RR  2.34 risk $  35.77 avgR +0.663 totR    +9.3 DD   3.0
+    OANDA 2026 A  @0.62      33   14W   19L   42.4% PF  1.70 RR  2.34 risk $  27.78 avgR +0.408 totR   +13.5 DD   4.0
+    OANDA 2026 P  @0.62      33   15W   18L   45.5% PF  1.92 RR  2.34 risk $  27.15 avgR +0.509 totR   +16.8 DD   4.0
+    OANDA 2026 Z  @0.79      10    4W    6L   40.0% PF  3.31 RR  5.05 risk $  20.37 avgR +1.405 totR   +14.1 DD   3.0
+    OANDA 2026 A  @0.79      26    8W   18L   30.8% PF  2.19 RR  5.05 risk $  14.58 avgR +0.841 totR   +21.9 DD   6.0
+    OANDA 2026 P  @0.79      25    9W   16L   36.0% PF  2.77 RR  5.05 risk $  14.38 avgR +1.157 totR   +28.9 DD   4.0
+
+    MT5 all Z  @0.62       2859  902W 1957L   31.5% PF  0.87 RR  2.34 risk $   4.44 avgR -0.098 totR  -278.9 DD  77.4
+    MT5 all A  @0.62       3472 1090W 2382L   31.4% PF  0.87 RR  2.34 risk $   3.43 avgR -0.105 totR  -366.0 DD  52.2
+    MT5 all P  @0.62       3294 1046W 2248L   31.8% PF  0.86 RR  2.34 risk $   3.42 avgR -0.108 totR  -356.2 DD  46.9
+    MT5 all Z  @0.79       2309  433W 1876L   18.8% PF  0.86 RR  5.05 risk $   2.19 avgR -0.147 totR  -340.1 DD  62.8
+    MT5 all A  @0.79       3493  606W 2887L   17.3% PF  0.78 RR  5.05 risk $   1.94 avgR -0.227 totR  -792.7 DD  80.0
+    MT5 all P  @0.79       3455  604W 2851L   17.5% PF  0.77 RR  5.05 risk $   1.89 avgR -0.246 totR  -850.4 DD 111.2
+
+  combined book - take whichever of Z / A / P fills first each day (0.79):
+  anchor                      n     W     L    win%       PF       RR         risk      avgR     totR      DD
+    OANDA 2026 deepest-of-three   27   13W   14L   48.1% PF  4.69 RR  5.05 risk $  16.84 avgR +1.912 totR   +51.6 DD   5.0
+    MT5 all deepest-of-three 3633  979W 2654L   26.9% PF  1.83 RR  5.05 risk $   2.35 avgR +0.603 totR +2192.5 DD  23.9
