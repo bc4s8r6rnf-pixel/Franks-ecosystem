@@ -238,6 +238,8 @@ var float laneHi  = na
 var float laneLo  = na
 var float pvHi    = na
 var float pvLo    = na
+var float lnPvHi  = na
+var float lnPvLo  = na
 var float dayPvHi = na
 var float dayPvLo = na
 var float asHi    = na
@@ -263,16 +265,29 @@ if intraday
         asiaLo := asLo
 
 // Pivots confirm fzPiv bars after the fact, so what is read is already settled.
+//
+// pvHi / pvLo used to be running values that were never cleared, so "yesterday's
+// last swing" was really "the last pivot of that type seen at any point in the
+// chart's history". A day that made no confirmed pivot high anchored its short
+// to a high from some earlier day, and nothing on screen said so. The lane
+// versions below are wiped at every midnight, so what is read is a pivot from
+// the day that just closed or nothing at all - and when it is nothing, the
+// lane's own extreme stands in so the fib is still drawn.
 float _ph = ta.pivothigh(high, fzPiv, fzPiv)
 float _pl = ta.pivotlow(low,  fzPiv, fzPiv)
 if not na(_ph)
-    pvHi := _ph
+    pvHi   := _ph
+    lnPvHi := _ph
 if not na(_pl)
-    pvLo := _pl
+    pvLo   := _pl
+    lnPvLo := _pl
 
 if laneOpen
-    dayPvHi := fzSwSrc == "Deepest swing of the previous day" ? laneHi : pvHi
-    dayPvLo := fzSwSrc == "Deepest swing of the previous day" ? laneLo : pvLo
+    bool deepest = fzSwSrc == "Deepest swing of the previous day"
+    dayPvHi := deepest ? laneHi : nz(lnPvHi, laneHi)
+    dayPvLo := deepest ? laneLo : nz(lnPvLo, laneLo)
+    lnPvHi  := na
+    lnPvLo  := na
     laneHi  := high
     laneLo  := low
 else if inLane
@@ -437,8 +452,10 @@ f_zSole(int lane, int keep) =>
 f_zSpawn(float A_, int sd) =>
     if not na(A_) and not na(R) and R > 0
         float T_ = sd > 0 ? (boxHi + trTgtM * R) : (boxLo - trTgtM * R)
-        float z_ = sd > 0 ? z20u : z20d          // the fib is always built to 2.0
-        if (sd > 0 and z_ - A_ > 0) or (sd < 0 and z_ - A_ < 0)
+        // The test is against the target the fib is actually built to. It used
+        // to be against the 2.0 edge regardless, so with the target set to 2.5
+        // the guard and the geometry disagreed and a valid anchor was dropped.
+        if (sd > 0 and T_ > A_) or (sd < 0 and T_ < A_)
             f_zNew(A_, T_, sd, time)
 
 // End of a zone's day settles it. A zone price never touched is deleted
