@@ -1,0 +1,52 @@
+========================================================================================================
+  MT5 2004-2026  -  anchor P, stop 0.95, target 2.0
+========================================================================================================
+  variant                               n    win%       PF       RR       z      avgR      totR
+    entry fib 0.62                   3673   30.2% PF  1.15 RR  2.70 z +4.25 avgR +0.108 totR   +395.8
+    entry fib 0.70                   3659   22.8% PF  1.14 RR  3.88 z +3.49 avgR +0.106 totR   +388.4
+    entry fib 0.79                   3482   14.7% PF  1.14 RR  6.62 z +2.83 avgR +0.117 totR   +406.8
+    entry origin-box edge            3371   12.7% PF  0.58 RR 49.69 z +44.89 avgR -0.365 totR  -1230.5
+
+  target 2.5 instead:
+    entry fib 0.62                   3673   25.8% PF  1.11 RR  3.27 z +3.43 avgR +0.085 totR   +311.6
+    entry fib 0.70                   3659   19.5% PF  1.10 RR  4.64 z +2.84 avgR +0.084 totR   +305.8
+    entry fib 0.79                   3482   12.5% PF  1.10 RR  7.82 z +2.16 avgR +0.085 totR   +296.0
+    entry origin-box edge            3371   11.3% PF  0.59 RR 57.97 z +43.06 avgR -0.365 totR  -1230.5
+
+  stop variants, entry fib 0.79, target 2.0:
+    stop fib 0.88                    3482    9.0% PF  1.16 RR 11.78 z +2.62 avgR +0.146 totR   +509.1
+    stop fib 0.95                    3482   14.7% PF  1.14 RR  6.62 z +2.83 avgR +0.117 totR   +406.8
+    stop the 1 anchor                3482   17.4% PF  1.05 RR  5.05 z +1.38 avgR +0.043 totR   +149.8
+    stop box edge + $0.50            3482   18.2% PF  0.90 RR 23.83 z +42.47 avgR -0.081 totR   -283.7
+    stop box edge + $1.00            3482   23.8% PF  0.92 RR  9.66 z +29.09 avgR -0.058 totR   -203.1
+
+========================================================================================================
+  OANDA window 2026  -  anchor P, stop 0.95, target 2.0
+========================================================================================================
+  variant                               n    win%       PF       RR       z      avgR      totR
+    entry fib 0.62                     34   44.1% PF  2.13 RR  2.70 z +2.24 avgR +0.631 totR    +21.5
+    entry fib 0.70                     30   40.0% PF  2.59 RR  3.88 z +2.65 avgR +0.952 totR    +28.6
+    entry fib 0.79                     26   34.6% PF  3.51 RR  6.62 z +3.25 avgR +1.639 totR    +42.6
+    entry origin-box edge              18    5.6% PF  0.27 RR 17.71 z +0.04 avgR -0.692 totR    -12.5
+
+  target 2.5 instead:
+    entry fib 0.62                     34   44.1% PF  2.60 RR  3.29 z +2.87 avgR +0.893 totR    +30.4
+    entry fib 0.70                     30   40.0% PF  3.13 RR  4.67 z +3.22 avgR +1.275 totR    +38.3
+    entry fib 0.79                     26   34.6% PF  4.18 RR  7.88 z +3.77 avgR +2.082 totR    +54.1
+    entry origin-box edge              18    5.6% PF  0.31 RR 20.66 z +0.19 avgR -0.650 totR    -11.7
+
+  stop variants, entry fib 0.79, target 2.0:
+    stop fib 0.88                      26   19.2% PF  2.80 RR 11.78 z +2.17 avgR +1.457 totR    +37.9
+    stop fib 0.95                      26   34.6% PF  3.51 RR  6.62 z +3.25 avgR +1.639 totR    +42.6
+    stop the 1 anchor                  26   34.6% PF  2.67 RR  5.05 z +2.48 avgR +1.093 totR    +28.4
+    stop box edge + $0.50              26   30.8% PF  2.43 RR  9.93 z +3.82 avgR +0.989 totR    +25.7
+    stop box edge + $1.00              26   30.8% PF  2.29 RR  9.75 z +3.77 avgR +0.891 totR    +23.2
+
+========================================================================================================
+  VWAP variants - only the chart export carries a VWAP column
+========================================================================================================
+  variant                               n    win%       PF       RR       z      avgR      totR
+    entry VWAP tap, stop 0.95          51   54.9% PF  2.42 RR  2.45 z +4.07 avgR +0.637 totR    +32.5
+    entry VWAP, stop VWAP -$2          51    7.8% PF  1.09 RR 27.75 z +1.70 avgR +0.087 totR     +4.5
+    entry VWAP, stop VWAP -$5          51   23.5% PF  2.44 RR 11.10 z +3.96 avgR +1.101 totR    +56.1
+    entry VWAP, stop VWAP -$8          51   31.4% PF  2.34 RR  6.94 z +4.04 avgR +0.917 totR    +46.7

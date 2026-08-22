@@ -2,7 +2,7 @@
 
 //@version=6
 // ============================================================================
-// RXWLES DIRECTION CALL  v3.0
+// RXWLES DIRECTION CALL  v3.1
 //
 // CORRECTION FIRST. Every figure quoted in v1.2 through v1.6 was produced by a
 // backtest that reconstructed the VWAP anchored at midnight New York from
@@ -195,14 +195,31 @@ const int cutHour = 14
 // METHOD
 //=============================================================================
 
-preset   = input.string("v2 - current", "Rule set", group = "Method",
-     options = ["v2 - current", "v1.0 - original"],
-     tooltip = "v1.0 is the frozen first version: market entry at the read hour, " +
-               "stop and target both 1.5 R from entry, the 2.0 edge as the zone, " +
-               "and none of the later filters. Switching to it overrides the " +
-               "target, stop, entry and every filter below.")
-v1race   = input.float(1.5, "    v1.0: stop and target distance (R)", step = 0.25,
-     minval = 0.25, group = "Method")
+// Every figure in these dropdowns is measured. MT5 is 3,482-3,673 trades over
+// 2004-2026; OANDA is the 26-34 trade window that reconciles to your chart.
+// The anchor is yesterday's swing throughout.
+
+trEntry = input.string("Fib 0.79   MT5 PF 1.14 / OANDA 3.51", "Entry", group = "Trade",
+     options = ["Fib 0.62   MT5 PF 1.15 / OANDA 2.13",
+                "Fib 0.70   MT5 PF 1.14 / OANDA 2.59",
+                "Fib 0.79   MT5 PF 1.14 / OANDA 3.51",
+                "VWAP tap   OANDA PF 2.42, n 51",
+                "Origin box edge   MT5 PF 0.58  (not advised)"],
+     tooltip = "The box-edge entry is here for comparison only. Against a fib stop " +
+               "its risk collapses toward zero, which inflates the printed RR and " +
+               "flatters a variant that loses money.")
+trStop  = input.string("Fib 0.95   MT5 PF 1.14 / OANDA 3.51", "Stop", group = "Trade",
+     options = ["Fib 0.88   MT5 PF 1.16 / OANDA 2.80",
+                "Fib 0.95   MT5 PF 1.14 / OANDA 3.51",
+                "Fib 1.0 anchor   MT5 PF 1.05 / OANDA 2.67",
+                "Origin box edge + padding",
+                "VWAP + padding"])
+trTgt   = input.string("2.0 edge   MT5 PF 1.14 / OANDA 3.51", "Target", group = "Trade",
+     options = ["2.0 edge   MT5 PF 1.14 / OANDA 3.51",
+                "2.5 edge   MT5 PF 1.10 / OANDA 4.18"],
+     tooltip = "2.0 is better over the long history, 2.5 in the recent window.")
+trPad   = input.float(0.50, "    padding for the box / VWAP stop ($)", step = 0.10,
+     minval = 0.0, group = "Trade")
 
 srcHour  = input.int(21, "Source candle hour (NY)", minval = 0, maxval = 23, group = "Method",
      tooltip = "Must match RXWLES PRO's Enigma Source Hour.")
@@ -506,8 +523,6 @@ fzEndH  = input.int(17, "Boxes run to (NY hour)", minval = 1, maxval = 24,
      group = "Fib zones",
      tooltip = "Midnight to this hour. 17 keeps the day's block tight; 24 runs " +
                "midnight to midnight so the blocks butt up against each other.")
-fzEntry = input.float(0.79, "Entry level", options = [0.62, 0.70, 0.79], group = "Fib zones")
-fzStopF = input.float(0.95, "Stop level", options = [0.88, 0.95, 1.0], group = "Fib zones")
 
 fzA1 = input.bool(true,  "Today's zone edge",   inline = "fa", group = "Fib zones")
 fzA2 = input.bool(true,  "Asia",                inline = "fa", group = "Fib zones")
@@ -529,11 +544,20 @@ fzDorm  = input.color(color.new(#8899a6, 92), "Dormant fill",  inline = "p1", gr
 fzLive  = input.color(color.new(#b8c6d1, 82), "Live fill",     inline = "p1", group = "Fib look")
 fzEdge  = input.color(color.new(#b8c6d1, 55), "Live border",   inline = "p2", group = "Fib look")
 fzLine  = input.color(color.new(#c8d4de, 45), "Level lines",   inline = "p2", group = "Fib look")
-fzWin   = input.color(color.new(#4db6a0, 30), "Armed / win",   inline = "p3", group = "Fib look")
-fzLoss  = input.color(color.new(#c96a6a, 30), "Stop level",    inline = "p3", group = "Fib look")
-fzTgtC  = input.color(color.new(#a8b8c4, 40), "2.0 target edge", group = "Fib look")
-fzTgtW  = input.int(1, "target line width", minval = 1, maxval = 4, group = "Fib look")
-fzBoxW  = input.int(1, "Zone-to-zone box weight", minval = 0, maxval = 3, group = "Fib look")
+fzWin   = input.color(color.new(#4db6a0, 45), "Won border",    inline = "p3", group = "Fib look")
+fzDormB = input.color(color.new(#8899a6, 78), "Dormant border", inline = "p3", group = "Fib look")
+fzWonF  = input.color(color.new(#4db6a0, 90), "Won fill",      inline = "p4", group = "Fib look")
+fzWonL  = input.color(color.new(#c8d4de, 40), "Won levels",    inline = "p4", group = "Fib look")
+fzTgtC  = input.color(color.new(#8fb3a8, 45), "Target line",   inline = "p5", group = "Fib look")
+fzStpC  = input.color(color.new(#c08a8a, 45), "Stop line",     inline = "p5", group = "Fib look")
+fzLnW   = input.int(1, "their width", minval = 1, maxval = 3, inline = "p5", group = "Fib look")
+
+eeShow  = input.bool(true, "Draw the end-to-end zone box", group = "End to end")
+eeFill  = input.color(color.new(#8899a6, 95), "fill",   inline = "ee", group = "End to end")
+eeBord  = input.color(color.new(#a8b8c4, 70), "border", inline = "ee", group = "End to end")
+eeW     = input.int(1, "border width", minval = 1, maxval = 3, inline = "ee", group = "End to end")
+eeEdge  = input.color(color.new(#b8c6d1, 45), "2.0 edge lines", inline = "e2", group = "End to end")
+eeEdgeW = input.int(1, "width", minval = 1, maxval = 3, inline = "e2", group = "End to end")
 fzTxt   = input.string("Tiny", "Level text", options = ["Tiny", "Small", "Normal"],
      group = "Fib look")
 fzShowN = input.bool(true, "Show level numbers when live", group = "Fib look")
@@ -546,8 +570,8 @@ acSize  = input.string("Small", "Result text", options = ["Tiny", "Small", "Norm
      group = "Risk")
 acWinC  = input.color(#4db6a0, "Win", inline = "ac", group = "Risk")
 acLosC  = input.color(#c96a6a, "Loss", inline = "ac", group = "Risk")
-acPlace = input.string("Left of the box", "Result position", group = "Risk",
-     options = ["Left of the box", "Middle of the zone", "Above the zone"])
+acFrom  = input.time(timestamp("2026-01-01 00:00 -0500"), "Track from", group = "Risk",
+     tooltip = "Only trades on or after this date count toward the panel.")
 
 cfShow   = input.bool(false, "Show the corner dashboard", group = "Confidence",
      tooltip = "Off by default - the score now sits beside the direction marker.")
@@ -615,13 +639,22 @@ panelSize = input.string("Small", "Text size", options = ["Tiny", "Small", "Norm
 // see exactly what changes.
 //=============================================================================
 
-bool  isV1     = preset == "v1.0 - original"
-float e_lvl1   = isV1 ? 2.0   : lvl1
-float e_pull   = isV1 ? 0.0   : tgtPull
-bool  e_BE     = isV1 ? false : useBE
-bool  e_lock   = isV1 ? false : lockOne
-bool  e_cutOpp = isV1 ? false : cutOpp
-bool  e_rngF   = isV1 ? false : useRngF
+float trTgtMul = str.contains(trTgt, "2.5") ? 2.5 : 2.0
+float trEntF   = str.contains(trEntry, "0.62") ? 0.62 :
+     str.contains(trEntry, "0.70") ? 0.70 : 0.79
+bool  trEntVW  = str.contains(trEntry, "VWAP")
+bool  trEntBox = str.contains(trEntry, "Origin box")
+float trStopFb = str.contains(trStop, "0.88") ? 0.88 :
+     str.contains(trStop, "0.95") ? 0.95 : 1.0
+bool  trStopVW = str.contains(trStop, "VWAP")
+bool  trStopBx = str.contains(trStop, "Origin box")
+
+float e_lvl1   = lvl1
+float e_pull   = tgtPull
+bool  e_BE     = useBE
+bool  e_lock   = lockOne
+bool  e_cutOpp = cutOpp
+bool  e_rngF   = useRngF
 
 //=============================================================================
 // CALENDAR + SOURCE CANDLE
@@ -680,6 +713,13 @@ var string lastOut  = ""
 var int    lastKind = 0          // 1 win, 2 loss, 3 flat
 var float  z20u     = na         // the true 2.0 edges
 var float  z20d     = na
+// the running record, counted from the account start date
+var int    stW      = 0
+var int    stL      = 0
+var float  stRw     = 0.0
+var float  stRl     = 0.0
+var int    stCallW  = 0
+var int    stCallN  = 0
 var float  pz20u    = na         // and yesterday's pair
 var float  pz20d    = na
 var float  lastR    = na         // the R won or lost
@@ -825,6 +865,20 @@ if inLane and not cfDone and not na(R) and R > 0 and hour(time, TZ) >= readHour
 
 bool cfJust = inLane and cfDone and not cfDone[1]
 
+// The call's own record, settled the moment either 2.0 edge trades.
+var int  clSide = 0
+var bool clOpen = false
+if cfJust and cfSide != 0 and time >= acFrom
+    clSide := cfSide
+    clOpen := true
+if clOpen and not na(z20u)
+    bool hu = high >= z20u
+    bool hd = low  <= z20d
+    if hu or hd
+        stCallN += 1
+        stCallW += ((hu and clSide > 0) or (hd and clSide < 0)) ? 1 : 0
+        clOpen  := false
+
 //=============================================================================
 // MANAGE THE OPEN POSITION - before anything else, so a call cannot fire on a
 // bar that also closes the trade
@@ -886,7 +940,6 @@ if inLane and not called and not dead
 //=============================================================================
 
 bool skipped = false
-bool v1Fill  = false
 
 if inLane and not dead and not called and hour(time, TZ) >= readHour
     called := true
@@ -921,25 +974,6 @@ if inLane and not dead and not called and hour(time, TZ) >= readHour
     else if preHit or gone
         dead := true
         why  := "the zone had already gone before the call - no trade"
-    else if isV1
-        // v1.0 took the trade at the read hour, no waiting and no trigger.
-        float ent1 = px
-        float st1  = ent1 - side * v1race * R
-        float tg1  = ent1 + side * v1race * R
-        tOpen   := true
-        tSide   := side
-        tLane   := laneDay
-        tEntry  := ent1
-        tStop   := st1
-        tRisk   := math.abs(ent1 - st1)
-        tHow    := "v1 market"
-        tTgt    := tg1
-        tBE     := ent1
-        tBeDone := false
-        tRR     := 1.0
-        v1Fill  := true
-        why     := "v1.0 - market at " + str.format("{0,number,00}:00", readHour)
-             + ", " + str.tostring(v1race, "#.##") + " R each way"
     else
         waiting := true
         why     := "called - waiting for a VWAP tap before "
@@ -949,7 +983,7 @@ if inLane and not dead and not called and hour(time, TZ) >= readHour
 // WAITING FOR THE TAP
 //=============================================================================
 
-bool justFilled = v1Fill
+bool justFilled = false
 
 if inLane and waiting and not dead
     float proj = side > 0 ? upEdge : dnEdge
@@ -1126,50 +1160,38 @@ if barstate.islast and showPanel and intraday
          panelPos == "Bottom right" ? position.bottom_right :
          panelPos == "Bottom left" ? position.bottom_left :
          panelPos == "Middle right" ? position.middle_right : position.top_right
-    string sz = f_size(panelSize)
     if not na(T)
         table.delete(T)
-    T := table.new(pos, 2, xTally ? 10 : 9, border_width = 1, frame_width = 1,
-         frame_color = color.new(color.gray, 55), border_color = color.new(color.gray, 80))
+    T := table.new(pos, 2, 7, border_width = 0, frame_width = 0,
+         bgcolor = color.new(color.black, 100))
+    string sz = f_size(panelSize)
 
-    color vc = tOpen ? (tSide > 0 ? dUpCol : dDnCol) : dead ? color.gray :
-         side > 0 ? dUpCol : side < 0 ? dDnCol : color.gray
-    string vt = tOpen ? (tBeDone ? (tSide > 0 ? "LONG · BE" : "SHORT · BE")
-                                 : (tSide > 0 ? "LONG" : "SHORT")) :
-         dead ? "NO TRADE" : waiting ? (side > 0 ? "WATCHING LONG" : "WATCHING SHORT") :
-         not called ? "WAITING" : "NO TRADE"
-    color bg = color.new(color.black, 25)
-    color fg = color.new(color.white, 0)
+    int   n    = stW + stL
+    float totR = stRw - stRl
+    float pnl  = acBal * acRisk / 100.0 * totR
+    color fg   = color.new(#c8d4de, 12)
+    color dim  = color.new(#c8d4de, 52)
+    color bg   = color.new(color.black, 100)
 
-    f_cell(T, 0, 0, isV1 ? "v1.0" : "v3.0", color.new(vc, 55), fg, sz)
-    f_cell(T, 1, 0, vt,     color.new(vc, 55), fg, sz)
-    f_cell(T, 0, 1, tOpen ? why : (why + (lastOut == "" ? "" : "  ·  last: " + lastOut)),
-         bg, color.new(fg, 30), sz)
-    f_cell(T, 1, 1, "", bg, fg, sz)
-    f_cell(T, 0, 2, "R (9pm box)", bg, fg, sz)
-    f_cell(T, 1, 2, na(R) ? "-" : "$" + str.tostring(R, "#.##"), bg,
-         e_rngF and not na(R) and R >= maxRng ? cStop : fg, sz)
-    f_cell(T, 0, 3, "VWAP (" + (vwAnc == "Session" ? "session" : "midnight") + ")", bg, fg, sz)
-    f_cell(T, 1, 3, na(vw) ? "-" : str.tostring(vw, format.mintick), bg, cVwap, sz)
-    f_cell(T, 0, 4, "entry" + (tHow == "" ? "" : " (" + tHow + ")"), bg, fg, sz)
-    f_cell(T, 1, 4, na(tEntry) ? "-" : str.tostring(tEntry, format.mintick), bg, fg, sz)
-    f_cell(T, 0, 5, tBeDone ? "stop (at break-even)"
-         : (stopMode == "Beyond the VWAP" ? "stop (VWAP)" : "stop (box)"), bg, fg, sz)
-    f_cell(T, 1, 5, na(tStop) ? "-" : str.tostring(tStop, format.mintick), bg, cStop, sz)
-    f_cell(T, 0, 6, "target (" + str.tostring(lvl1 - tgtPull, "#.##") + " R"
-         + (tgtPull > 0 ? ", inside the " + str.tostring(lvl1, "#.##") + " edge" : "")
-         + ")", bg, fg, sz)
-    f_cell(T, 1, 6, na(tTgt) ? "-" : str.tostring(tTgt, format.mintick), bg, cTgt, sz)
-    f_cell(T, 0, 7, "RR", bg, fg, sz)
-    f_cell(T, 1, 7, na(tRR) ? "-" : str.tostring(tRR, "#.##") + " : 1", bg, fg, sz)
-    f_cell(T, 0, 8, "last result", bg, fg, sz)
-    f_cell(T, 1, 8, na(lastR) ? "-" : (lastR > 0 ? "+" : "") + str.tostring(lastR, "0.00")
-         + "R", bg, na(lastR) ? fg : lastR > 0 ? xWinCol : lastR < 0 ? xLosCol : xBeCol, sz)
-    if xTally
-        f_cell(T, 0, 9, "on this chart", bg, fg, sz)
-        f_cell(T, 1, 9, str.tostring(nWin) + "W / " + str.tostring(nLos) + "L   "
-             + (sumR >= 0 ? "+" : "") + str.tostring(sumR, "0.0") + "R", bg,
-             sumR >= 0 ? xWinCol : xLosCol, sz)
+    f_cell(T, 0, 0, "W / L", bg, dim, sz)
+    f_cell(T, 1, 0, str.tostring(stW) + " / " + str.tostring(stL), bg, fg, sz)
+    f_cell(T, 0, 1, "win rate", bg, dim, sz)
+    f_cell(T, 1, 1, n == 0 ? "-" : str.tostring(100.0 * stW / n, "#.#") + "%", bg, fg, sz)
+    f_cell(T, 0, 2, "total R", bg, dim, sz)
+    f_cell(T, 1, 2, (totR >= 0 ? "+" : "") + str.tostring(totR, "#.#"), bg,
+         totR >= 0 ? acWinC : acLosC, sz)
+    f_cell(T, 0, 3, "P&L", bg, dim, sz)
+    f_cell(T, 1, 3, (pnl >= 0 ? "+$" : "-$") + str.tostring(math.abs(pnl), "#.##"), bg,
+         pnl >= 0 ? acWinC : acLosC, sz)
+    f_cell(T, 0, 4, "avg R", bg, dim, sz)
+    f_cell(T, 1, 4, n == 0 ? "-" : (totR / n >= 0 ? "+" : "")
+         + str.tostring(totR / n, "0.00"), bg, fg, sz)
+    f_cell(T, 0, 5, "avg win", bg, dim, sz)
+    f_cell(T, 1, 5, stW == 0 ? "-" : "+" + str.tostring(stRw / stW, "0.00") + "R",
+         bg, fg, sz)
+    f_cell(T, 0, 6, "call", bg, dim, sz)
+    f_cell(T, 1, 6, stCallN == 0 ? "-" : str.tostring(100.0 * stCallW / stCallN, "#.#")
+         + "%  " + str.tostring(stCallN), bg, fg, sz)
 
 //=============================================================================
 // FIB ZONES
@@ -1188,6 +1210,7 @@ type Zone
     line    l2
     line    l3
     line    ls                  // the stop
+    line    lt                  // the target
     label   tag
     label   res
     int     lane
@@ -1207,8 +1230,8 @@ f_zEnd(int laneT) => laneT + fzEndH * 3600000
 
 // Build one zone, dormant, as a single box.
 f_zNew(float A_, float T_, int sd, int x1, int x2) =>
-    Zone z = Zone.new(A_, T_, sd, 0, na, na, na, na, na, na, na, laneDay, false)
-    float e = f_lv(A_, T_, fzEntry)
+    Zone z = Zone.new(A_, T_, sd, 0, na, na, na, na, na, na, na, na, laneDay, false)
+    float e = f_lv(A_, T_, trEntF)
     float d = f_lv(A_, T_, 0.79)
     float u = f_lv(A_, T_, 0.62)
     z.bx := box.new(x1, math.max(u, d), x2, math.min(u, d),
@@ -1233,30 +1256,49 @@ f_zLevels(Zone z, int x1, int x2) =>
 f_zRecolour(Zone z) =>
     if z.st == 0 or z.st == 4
         box.set_bgcolor(z.bx, f_theme(fzDorm))
-        box.set_border_color(z.bx, color.new(color.black, 100))
+        box.set_border_color(z.bx, f_theme(fzDormB))
     else if z.st == 1
         box.set_bgcolor(z.bx, f_theme(fzLive))
         box.set_border_color(z.bx, f_theme(fzEdge))
     else
-        color g = f_theme(fzWin)
-        box.set_bgcolor(z.bx, color.new(g, 84))
-        box.set_border_color(z.bx, color.new(g, 40))
+        // A won zone is a hue, not a highlight. The levels stay grey so the green
+        // reads as a tint over the chart rather than a block of colour.
+        box.set_bgcolor(z.bx, f_theme(fzWonF))
+        box.set_border_color(z.bx, f_theme(fzWin))
         if not na(z.l1)
-            line.set_color(z.l1, color.new(g, 30))
-            line.set_color(z.l2, color.new(g, 30))
-            line.set_color(z.l3, color.new(g, 30))
+            line.set_color(z.l1, f_theme(fzWonL))
+            line.set_color(z.l2, f_theme(fzWonL))
+            line.set_color(z.l3, f_theme(fzWonL))
         if not na(z.tag)
-            label.set_textcolor(z.tag, color.new(g, 20))
+            label.set_textcolor(z.tag, f_theme(fzWonL))
 
-// The per-bar driver: create the day's zones once, then walk each one through
-// its states. Nothing repaints - every transition is decided on a closed bar.
+// Everything the zone drew, gone.
+f_zStrip(Zone z) =>
+    if not na(z.l1)
+        line.delete(z.l1)
+        line.delete(z.l2)
+        line.delete(z.l3)
+        z.l1 := na
+    if not na(z.tag)
+        label.delete(z.tag)
+        z.tag := na
+    if not na(z.ls)
+        line.delete(z.ls)
+        z.ls := na
+    if not na(z.lt)
+        line.delete(z.lt)
+        z.lt := na
+
+// The per-bar driver. The day's zones are built once at the lane open, then each
+// is walked through its states. Every transition is decided on a closed bar.
 var int fzX1 = na
+var int fzX2 = na
 
 f_zSpawn(float A_, int sd) =>
     if not na(A_) and not na(R) and R > 0
-        float T_ = sd > 0 ? z20u : z20d
-        float sp = T_ - A_
-        if (sd > 0 and sp > 0) or (sd < 0 and sp < 0)
+        float T_ = sd > 0 ? (boxHi + trTgtMul * R) : (boxLo - trTgtMul * R)
+        float z_ = sd > 0 ? z20u : z20d          // the fib is always built to 2.0
+        if (sd > 0 and z_ - A_ > 0) or (sd < 0 and z_ - A_ < 0)
             f_zNew(A_, T_, sd, bar_index, bar_index + 1)
 
 if fzOn and intraday and laneOpen and not na(z20u)
@@ -1273,13 +1315,33 @@ if fzOn and intraday and laneOpen and not na(z20u)
         if fzA4
             f_zSpawn(sd > 0 ? pz20d : pz20u, sd)
 
+// the end-to-end box: the day's two extremes, so the outer frame is always there
+var box  eeBx = na
+var line eeUp = na
+var line eeDn = na
+if eeShow and intraday and laneOpen and not na(z20u)
+    eeBx := box.new(bar_index, z20u, bar_index + 1, z20d, border_color = eeBord,
+         border_width = eeW, bgcolor = eeFill, xloc = xloc.bar_index)
+    eeUp := line.new(bar_index, z20u, bar_index + 1, z20u, xloc = xloc.bar_index,
+         color = eeEdge, width = eeEdgeW)
+    eeDn := line.new(bar_index, z20d, bar_index + 1, z20d, xloc = xloc.bar_index,
+         color = eeEdge, width = eeEdgeW)
+
+// everything drawn for the day shares one right edge, so the blocks line up
+bool inBlock = inLane and hour(time, TZ) < fzEndH
+if intraday and inBlock
+    fzX2 := bar_index + 1
+    if not na(eeBx)
+        box.set_right(eeBx, fzX2)
+        line.set_x2(eeUp, fzX2)
+        line.set_x2(eeDn, fzX2)
+
 if fzOn and intraday and array.size(ZS) > 0
     for i = 0 to array.size(ZS) - 1
         Zone z = array.get(ZS, i)
         if z.dead or z.lane != laneDay
             continue
-        // stretch today's boxes to the configured end of the block
-        int x2 = bar_index + 1
+        int x2 = na(fzX2) ? bar_index + 1 : fzX2
         box.set_right(z.bx, x2)
         if not na(z.l1)
             line.set_x2(z.l1, x2)
@@ -1287,71 +1349,79 @@ if fzOn and intraday and array.size(ZS) > 0
             line.set_x2(z.l3, x2)
         if not na(z.ls)
             line.set_x2(z.ls, x2)
-        float hi = math.max(f_lv(z.A, z.T, 0.62), f_lv(z.A, z.T, 0.79))
-        float lo = math.min(f_lv(z.A, z.T, 0.62), f_lv(z.A, z.T, 0.79))
-        float ent  = f_lv(z.A, z.T, fzEntry)
-        float stp  = f_lv(z.A, z.T, fzStopF)
+        if not na(z.lt)
+            line.set_x2(z.lt, x2)
+        float hi  = math.max(f_lv(z.A, z.T, 0.62), f_lv(z.A, z.T, 0.79))
+        float lo  = math.min(f_lv(z.A, z.T, 0.62), f_lv(z.A, z.T, 0.79))
+        float ent = f_lv(z.A, z.T, trEntF)
+        float stp = trStopBx ? (z.side > 0 ? boxLo - trPad : boxHi + trPad) :
+             trStopVW and not na(vw) ? vw - z.side * trPad :
+             f_lv(z.A, z.T, trStopFb)
         bool inBox = low <= hi and high >= lo
-        // --- dormant -> live -------------------------------------------
         if z.st == 0 and inBox
             z.st := 1
             f_zLevels(z, fzX1, x2)
             f_zRecolour(z)
-        // --- live: either it closes through, or it leaves the way it came
         else if z.st == 1
             bool through = z.side > 0 ? close < lo : close > hi
             bool backOut = z.side > 0 ? low > hi : high < lo
             if through
                 z.st := 4
+                f_zStrip(z)
                 f_zRecolour(z)
-                if not na(z.l1)
-                    line.delete(z.l1)
-                    line.delete(z.l2)
-                    line.delete(z.l3)
-                    z.l1 := na
-                if not na(z.tag)
-                    label.delete(z.tag)
-                    z.tag := na
             else if backOut
                 z.st := 2
                 f_zRecolour(z)
                 z.ls := line.new(fzX1, stp, x2, stp, xloc = xloc.bar_index,
-                     color = f_theme(fzLoss), style = line.style_solid)
-        // --- armed: the target, or the stop --------------------------------
+                     color = fzStpC, width = fzLnW)
+                z.lt := line.new(fzX1, z.T, x2, z.T, xloc = xloc.bar_index,
+                     color = fzTgtC, width = fzLnW)
         else if z.st == 2
-            bool hitT = z.side > 0 ? high >= z.T : low <= z.T
-            bool hitS = z.side > 0 ? low <= stp : high >= stp
+            bool hitT  = z.side > 0 ? high >= z.T : low <= z.T
+            bool hitS  = z.side > 0 ? low <= stp : high >= stp
+            bool count = time >= acFrom
+            float risk = math.abs(ent - stp)
+            float rr   = risk > 0 ? math.abs(z.T - ent) / risk : 0.0
             if hitS
-                // a loss just sinks back into the chart - only winners are kept
+                stL  += count ? 1 : 0
+                stRl += count ? 1.0 : 0.0
+                // The zone sinks back, but the result still prints. It is deleted
+                // again if a zone on the same lane later wins, so the day ends
+                // showing only the trade worth having taken.
                 z.st := 4
                 z.dead := true
+                f_zStrip(z)
                 f_zRecolour(z)
-                if not na(z.l1)
-                    line.delete(z.l1)
-                    line.delete(z.l2)
-                    line.delete(z.l3)
-                    z.l1 := na
-                if not na(z.tag)
-                    label.delete(z.tag)
-                    z.tag := na
-                if not na(z.ls)
-                    line.delete(z.ls)
-                    z.ls := na
+                if acShow
+                    z.res := label.new(fzX1, stp, "-1.00R   -$"
+                         + str.tostring(acBal * acRisk / 100.0, "#.##"),
+                         style = z.side > 0 ? label.style_label_upper_right
+                                            : label.style_label_lower_right,
+                         color = color.new(color.black, 100), textcolor = acLosC,
+                         size = f_size(acSize), xloc = xloc.bar_index)
             else if hitT
+                stW  += count ? 1 : 0
+                stRw += count ? rr : 0.0
                 z.st := 3
                 z.dead := true
                 f_zRecolour(z)
+                // exactly one green zone a day - every other zone on this lane
+                // mutes, and its result label goes with it
+                for jj = 0 to array.size(ZS) - 1
+                    Zone o = array.get(ZS, jj)
+                    if o.lane == z.lane and jj != i and o.st != 3
+                        o.st := 4
+                        o.dead := true
+                        f_zStrip(o)
+                        f_zRecolour(o)
+                        if not na(o.res)
+                            label.delete(o.res)
+                            o.res := na
                 if acShow
-                    float risk = math.abs(ent - stp)
-                    float rr   = risk > 0 ? math.abs(z.T - ent) / risk : 0.0
-                    float cash = acBal * acRisk / 100.0 * rr
-                    float yv = acPlace == "Above the zone" ? z.T :
-                         acPlace == "Middle of the zone" ? (hi + lo) / 2 : (hi + lo) / 2
-                    z.res := label.new(acPlace == "Left of the box" ? fzX1 : x2, yv,
-                         "WIN  +" + str.tostring(rr, "#.##") + "R   +$"
-                         + str.tostring(cash, "#.##"),
-                         style = acPlace == "Left of the box" ? label.style_label_right
-                                                             : label.style_label_left,
+                    z.res := label.new(fzX1, z.T, "+" + str.tostring(rr, "#.##")
+                         + "R   +$" + str.tostring(acBal * acRisk / 100.0 * rr, "#.##"),
+                         style = z.side > 0 ? label.style_label_lower_right
+                                            : label.style_label_upper_right,
                          color = color.new(color.black, 100), textcolor = acWinC,
                          size = f_size(acSize), xloc = xloc.bar_index)
 
