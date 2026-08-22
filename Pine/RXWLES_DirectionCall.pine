@@ -83,13 +83,13 @@ fzAsiaW = input.string("19:00 - 00:00", "Asia window (NY)", group = "Anchors",
 
 fzTheme = input.string("Dark", "Theme", options = ["Dark", "Light grey", "White"],
      group = "Look")
-fzDorm  = input.color(color.new(#8899a6, 93), "Dormant fill",  inline = "l1", group = "Look")
-fzDormB = input.color(color.new(#8899a6, 82), "border",        inline = "l1", group = "Look")
-fzLive  = input.color(color.new(#b8c6d1, 85), "Live fill",     inline = "l2", group = "Look")
-fzEdge  = input.color(color.new(#b8c6d1, 60), "border",        inline = "l2", group = "Look")
+fzDorm  = input.color(color.new(#8899a6, 90), "Dormant fill",  inline = "l1", group = "Look")
+fzDormB = input.color(color.new(#8899a6, 62), "border",        inline = "l1", group = "Look")
+fzLive  = input.color(color.new(#b8c6d1, 78), "Live fill",     inline = "l2", group = "Look")
+fzEdge  = input.color(color.new(#b8c6d1, 30), "border",        inline = "l2", group = "Look")
 fzWonF  = input.color(color.new(#4db6a0, 94), "Won fill",      inline = "l3", group = "Look")
-fzWonB  = input.color(color.new(#4db6a0, 72), "border",        inline = "l3", group = "Look")
-fzLine  = input.color(color.new(#c8d4de, 55), "Level lines",   inline = "l4", group = "Look")
+fzWonB  = input.color(color.new(#4db6a0, 45), "border",        inline = "l3", group = "Look")
+fzLine  = input.color(color.new(#c8d4de, 30), "Level lines",   inline = "l4", group = "Look")
 fzTgtC  = input.color(color.new(#8fb3a8, 25), "Target",        inline = "l4", group = "Look")
 fzStpC  = input.color(color.new(#c08a8a, 30), "Stop",          inline = "l4", group = "Look")
 fzTgtW  = input.int(1, "Target / stop width", minval = 1, maxval = 3, group = "Look")
@@ -122,6 +122,11 @@ acBal   = input.float(500.0, "Account balance ($)", minval = 1, group = "Risk")
 acRisk  = input.float(0.5, "Risk per trade (%)", minval = 0.01, step = 0.05, group = "Risk")
 acFrom  = input.time(timestamp("2026-01-01 00:00 -0500"), "Track from", group = "Risk")
 acShow  = input.bool(true, "Print results on the chart", group = "Risk")
+mkShow  = input.bool(true, "Entry and exit markers", group = "Risk",
+     tooltip = "Entry marks the bar the zone arms - price rejected back out of " +
+               "the band. Exit marks the bar the target or the stop trades.")
+mkSize  = input.string("Tiny", "marker size", options = ["Tiny", "Small", "Normal"],
+     group = "Risk")
 acSize  = input.string("Tiny", "Result text", options = ["Tiny", "Small", "Normal"],
      group = "Risk")
 acWinC  = input.color(#4db6a0, "win", inline = "ac", group = "Risk")
@@ -524,6 +529,13 @@ if intraday and array.size(ZS) > 0
                 line.set_width(z.lt, fzTgtW + 1)
                 line.set_color(z.ls, fzStpC)
                 line.set_style(z.ls, line.style_solid)
+                // this bar is the entry - price rejected back out of the band
+                if mkShow
+                    label.new(bar_index, ent,
+                         z.side > 0 ? "▲" : "▼", style = label.style_none,
+                         color = color.new(color.black, 100),
+                         textcolor = z.side > 0 ? acWinC : acLosC,
+                         size = f_size(mkSize), yloc = yloc.price)
         else if z.st == 2
             bool hitT  = z.side > 0 ? high >= z.T : low <= z.T
             bool hitS  = z.side > 0 ? low <= stp : high >= stp
@@ -534,6 +546,10 @@ if intraday and array.size(ZS) > 0
                 // on it is gone with no target reached.
                 z.st   := 4
                 z.dead := true
+                if mkShow
+                    label.new(bar_index, stp, "✕", style = label.style_none,
+                         color = color.new(color.black, 100), textcolor = acLosC,
+                         size = f_size(mkSize), yloc = yloc.price)
                 f_zStrip(z)
                 f_zRecolour(z)
                 bool anyAlive = false
@@ -559,6 +575,10 @@ if intraday and array.size(ZS) > 0
                 stRw += count ? rr : 0.0
                 z.st   := 3
                 z.dead := true
+                if mkShow
+                    label.new(bar_index, z.T, "●", style = label.style_none,
+                         color = color.new(color.black, 100), textcolor = acWinC,
+                         size = f_size(mkSize), yloc = yloc.price)
                 f_zRecolour(z)
                 f_zSole(z.lane, i)
                 if acShow
