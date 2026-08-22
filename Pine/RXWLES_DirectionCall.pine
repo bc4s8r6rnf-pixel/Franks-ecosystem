@@ -2,7 +2,7 @@
 
 //@version=6
 // ============================================================================
-// RXWLES DIRECTION CALL  v2.5
+// RXWLES DIRECTION CALL  v2.6
 //
 // CORRECTION FIRST. Every figure quoted in v1.2 through v1.6 was produced by a
 // backtest that reconstructed the VWAP anchored at midnight New York from
@@ -477,9 +477,10 @@ tagSize  = input.string("Tiny", "Tag size", options = ["Tiny", "Small", "Normal"
 // Three retracements, all sharing one rule: -0.27 is pinned to the projection
 // edge in the direction of the call, and only the 1 anchor changes.
 //
-//   Zone to zone   1 on the opposing 2.0 edge      span is always 5R
-//   Asia           1 on the Asia high / low        19:00 - 00:00 NY
-//   Prev day       1 on yesterday's extreme        the lane high / low
+//   Zone to zone   1 on today's opposing 2.0 edge     span is always 5R
+//   Asia           1 on the Asia swing extreme        19:00 - 00:00 NY
+//   Prev day swing 1 on yesterday's last swing point  a confirmed pivot
+//   Prev day zone  1 on yesterday's opposing 2.0 edge
 //
 // price(f) = A + (1 - f) / 1.27 x (B - A), so with the stop on the 1 the
 // reward-to-risk is set purely by which level you enter at:
@@ -537,15 +538,34 @@ fz2Tag  = input.string("A", "label prefix", group = "Fib zone 2  (Asia)")
 fz2Win  = input.string("19:00 - 00:00", "Asia window (NY)", group = "Fib zone 2  (Asia)",
      options = ["19:00 - 00:00", "18:00 - 00:00", "20:00 - 02:00", "19:00 - 02:00"])
 
-fz3On   = input.bool(true, "Previous day extreme", inline = "f3", group = "Fib zone 3  (previous day)")
-fz3Col  = input.color(#546e7a, "", inline = "f3", group = "Fib zone 3  (previous day)")
-fz3Fill = input.color(#546e7a, "band", inline = "f3", group = "Fib zone 3  (previous day)")
+fz3On   = input.bool(true, "Previous day swing point", inline = "f3",
+     group = "Fib zone 3  (previous day swing)")
+fz3Col  = input.color(#546e7a, "", inline = "f3", group = "Fib zone 3  (previous day swing)")
+fz3Fill = input.color(#546e7a, "band", inline = "f3", group = "Fib zone 3  (previous day swing)")
 fz3Tr   = input.int(94, "band transparency", minval = 0, maxval = 100,
-     group = "Fib zone 3  (previous day)")
+     group = "Fib zone 3  (previous day swing)")
 fz3LnTr = input.int(50, "line transparency", minval = 0, maxval = 100,
-     group = "Fib zone 3  (previous day)")
-fz3Lbl  = input.color(#546e7a, "label colour", group = "Fib zone 3  (previous day)")
-fz3Tag  = input.string("P", "label prefix", group = "Fib zone 3  (previous day)")
+     group = "Fib zone 3  (previous day swing)")
+fz3Lbl  = input.color(#546e7a, "label colour", group = "Fib zone 3  (previous day swing)")
+fz3Tag  = input.string("P", "label prefix", group = "Fib zone 3  (previous day swing)")
+fz3Piv  = input.int(5, "Swing strength (bars each side)", minval = 1, maxval = 30,
+     group = "Fib zone 3  (previous day swing)",
+     tooltip = "A pivot needs this many bars either side of it to count. Bigger " +
+               "means fewer, more significant swings.")
+fz3Src  = input.string("Last swing before the lane opened", "Which swing",
+     group = "Fib zone 3  (previous day swing)",
+     options = ["Last swing before the lane opened", "Deepest swing of the previous day"])
+
+fz4On   = input.bool(true, "Previous day zone edge", inline = "f4",
+     group = "Fib zone 4  (previous day zone)")
+fz4Col  = input.color(#37474f, "", inline = "f4", group = "Fib zone 4  (previous day zone)")
+fz4Fill = input.color(#37474f, "band", inline = "f4", group = "Fib zone 4  (previous day zone)")
+fz4Tr   = input.int(94, "band transparency", minval = 0, maxval = 100,
+     group = "Fib zone 4  (previous day zone)")
+fz4LnTr = input.int(50, "line transparency", minval = 0, maxval = 100,
+     group = "Fib zone 4  (previous day zone)")
+fz4Lbl  = input.color(#37474f, "label colour", group = "Fib zone 4  (previous day zone)")
+fz4Tag  = input.string("PZ", "label prefix", group = "Fib zone 4  (previous day zone)")
 
 cfShow   = input.bool(true, "Show the confidence dashboard", group = "Confidence")
 cfPos    = input.string("Bottom right", "Position", group = "Confidence",
@@ -709,7 +729,11 @@ if newSrc and (srcHigh - srcLow) > 0
     upEdge  := srcHigh + tgtLvl * R
     dnEdge  := srcLow  - tgtLvl * R
     // The true 2.0 edges. The fibs and the confidence score are both built from
-    // these, not from the pulled-in target level.
+    // these, not from the pulled-in target level. This block runs at 22:00, an
+    // hour before the lane opens, so yesterday's pair is banked here - by the
+    // time laneOpen runs the new values are already in place.
+    pz20u   := z20u
+    pz20d   := z20d
     z20u    := srcHigh + 2.0 * R
     z20d    := srcLow  - 2.0 * R
     called  := false
@@ -746,6 +770,12 @@ var float laneLo  = na
 var float prevRng = na
 var float prevHi  = na          // yesterday's lane extremes, frozen at the open
 var float prevLo  = na
+var float pvHi    = na          // running last confirmed swing, either side
+var float pvLo    = na
+var float dayPvHi = na          // the previous lane's swings, frozen at the open
+var float dayPvLo = na
+var float pz20u   = na          // the previous lane's 2.0 edges
+var float pz20d   = na
 var float asHi    = na          // Asia, accumulating
 var float asLo    = na
 var float asiaHi  = na          // Asia, frozen for this lane
@@ -769,10 +799,23 @@ if intraday
         asiaHi := asHi
         asiaLo := asLo
 
+// Swing pivots. ta.pivothigh confirms fz3Piv bars after the fact, so the value
+// is only ever read once it is settled - no repainting.
+float _ph = ta.pivothigh(high, fz3Piv, fz3Piv)
+float _pl = ta.pivotlow(low,  fz3Piv, fz3Piv)
+if not na(_ph)
+    pvHi := _ph
+if not na(_pl)
+    pvLo := _pl
+
 if laneOpen
     prevRng := na(laneHi) or na(laneLo) ? na : laneHi - laneLo
     prevHi  := laneHi
     prevLo  := laneLo
+    // Whatever the last confirmed swing was as the day turned over is, by
+    // definition, yesterday's most recent swing point.
+    dayPvHi := fz3Src == "Deepest swing of the previous day" ? laneHi : pvHi
+    dayPvLo := fz3Src == "Deepest swing of the previous day" ? laneLo : pvLo
     laneHi  := high
     laneLo  := low
     cfDone  := false
@@ -1108,7 +1151,7 @@ if barstate.islast and showPanel and intraday
     color bg = color.new(color.black, 25)
     color fg = color.new(color.white, 0)
 
-    f_cell(T, 0, 0, isV1 ? "v1.0" : "v2.5", color.new(vc, 55), fg, sz)
+    f_cell(T, 0, 0, isV1 ? "v1.0" : "v2.6", color.new(vc, 55), fg, sz)
     f_cell(T, 1, 0, vt,     color.new(vc, 55), fg, sz)
     f_cell(T, 0, 1, tOpen ? why : (why + (lastOut == "" ? "" : "  ·  last: " + lastOut)),
          bg, color.new(fg, 30), sz)
@@ -1208,8 +1251,11 @@ if fzOn and intraday and not na(R) and R > 0 and not na(z20u)
             f_fzDraw(d > 0 ? asiaLo : asiaHi, tgt, bar_index, fz2Col, fz2LnTr,
                  fz2Fill, fz2Tr, fz2Lbl, fz2Tag)
         if fz3On
-            f_fzDraw(d > 0 ? prevLo : prevHi, tgt, bar_index, fz3Col, fz3LnTr,
+            f_fzDraw(d > 0 ? dayPvLo : dayPvHi, tgt, bar_index, fz3Col, fz3LnTr,
                  fz3Fill, fz3Tr, fz3Lbl, fz3Tag)
+        if fz4On
+            f_fzDraw(d > 0 ? pz20d : pz20u, tgt, bar_index, fz4Col, fz4LnTr,
+                 fz4Fill, fz4Tr, fz4Lbl, fz4Tag)
         fzLines := array.size(fzL) - n0
         fzBoxes := array.size(fzB) - b0
     // stretch the current lane's drawings to the right as the day fills in
