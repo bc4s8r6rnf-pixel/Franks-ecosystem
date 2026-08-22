@@ -2,7 +2,7 @@
 
 //@version=6
 // ============================================================================
-// RXWLES DIRECTION CALL  v3.4
+// RXWLES DIRECTION CALL  v3.5
 //
 // CORRECTION FIRST. Every figure quoted in v1.2 through v1.6 was produced by a
 // backtest that reconstructed the VWAP anchored at midnight New York from
@@ -1454,7 +1454,12 @@ if fzOn and intraday and array.size(ZS) > 0
             bool through = z.side > 0 ? close < lo : close > hi
             bool backOut = z.side > 0 ? low > hi : high < lo
             if through
+                // Closed through: finished. Price coming back later cannot
+                // re-arm it - only a zone that was respected can be entered.
                 z.st := 4
+                z.dead := true
+                box.set_right(z.bx, math.max(box.get_right(z.bx),
+                     na(fzX2) ? bar_index : fzX2))
                 f_zStrip(z)
                 f_zRecolour(z)
             else if backOut
@@ -1477,6 +1482,8 @@ if fzOn and intraday and array.size(ZS) > 0
                 // target reached.
                 z.st := 4
                 z.dead := true
+                box.set_right(z.bx, math.max(box.get_right(z.bx),
+                     na(fzX2) ? bar_index : fzX2))
                 f_zStrip(z)
                 f_zRecolour(z)
                 bool anyAlive = false
