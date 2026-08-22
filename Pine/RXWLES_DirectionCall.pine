@@ -2,7 +2,7 @@
 
 //@version=6
 // ============================================================================
-// RXWLES DIRECTION CALL  v2.6
+// RXWLES DIRECTION CALL  v3.0
 //
 // CORRECTION FIRST. Every figure quoted in v1.2 through v1.6 was produced by a
 // backtest that reconstructed the VWAP anchored at midnight New York from
@@ -367,6 +367,8 @@ dDnCol = input.color(#ef5350, "Down", inline = "dc", group = "Direction marker")
 dTrans = input.int(35, "Transparency", minval = 0, maxval = 100, group = "Direction marker")
 dOff   = input.float(0.20, "Offset from the candle (R)", step = 0.05, minval = 0.0,
      group = "Direction marker")
+dConf  = input.bool(true, "Confidence % beside the marker", group = "Direction marker")
+dConfC = input.color(color.new(#8899a6, 25), "    its colour", group = "Direction marker")
 dSkip  = input.bool(true, "Mark calls skipped because a trade is open",
      group = "Direction marker")
 dSkipCol = input.color(color.new(color.gray, 40), "    skip colour", group = "Direction marker")
@@ -474,100 +476,81 @@ tagSize  = input.string("Tiny", "Tag size", options = ["Tiny", "Small", "Normal"
 //-----------------------------------------------------------------------------
 // FIB ZONES
 //
-// Three retracements, all sharing one rule: -0.27 is pinned to the projection
-// edge in the direction of the call, and only the 1 anchor changes.
+// Every zone is the same construction: -0.27 pinned to a 2.0 projection edge,
+// the 1 on a fixed reference. Both directions are drawn, so the flipped side is
+// always on the chart if you disagree with the call.
 //
-//   Zone to zone   1 on today's opposing 2.0 edge     span is always 5R
-//   Asia           1 on the Asia swing extreme        19:00 - 00:00 NY
-//   Prev day swing 1 on yesterday's last swing point  a confirmed pivot
-//   Prev day zone  1 on yesterday's opposing 2.0 edge
+//   price(f) = A + (1 - f) / 1.27 x (T - A)
+//   0.62 -> 2.34:1   0.70 -> 3.23:1   0.79 -> 5.05:1   with the stop on the 1
 //
-// price(f) = A + (1 - f) / 1.27 x (B - A), so with the stop on the 1 the
-// reward-to-risk is set purely by which level you enter at:
+// Measured on 3,294 trades over 22 years and again on the OANDA-matched window,
+// the 0.95 stop beat both the 0.88 and the 1 anchor. 0.88 collapses the win
+// rate, the 1 anchor roughly doubles drawdown.
 //
-//     0.62 -> 2.34 : 1      0.70 -> 3.23 : 1      0.79 -> 5.05 : 1
+// A zone moves through five states and its look follows the state:
+//
+//   DORMANT  a muted fill, nothing else
+//   LIVE     price is inside it - lighter fill, faint border, the three levels
+//   ARMED    price left the way it came - levels turn green, the stop appears
+//   WON      the target traded - the result prints
+//   SPENT    price closed through it - back to dormant, sunk into the chart
 //-----------------------------------------------------------------------------
 
 fzOn    = input.bool(true, "Draw the fib zones", group = "Fib zones")
-fzExt   = input.string("End of the lane", "Extend to", group = "Fib zones",
-     options = ["End of the lane", "Right edge", "Entry or lane end"])
-fzWhen  = input.string("The call", "Draw from", group = "Fib zones",
-     options = ["The call", "Lane open"],
-     tooltip = "The call needs a direction before it can pick a side. Lane open " +
-               "draws both sides' geometry from the 04:00 reading anyway, so it " +
-               "only shifts where the lines start.")
+fzTheme = input.string("Dark", "Theme", options = ["Dark", "Light grey", "White"],
+     group = "Fib zones",
+     tooltip = "Sets the whole palette. Every colour below can still be overridden.")
+fzBoth  = input.bool(true, "Draw both sides of the market", group = "Fib zones",
+     tooltip = "On: the call's side and the flipped side. Off: the call's side only.")
+fzEndH  = input.int(17, "Boxes run to (NY hour)", minval = 1, maxval = 24,
+     group = "Fib zones",
+     tooltip = "Midnight to this hour. 17 keeps the day's block tight; 24 runs " +
+               "midnight to midnight so the blocks butt up against each other.")
+fzEntry = input.float(0.79, "Entry level", options = [0.62, 0.70, 0.79], group = "Fib zones")
+fzStopF = input.float(0.95, "Stop level", options = [0.88, 0.95, 1.0], group = "Fib zones")
 
-fzL100  = input.bool(true,  "1.0 (the anchor / stop)", inline="fa", group = "Fib zones")
-fzL79   = input.bool(true,  "0.79", inline="fa", group = "Fib zones")
-fzL70   = input.bool(true,  "0.70", inline="fb", group = "Fib zones")
-fzL62   = input.bool(true,  "0.62", inline="fb", group = "Fib zones")
-fzLEQ   = input.bool(true,  "0.5 EQ", inline="fc", group = "Fib zones")
-fzL0    = input.bool(false, "0.0", inline="fc", group = "Fib zones")
-fzL27   = input.bool(true,  "-0.27 (the target)", inline="fd", group = "Fib zones")
-fzBand  = input.bool(true,  "Shade the 0.62-0.79 band", inline="fd", group = "Fib zones")
-
-fzLbl   = input.bool(true, "Labels", inline = "fl", group = "Fib zones")
-fzLblSz = input.string("Tiny", "", inline = "fl", group = "Fib zones",
-     options = ["Tiny", "Small", "Normal"])
-fzLblAt = input.string("Right", "", inline = "fl", group = "Fib zones",
-     options = ["Right", "Left"])
-fzLblPr = input.bool(true, "price in the label", inline = "fl", group = "Fib zones")
-fzWidth = input.int(1, "Line width", minval = 1, maxval = 4, inline = "fw", group = "Fib zones")
-fzStyle = input.string("Dotted", "", inline = "fw", group = "Fib zones",
-     options = ["Solid", "Dashed", "Dotted"])
-fzKeyW  = input.int(2, "Width of 1.0 / -0.27", minval = 1, maxval = 4, inline = "fw",
-     group = "Fib zones")
-
-fz1On   = input.bool(true, "Zone to zone", inline = "f1", group = "Fib zone 1  (zone to zone)")
-fz1Col  = input.color(#b0bec5, "", inline = "f1", group = "Fib zone 1  (zone to zone)")
-fz1Fill = input.color(#b0bec5, "band", inline = "f1", group = "Fib zone 1  (zone to zone)")
-fz1Tr   = input.int(88, "band transparency", minval = 0, maxval = 100,
-     group = "Fib zone 1  (zone to zone)")
-fz1LnTr = input.int(25, "line transparency", minval = 0, maxval = 100,
-     group = "Fib zone 1  (zone to zone)")
-fz1Lbl  = input.color(#b0bec5, "label colour", group = "Fib zone 1  (zone to zone)")
-fz1Tag  = input.string("Z", "label prefix", group = "Fib zone 1  (zone to zone)")
-
-fz2On   = input.bool(true, "Asia extreme", inline = "f2", group = "Fib zone 2  (Asia)")
-fz2Col  = input.color(#78909c, "", inline = "f2", group = "Fib zone 2  (Asia)")
-fz2Fill = input.color(#78909c, "band", inline = "f2", group = "Fib zone 2  (Asia)")
-fz2Tr   = input.int(92, "band transparency", minval = 0, maxval = 100, group = "Fib zone 2  (Asia)")
-fz2LnTr = input.int(40, "line transparency", minval = 0, maxval = 100, group = "Fib zone 2  (Asia)")
-fz2Lbl  = input.color(#78909c, "label colour", group = "Fib zone 2  (Asia)")
-fz2Tag  = input.string("A", "label prefix", group = "Fib zone 2  (Asia)")
-fz2Win  = input.string("19:00 - 00:00", "Asia window (NY)", group = "Fib zone 2  (Asia)",
+fzA1 = input.bool(true,  "Today's zone edge",   inline = "fa", group = "Fib zones")
+fzA2 = input.bool(true,  "Asia",                inline = "fa", group = "Fib zones")
+fzA3 = input.bool(true,  "Yesterday's swing",   inline = "fb", group = "Fib zones")
+fzA4 = input.bool(false, "Yesterday's zone",    inline = "fb", group = "Fib zones",
+     tooltip = "Off by default. It went 0 for 12 in the 2026 sample and is the " +
+               "only anchor negative over the full history.")
+fzPiv = input.int(5, "Swing strength", minval = 1, maxval = 30, group = "Fib zones",
+     tooltip = "Bars either side needed for a pivot to confirm. Bigger means " +
+               "fewer, more significant swings.")
+fzSwSrc = input.string("Last swing before the lane opened", "Which swing",
+     group = "Fib zones",
+     options = ["Last swing before the lane opened", "Deepest swing of the previous day"])
+fzAsiaW = input.string("19:00 - 00:00", "Asia window (NY)", group = "Fib zones",
      options = ["19:00 - 00:00", "18:00 - 00:00", "20:00 - 02:00", "19:00 - 02:00"])
 
-fz3On   = input.bool(true, "Previous day swing point", inline = "f3",
-     group = "Fib zone 3  (previous day swing)")
-fz3Col  = input.color(#546e7a, "", inline = "f3", group = "Fib zone 3  (previous day swing)")
-fz3Fill = input.color(#546e7a, "band", inline = "f3", group = "Fib zone 3  (previous day swing)")
-fz3Tr   = input.int(94, "band transparency", minval = 0, maxval = 100,
-     group = "Fib zone 3  (previous day swing)")
-fz3LnTr = input.int(50, "line transparency", minval = 0, maxval = 100,
-     group = "Fib zone 3  (previous day swing)")
-fz3Lbl  = input.color(#546e7a, "label colour", group = "Fib zone 3  (previous day swing)")
-fz3Tag  = input.string("P", "label prefix", group = "Fib zone 3  (previous day swing)")
-fz3Piv  = input.int(5, "Swing strength (bars each side)", minval = 1, maxval = 30,
-     group = "Fib zone 3  (previous day swing)",
-     tooltip = "A pivot needs this many bars either side of it to count. Bigger " +
-               "means fewer, more significant swings.")
-fz3Src  = input.string("Last swing before the lane opened", "Which swing",
-     group = "Fib zone 3  (previous day swing)",
-     options = ["Last swing before the lane opened", "Deepest swing of the previous day"])
+//--- palette ---------------------------------------------------------------
+fzDorm  = input.color(color.new(#8899a6, 92), "Dormant fill",  inline = "p1", group = "Fib look")
+fzLive  = input.color(color.new(#b8c6d1, 82), "Live fill",     inline = "p1", group = "Fib look")
+fzEdge  = input.color(color.new(#b8c6d1, 55), "Live border",   inline = "p2", group = "Fib look")
+fzLine  = input.color(color.new(#c8d4de, 45), "Level lines",   inline = "p2", group = "Fib look")
+fzWin   = input.color(color.new(#4db6a0, 30), "Armed / win",   inline = "p3", group = "Fib look")
+fzLoss  = input.color(color.new(#c96a6a, 30), "Stop level",    inline = "p3", group = "Fib look")
+fzTgtC  = input.color(color.new(#a8b8c4, 40), "2.0 target edge", group = "Fib look")
+fzTgtW  = input.int(1, "target line width", minval = 1, maxval = 4, group = "Fib look")
+fzBoxW  = input.int(1, "Zone-to-zone box weight", minval = 0, maxval = 3, group = "Fib look")
+fzTxt   = input.string("Tiny", "Level text", options = ["Tiny", "Small", "Normal"],
+     group = "Fib look")
+fzShowN = input.bool(true, "Show level numbers when live", group = "Fib look")
 
-fz4On   = input.bool(true, "Previous day zone edge", inline = "f4",
-     group = "Fib zone 4  (previous day zone)")
-fz4Col  = input.color(#37474f, "", inline = "f4", group = "Fib zone 4  (previous day zone)")
-fz4Fill = input.color(#37474f, "band", inline = "f4", group = "Fib zone 4  (previous day zone)")
-fz4Tr   = input.int(94, "band transparency", minval = 0, maxval = 100,
-     group = "Fib zone 4  (previous day zone)")
-fz4LnTr = input.int(50, "line transparency", minval = 0, maxval = 100,
-     group = "Fib zone 4  (previous day zone)")
-fz4Lbl  = input.color(#37474f, "label colour", group = "Fib zone 4  (previous day zone)")
-fz4Tag  = input.string("PZ", "label prefix", group = "Fib zone 4  (previous day zone)")
+//--- account ---------------------------------------------------------------
+acBal   = input.float(500.0, "Account balance ($)", minval = 1, group = "Risk")
+acRisk  = input.float(0.5, "Risk per trade (%)", minval = 0.01, step = 0.05, group = "Risk")
+acShow  = input.bool(true, "Print the result on the chart", group = "Risk")
+acSize  = input.string("Small", "Result text", options = ["Tiny", "Small", "Normal"],
+     group = "Risk")
+acWinC  = input.color(#4db6a0, "Win", inline = "ac", group = "Risk")
+acLosC  = input.color(#c96a6a, "Loss", inline = "ac", group = "Risk")
+acPlace = input.string("Left of the box", "Result position", group = "Risk",
+     options = ["Left of the box", "Middle of the zone", "Above the zone"])
 
-cfShow   = input.bool(true, "Show the confidence dashboard", group = "Confidence")
+cfShow   = input.bool(false, "Show the corner dashboard", group = "Confidence",
+     tooltip = "Off by default - the score now sits beside the direction marker.")
 cfPos    = input.string("Bottom right", "Position", group = "Confidence",
      options = ["Bottom right", "Bottom left", "Bottom centre", "Top right", "Top left",
                 "Middle right", "Middle left"])
@@ -785,9 +768,9 @@ var float asiaLo  = na
 // window is open and frozen on the bar the window closes, which handles both
 // the windows that end at midnight and the ones that run past it.
 int asH = hour(time, TZ)
-bool inAsia = fz2Win == "18:00 - 00:00" ? (asH >= 18) :
-     fz2Win == "20:00 - 02:00"          ? (asH >= 20 or asH < 2) :
-     fz2Win == "19:00 - 02:00"          ? (asH >= 19 or asH < 2) : (asH >= 19)
+bool inAsia = fzAsiaW == "18:00 - 00:00" ? (asH >= 18) :
+     fzAsiaW == "20:00 - 02:00"          ? (asH >= 20 or asH < 2) :
+     fzAsiaW == "19:00 - 02:00"          ? (asH >= 19 or asH < 2) : (asH >= 19)
 if intraday
     if inAsia and not inAsia[1]
         asHi := high
@@ -799,10 +782,10 @@ if intraday
         asiaHi := asHi
         asiaLo := asLo
 
-// Swing pivots. ta.pivothigh confirms fz3Piv bars after the fact, so the value
+// Swing pivots. ta.pivothigh confirms fzPiv bars after the fact, so the value
 // is only ever read once it is settled - no repainting.
-float _ph = ta.pivothigh(high, fz3Piv, fz3Piv)
-float _pl = ta.pivotlow(low,  fz3Piv, fz3Piv)
+float _ph = ta.pivothigh(high, fzPiv, fzPiv)
+float _pl = ta.pivotlow(low,  fzPiv, fzPiv)
 if not na(_ph)
     pvHi := _ph
 if not na(_pl)
@@ -814,8 +797,8 @@ if laneOpen
     prevLo  := laneLo
     // Whatever the last confirmed swing was as the day turned over is, by
     // definition, yesterday's most recent swing point.
-    dayPvHi := fz3Src == "Deepest swing of the previous day" ? laneHi : pvHi
-    dayPvLo := fz3Src == "Deepest swing of the previous day" ? laneLo : pvLo
+    dayPvHi := fzSwSrc == "Deepest swing of the previous day" ? laneHi : pvHi
+    dayPvLo := fzSwSrc == "Deepest swing of the previous day" ? laneLo : pvLo
     laneHi  := high
     laneLo  := low
     cfDone  := false
@@ -1038,6 +1021,13 @@ if justCalled and side != 0
     else if dShow and not dead
         f_mark(side, dShape, dUpEmo, dDnEmo, "", side > 0 ? dUpCol : dDnCol,
              dSize, dOff, color.white, dTrans)
+    // The score rides alongside the marker rather than sitting in a corner, so
+    // the day's reading is where the day's call is.
+    if dConf and not na(cfHit)
+        label.new(bar_index, side > 0 ? low - (dOff + 0.28) * R : high + (dOff + 0.28) * R,
+             str.tostring(cfHit, "#") + "%", style = label.style_none,
+             color = color.new(color.black, 100), textcolor = dConfC,
+             size = f_size(dSize), yloc = yloc.price)
 
 if justFilled and eShow
     string et = eText == "None" ? "" :
@@ -1151,7 +1141,7 @@ if barstate.islast and showPanel and intraday
     color bg = color.new(color.black, 25)
     color fg = color.new(color.white, 0)
 
-    f_cell(T, 0, 0, isV1 ? "v1.0" : "v2.6", color.new(vc, 55), fg, sz)
+    f_cell(T, 0, 0, isV1 ? "v1.0" : "v3.0", color.new(vc, 55), fg, sz)
     f_cell(T, 1, 0, vt,     color.new(vc, 55), fg, sz)
     f_cell(T, 0, 1, tOpen ? why : (why + (lastOut == "" ? "" : "  ·  last: " + lastOut)),
          bg, color.new(fg, 30), sz)
@@ -1184,88 +1174,186 @@ if barstate.islast and showPanel and intraday
 //=============================================================================
 // FIB ZONES
 //
-// One helper draws a whole retracement. The -0.27 is always the projection edge
-// in the direction of the call; only the 1 anchor changes between the three.
+// One object per zone while it sleeps, so a chart holds plenty of history. The
+// levels and the stop are only created when a zone actually goes live.
 //=============================================================================
 
-// Objects are never deleted - TradingView drops the oldest once the 500-per-type
-// ceiling is reached, so the chart keeps as much history as it can hold. Three
-// zones with every level on is 21 lines a day, i.e. roughly 23 days of history.
-// Turn levels or zones off and the history stretches proportionally.
-var line[]  fzL = array.new_line()
-var box[]   fzB = array.new_box()
+type Zone
+    float   A                   // the 1 anchor
+    float   T                   // the -0.27 target, a 2.0 projection edge
+    int     side                // +1 long, -1 short
+    int     st                  // 0 dormant 1 live 2 armed 3 won 4 spent
+    box     bx
+    line    l1
+    line    l2
+    line    l3
+    line    ls                  // the stop
+    label   tag
+    label   res
+    int     lane
+    bool    dead
 
-f_fzPrice(float a, float b, float f) => a + (1.0 - f) / 1.27 * (b - a)
+var array<Zone> ZS = array.new<Zone>()
 
-f_fzLine(float y, int x1, color c, string nm, color lc, bool key) =>
-    array.push(fzL, line.new(x1, y, x1, y, xloc = xloc.bar_index, color = c,
-         width = key ? fzKeyW : fzWidth, style = f_style(fzStyle)))
-    if fzLbl
-        label.new(x1, y, nm + (fzLblPr ? "  " + str.tostring(y, format.mintick) : ""),
-             style = fzLblAt == "Left" ? label.style_label_right : label.style_label_left,
-             color = color.new(color.black, 100), textcolor = lc,
-             size = f_size(fzLblSz), yloc = yloc.price, xloc = xloc.bar_index)
+f_lv(float a_, float t_, float f) => a_ + (1.0 - f) / 1.27 * (t_ - a_)
 
-// A = the 1 anchor, Bv = the -0.27 target.
-f_fzDraw(float A, float Bv, int x1, color col, int lnTr, color fill, int fillTr,
-         color lc, string tag) =>
-    if not na(A) and not na(Bv) and (Bv - A) != 0
-        color c = color.new(col, lnTr)
-        if fzBand
-            float p62 = f_fzPrice(A, Bv, 0.62)
-            float p79 = f_fzPrice(A, Bv, 0.79)
-            array.push(fzB, box.new(x1, math.max(p62, p79), x1, math.min(p62, p79),
-                 border_color = color.new(fill, 100), bgcolor = color.new(fill, fillTr),
-                 xloc = xloc.bar_index))
-        if fzL100
-            f_fzLine(A, x1, c, tag + " 1.0", lc, true)
-        if fzL79
-            f_fzLine(f_fzPrice(A, Bv, 0.79), x1, c, tag + " 0.79", lc, false)
-        if fzL70
-            f_fzLine(f_fzPrice(A, Bv, 0.70), x1, c, tag + " 0.70", lc, false)
-        if fzL62
-            f_fzLine(f_fzPrice(A, Bv, 0.62), x1, c, tag + " 0.62", lc, false)
-        if fzLEQ
-            f_fzLine(f_fzPrice(A, Bv, 0.50), x1, c, tag + " EQ", lc, false)
-        if fzL0
-            f_fzLine(f_fzPrice(A, Bv, 0.00), x1, c, tag + " 0.0", lc, false)
-        if fzL27
-            f_fzLine(Bv, x1, c, tag + " -0.27", lc, true)
+// Dark charts want a lighter fill than the background, light charts a darker
+// one. The transparency the user set is preserved either way.
+f_theme(color c) =>
+    fzTheme == "Dark" ? c :
+     color.new(fzTheme == "Light grey" ? #4a5a66 : #2b3740, color.t(c))
 
-// How many objects belong to the lane being drawn, so they can be stretched
-// each bar without touching the ones already finished.
-var int fzLines = 0
-var int fzBoxes = 0
+f_zEnd(int laneT) => laneT + fzEndH * 3600000
 
-if fzOn and intraday and not na(R) and R > 0 and not na(z20u)
-    bool fire = fzWhen == "Lane open" ? laneOpen : (justCalled and side != 0)
-    if fire
-        int n0 = array.size(fzL)
-        int b0 = array.size(fzB)
-        int d  = side != 0 ? side : ((z20u - open) < (open - z20d) ? 1 : -1)
-        float tgt = d > 0 ? z20u : z20d
-        if fz1On
-            f_fzDraw(d > 0 ? z20d : z20u, tgt, bar_index, fz1Col, fz1LnTr,
-                 fz1Fill, fz1Tr, fz1Lbl, fz1Tag)
-        if fz2On
-            f_fzDraw(d > 0 ? asiaLo : asiaHi, tgt, bar_index, fz2Col, fz2LnTr,
-                 fz2Fill, fz2Tr, fz2Lbl, fz2Tag)
-        if fz3On
-            f_fzDraw(d > 0 ? dayPvLo : dayPvHi, tgt, bar_index, fz3Col, fz3LnTr,
-                 fz3Fill, fz3Tr, fz3Lbl, fz3Tag)
-        if fz4On
-            f_fzDraw(d > 0 ? pz20d : pz20u, tgt, bar_index, fz4Col, fz4LnTr,
-                 fz4Fill, fz4Tr, fz4Lbl, fz4Tag)
-        fzLines := array.size(fzL) - n0
-        fzBoxes := array.size(fzB) - b0
-    // stretch the current lane's drawings to the right as the day fills in
-    if inLane and fzLines > 0
-        int stop = fzExt == "Entry or lane end" and tOpen and not tOpen[1]
-             ? bar_index : bar_index + (fzExt == "Right edge" ? 20 : 1)
-        for i = array.size(fzL) - fzLines to array.size(fzL) - 1
-            line.set_x2(array.get(fzL, i), stop)
-        for i = array.size(fzB) - fzBoxes to array.size(fzB) - 1
-            box.set_right(array.get(fzB, i), stop)
+// Build one zone, dormant, as a single box.
+f_zNew(float A_, float T_, int sd, int x1, int x2) =>
+    Zone z = Zone.new(A_, T_, sd, 0, na, na, na, na, na, na, na, laneDay, false)
+    float e = f_lv(A_, T_, fzEntry)
+    float d = f_lv(A_, T_, 0.79)
+    float u = f_lv(A_, T_, 0.62)
+    z.bx := box.new(x1, math.max(u, d), x2, math.min(u, d),
+         border_color = color.new(color.black, 100),
+         bgcolor = f_theme(fzDorm), xloc = xloc.bar_index)
+    array.push(ZS, z)
+    z
+
+f_zLevels(Zone z, int x1, int x2) =>
+    color c = f_theme(fzLine)
+    z.l1 := line.new(x1, f_lv(z.A, z.T, 0.62), x2, f_lv(z.A, z.T, 0.62),
+         xloc = xloc.bar_index, color = c, style = line.style_dotted)
+    z.l2 := line.new(x1, f_lv(z.A, z.T, 0.70), x2, f_lv(z.A, z.T, 0.70),
+         xloc = xloc.bar_index, color = c, style = line.style_dotted)
+    z.l3 := line.new(x1, f_lv(z.A, z.T, 0.79), x2, f_lv(z.A, z.T, 0.79),
+         xloc = xloc.bar_index, color = c, style = line.style_dotted)
+    if fzShowN
+        z.tag := label.new(x1, f_lv(z.A, z.T, 0.70), "0.62\n0.70\n0.79",
+             style = label.style_label_right, color = color.new(color.black, 100),
+             textcolor = c, size = f_size(fzTxt), xloc = xloc.bar_index)
+
+f_zRecolour(Zone z) =>
+    if z.st == 0 or z.st == 4
+        box.set_bgcolor(z.bx, f_theme(fzDorm))
+        box.set_border_color(z.bx, color.new(color.black, 100))
+    else if z.st == 1
+        box.set_bgcolor(z.bx, f_theme(fzLive))
+        box.set_border_color(z.bx, f_theme(fzEdge))
+    else
+        color g = f_theme(fzWin)
+        box.set_bgcolor(z.bx, color.new(g, 84))
+        box.set_border_color(z.bx, color.new(g, 40))
+        if not na(z.l1)
+            line.set_color(z.l1, color.new(g, 30))
+            line.set_color(z.l2, color.new(g, 30))
+            line.set_color(z.l3, color.new(g, 30))
+        if not na(z.tag)
+            label.set_textcolor(z.tag, color.new(g, 20))
+
+// The per-bar driver: create the day's zones once, then walk each one through
+// its states. Nothing repaints - every transition is decided on a closed bar.
+var int fzX1 = na
+
+f_zSpawn(float A_, int sd) =>
+    if not na(A_) and not na(R) and R > 0
+        float T_ = sd > 0 ? z20u : z20d
+        float sp = T_ - A_
+        if (sd > 0 and sp > 0) or (sd < 0 and sp < 0)
+            f_zNew(A_, T_, sd, bar_index, bar_index + 1)
+
+if fzOn and intraday and laneOpen and not na(z20u)
+    fzX1 := bar_index
+    int only = side != 0 ? side : 1
+    for k = 0 to (fzBoth ? 1 : 0)
+        int sd = fzBoth ? (k == 0 ? 1 : -1) : only
+        if fzA1
+            f_zSpawn(sd > 0 ? z20d : z20u, sd)
+        if fzA2
+            f_zSpawn(sd > 0 ? asiaLo : asiaHi, sd)
+        if fzA3
+            f_zSpawn(sd > 0 ? dayPvLo : dayPvHi, sd)
+        if fzA4
+            f_zSpawn(sd > 0 ? pz20d : pz20u, sd)
+
+if fzOn and intraday and array.size(ZS) > 0
+    for i = 0 to array.size(ZS) - 1
+        Zone z = array.get(ZS, i)
+        if z.dead or z.lane != laneDay
+            continue
+        // stretch today's boxes to the configured end of the block
+        int x2 = bar_index + 1
+        box.set_right(z.bx, x2)
+        if not na(z.l1)
+            line.set_x2(z.l1, x2)
+            line.set_x2(z.l2, x2)
+            line.set_x2(z.l3, x2)
+        if not na(z.ls)
+            line.set_x2(z.ls, x2)
+        float hi = math.max(f_lv(z.A, z.T, 0.62), f_lv(z.A, z.T, 0.79))
+        float lo = math.min(f_lv(z.A, z.T, 0.62), f_lv(z.A, z.T, 0.79))
+        float ent  = f_lv(z.A, z.T, fzEntry)
+        float stp  = f_lv(z.A, z.T, fzStopF)
+        bool inBox = low <= hi and high >= lo
+        // --- dormant -> live -------------------------------------------
+        if z.st == 0 and inBox
+            z.st := 1
+            f_zLevels(z, fzX1, x2)
+            f_zRecolour(z)
+        // --- live: either it closes through, or it leaves the way it came
+        else if z.st == 1
+            bool through = z.side > 0 ? close < lo : close > hi
+            bool backOut = z.side > 0 ? low > hi : high < lo
+            if through
+                z.st := 4
+                f_zRecolour(z)
+                if not na(z.l1)
+                    line.delete(z.l1)
+                    line.delete(z.l2)
+                    line.delete(z.l3)
+                    z.l1 := na
+                if not na(z.tag)
+                    label.delete(z.tag)
+                    z.tag := na
+            else if backOut
+                z.st := 2
+                f_zRecolour(z)
+                z.ls := line.new(fzX1, stp, x2, stp, xloc = xloc.bar_index,
+                     color = f_theme(fzLoss), style = line.style_solid)
+        // --- armed: the target, or the stop --------------------------------
+        else if z.st == 2
+            bool hitT = z.side > 0 ? high >= z.T : low <= z.T
+            bool hitS = z.side > 0 ? low <= stp : high >= stp
+            if hitS
+                // a loss just sinks back into the chart - only winners are kept
+                z.st := 4
+                z.dead := true
+                f_zRecolour(z)
+                if not na(z.l1)
+                    line.delete(z.l1)
+                    line.delete(z.l2)
+                    line.delete(z.l3)
+                    z.l1 := na
+                if not na(z.tag)
+                    label.delete(z.tag)
+                    z.tag := na
+                if not na(z.ls)
+                    line.delete(z.ls)
+                    z.ls := na
+            else if hitT
+                z.st := 3
+                z.dead := true
+                f_zRecolour(z)
+                if acShow
+                    float risk = math.abs(ent - stp)
+                    float rr   = risk > 0 ? math.abs(z.T - ent) / risk : 0.0
+                    float cash = acBal * acRisk / 100.0 * rr
+                    float yv = acPlace == "Above the zone" ? z.T :
+                         acPlace == "Middle of the zone" ? (hi + lo) / 2 : (hi + lo) / 2
+                    z.res := label.new(acPlace == "Left of the box" ? fzX1 : x2, yv,
+                         "WIN  +" + str.tostring(rr, "#.##") + "R   +$"
+                         + str.tostring(cash, "#.##"),
+                         style = acPlace == "Left of the box" ? label.style_label_right
+                                                             : label.style_label_left,
+                         color = color.new(color.black, 100), textcolor = acWinC,
+                         size = f_size(acSize), xloc = xloc.bar_index)
 
 //=============================================================================
 // CONFIDENCE DASHBOARD
