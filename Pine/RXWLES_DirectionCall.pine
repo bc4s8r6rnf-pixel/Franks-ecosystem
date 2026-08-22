@@ -2,38 +2,44 @@
 
 //@version=6
 // ============================================================================
-// XAU //PRO 79 JECT  v4.0.2
+// XAU //PRO 79 JECT  v5.0
 //
-// Rebuilt around one engine. Everything up to v3.6 carried the original VWAP
-// trade engine alongside the fib zones - two systems drawing at once, which is
-// where the stray TP/SL tags, the second set of entry markers and the target
-// sitting on 2.45 instead of 2.0 were all coming from. The old engine is gone.
+// THE RULES, in the order they happen.
 //
-// What is left is a single idea, drawn once per day and locked to that day:
+//  1  The 21:00 NY candle sets the range R. Two projection zones are drawn as
+//     boxes for the day: 2.0 to 2.5 above, 2.0 to 2.5 below. That is the map.
 //
-//   ANCHOR   the 1 sits on a fixed reference - today's opposing 2.0 edge, the
-//            Asia extreme, yesterday's last swing, or yesterday's 2.0 edge
-//   TARGET   the -0.27 sits on the projection edge in that direction
-//   ENTRY    a fib level between them, 0.62 / 0.70 / 0.79
-//   STOP     0.88 / 0.95 / the 1 anchor
+//  2  At the read hour the direction call names a side. In Direction mode only
+//     that side can trade. In Optimal mode both sides are live and the day
+//     keeps whichever one reaches target.
 //
-//   price(f) = A + (1 - f) / 1.27 x (T - A)
+//  3  Fibs, drawn as levels only - no boxes:
+//        zone to zone      1 on one 2.0 edge, -0.27 on the opposing 2.0 edge.
+//                          Both directions, always.
+//        previous swing    1 on yesterday's last confirmed pivot. That pivot is
+//                          either a high or a low, so this fib exists in ONE
+//                          direction only. It is not drawn for the other.
+//     The -0.27 is always the opposing 2.0 edge, so the target is the same
+//     price for every fib on a side.
+//
+//  4  Entry, between 08:00 and 09:30 NY and at no other time:
+//        price must trade into the 0.62 - 0.79 band, and then a ONE MINUTE
+//        candle must CLOSE back outside it on the target side. That close is
+//        the entry. Nothing before 08:00 counts, nothing after 09:30 counts.
+//
+//  5  Stop is the 0.95 level. Target is the -0.27, i.e. the opposing 2.0 edge.
+//
+//  6  If a fib is entered and stopped, that fib is finished. Price may then
+//     reach a deeper fib on the same side; if that one is respected the same
+//     way, it is entered on the same rules. Every fib on the called side gets
+//     its turn.
+//
+//  7  The target line runs on until the target is met, then freezes there.
+//     A stop ends it instead.
 //
 // Measured over 3,482-3,673 trades, 2004-2026, anchored to yesterday's swing:
-//
-//   entry   0.62  PF 1.15      stop  0.88  PF 1.16      target  2.0  PF 1.14
-//           0.70  PF 1.14            0.95  PF 1.14              2.5  PF 1.10
-//           0.79  PF 1.14            1.00  PF 1.05
-//
-// 0.95 wins on both samples: 0.88 halves the win rate, the 1 anchor doubles
-// drawdown. The direction call itself is 72.5% on 2,597 undecided sessions.
-//
-// A zone's life, and its look follows it:
-//   DORMANT  a muted fill and a faint border
-//   LIVE     price inside - lighter fill, the three levels appear
-//   ARMED    price left the way it came - the stop and target lines appear
-//   WON      the target traded - the result prints inside the day
-//   SPENT    price closed through - finished, and it cannot re-arm
+// entry 0.62 PF 1.15, 0.70 PF 1.14, 0.79 PF 1.14; stop 0.88 PF 1.16, 0.95 PF
+// 1.14, 1.00 PF 1.05. The direction call is 72.5% on 2,597 undecided sessions.
 // ============================================================================
 
 indicator("XAU //PRO 79 JECT", "XAU79", overlay = true,
@@ -47,127 +53,85 @@ const string TZ = "America/New_York"
 
 srcHour  = input.int(21, "Source candle hour (NY)", minval = 0, maxval = 23,
      group = "Method", tooltip = "Must match RXWLES PRO's Enigma Source Hour.")
-readHour = input.int(4, "Direction read hour (NY)", minval = 0, maxval = 23,
+readHour = input.int(4,  "Direction read hour (NY)", minval = 0, maxval = 23,
      group = "Method")
-endHour  = input.int(17, "Day block ends (NY hour)", minval = 1, maxval = 24,
-     group = "Method",
-     tooltip = "Everything for a day is locked between midnight and this hour. " +
-               "Nothing runs into the next day, including results.")
+winFrom  = input.session("0800-0930", "Entry window (NY)", group = "Method",
+     tooltip = "Price may only enter a fib inside this window. The one-minute " +
+               "close that confirms the entry must also fall inside it.")
+endHour  = input.int(17, "Day ends (NY hour)", minval = 1, maxval = 24,
+     group = "Method")
 
-trMode  = input.string("Optimal", "Mode", group = "Trade",
-     options = ["Direction engine", "Optimal"],
-     tooltip = "Direction engine trades only the side the read-hour call names. " +
-               "Optimal lets either side arm and keeps whichever target trades " +
-               "first. Optimal reads better than it trades - it settles the side " +
-               "after the fact, which you cannot do live.")
-trEntry = input.string("0.62", "Entry fib", options = ["0.62", "0.70", "0.79"],
-     group = "Trade", tooltip = "MT5 PF: 0.62 1.15, 0.70 1.14, 0.79 1.14.")
-trStop  = input.string("0.95", "Stop fib", options = ["0.88", "0.95", "1.00"],
-     group = "Trade", tooltip = "MT5 PF: 0.88 1.16, 0.95 1.14, 1.00 1.05. " +
-               "0.88 halves the win rate, the 1 anchor doubles drawdown.")
-trTgt   = input.string("2.0", "Target edge", options = ["2.0", "2.5"],
-     group = "Trade", tooltip = "MT5 PF: 2.0 1.14, 2.5 1.10.")
-trBoth  = input.bool(true, "Draw both sides", group = "Trade")
+trMode   = input.string("Direction", "Mode", options = ["Direction", "Optimal"],
+     group = "Trade",
+     tooltip = "Identical rules. Direction trades only the called side. Optimal " +
+               "runs both sides and keeps whichever reaches target - which is a " +
+               "review tool, since it settles the side after the fact.")
+trEntry  = input.string("0.79", "Entry fib", options = ["0.62", "0.70", "0.79"],
+     group = "Trade")
+trStop   = input.string("0.95", "Stop fib", options = ["0.88", "0.95", "1.00"],
+     group = "Trade")
 
-// Two anchors carry the method. Asia's extreme almost always lands on the same
-// swing as the previous day's last pivot, so it is off by default rather than
-// drawing the same fib twice; yesterday's 2.0 edge went 0 for 12 in the 2026
-// sample and is the only anchor negative over the full history.
-fzA1 = input.bool(true,  "Zone to zone",       inline = "fa", group = "Anchors")
-fzA3 = input.bool(true,  "Yesterday's swing",  inline = "fa", group = "Anchors")
-fzA2 = input.bool(false, "Asia",               inline = "fb", group = "Anchors",
-     tooltip = "Usually duplicates yesterday's swing.")
-fzA4 = input.bool(false, "Yesterday's zone",   inline = "fb", group = "Anchors",
-     tooltip = "0 for 12 in the 2026 sample; negative over the full history.")
-fzPiv   = input.int(5, "Swing strength", minval = 1, maxval = 30, group = "Anchors")
-fzSwSrc = input.string("Last swing before the day", "Which swing", group = "Anchors",
-     options = ["Last swing before the day", "Deepest swing of the previous day"])
-fzAsiaW = input.string("19:00 - 00:00", "Asia window (NY)", group = "Anchors",
-     options = ["19:00 - 00:00", "18:00 - 00:00", "20:00 - 02:00", "19:00 - 02:00"])
+useEma   = input.bool(false, "90 EMA filter", inline = "em", group = "Trade",
+     tooltip = "On: a long only fires with price above the EMA, a short only " +
+               "below it, tested at the moment of entry.")
+emaLen   = input.int(90, "", minval = 2, inline = "em", group = "Trade")
+emaCol   = input.color(color.new(#c8d4de, 45), "", inline = "em", group = "Trade")
+emaShow  = input.bool(true, "plot it", inline = "em", group = "Trade")
 
-fzTheme = input.string("Dark", "Theme", options = ["Dark", "Light grey", "White"],
-     group = "Look")
-fzDorm  = input.color(color.new(#8899a6, 90), "Dormant fill",  inline = "l1", group = "Look")
-fzDormB = input.color(color.new(#8899a6, 62), "border",        inline = "l1", group = "Look")
-fzLive  = input.color(color.new(#b8c6d1, 78), "Live fill",     inline = "l2", group = "Look")
-fzEdge  = input.color(color.new(#b8c6d1, 30), "border",        inline = "l2", group = "Look")
-fzWonF  = input.color(color.new(#4db6a0, 94), "Won fill",      inline = "l3", group = "Look")
-fzWonB  = input.color(color.new(#4db6a0, 45), "border",        inline = "l3", group = "Look")
-fzLine  = input.color(color.new(#c8d4de, 30), "Level lines",   inline = "l4", group = "Look")
-fzTgtC  = input.color(color.new(#8fb3a8, 25), "Target",        inline = "l4", group = "Look")
-fzStpC  = input.color(color.new(#c08a8a, 30), "Stop",          inline = "l4", group = "Look")
-fzTgtW  = input.int(1, "Target / stop width", minval = 1, maxval = 3, group = "Look")
-fzTxt   = input.string("Tiny", "Level text", options = ["Tiny", "Small", "Normal"],
-     group = "Look")
-fzShowN = input.bool(true, "Level numbers when live", group = "Look")
+fzZ2Z    = input.bool(true, "Zone to zone fib",    inline = "fa", group = "Fibs")
+fzSw     = input.bool(true, "Previous swing fib",  inline = "fa", group = "Fibs")
+fzPiv    = input.int(5, "Swing strength", minval = 1, maxval = 30, group = "Fibs")
+fzNums   = input.bool(true, "Retracement numbers", inline = "fn", group = "Fibs")
+fzTxt    = input.string("Tiny", "", options = ["Tiny", "Small", "Normal"],
+     inline = "fn", group = "Fibs")
+fzLnZ    = input.color(color.new(#8fa6b8, 40), "Zone-to-zone",  inline = "fc", group = "Fibs")
+fzLnS    = input.color(color.new(#b8a68f, 40), "Prev swing",    inline = "fc", group = "Fibs")
+fzOte    = input.color(color.new(#c8d4de, 78), "OTE band tint", group = "Fibs")
+fzStpC   = input.color(color.new(#c96a6a, 25), "Stop",   inline = "fs", group = "Fibs")
+fzTgtC   = input.color(color.new(#4db6a0, 25), "Target", inline = "fs", group = "Fibs")
+fzW      = input.int(1, "width", minval = 1, maxval = 3, inline = "fs", group = "Fibs")
 
-eeShow  = input.bool(true, "End-to-end box", inline = "e1", group = "End to end")
-eeFill  = input.color(color.new(#8899a6, 94), "fill",   inline = "e1", group = "End to end")
-eeBord  = input.color(color.new(#a8b8c4, 55), "border", inline = "e1", group = "End to end")
-eeEdge  = input.color(color.new(#b8c6d1, 25), "2.0 edges", inline = "e2", group = "End to end")
-eeEdgeW = input.int(2, "width", minval = 1, maxval = 4, inline = "e2", group = "End to end")
+pzShow   = input.bool(true, "Projection zones", inline = "pz", group = "Zones")
+pzUp     = input.color(color.new(#4db6a0, 88), "up",   inline = "pz", group = "Zones")
+pzDn     = input.color(color.new(#c96a6a, 88), "down", inline = "pz", group = "Zones")
+pzBord   = input.color(color.new(#a8b8c4, 55), "border", inline = "pz", group = "Zones")
+dvShow   = input.bool(true, "Midnight divider", inline = "dv", group = "Zones")
+dvCol    = input.color(color.new(#8899a6, 60), "", inline = "dv", group = "Zones")
 
-dvShow  = input.bool(true, "Midnight divider", inline = "dv", group = "Divider")
-dvCol   = input.color(color.new(#8899a6, 55), "", inline = "dv", group = "Divider")
-dvStyle = input.string("Dotted", "", options = ["Solid", "Dashed", "Dotted"],
-     inline = "dv", group = "Divider")
-dvW     = input.int(1, "width", minval = 1, maxval = 3, inline = "dv", group = "Divider")
+dShow    = input.bool(true, "Direction marker", inline = "d1", group = "Markers")
+dUpCol   = input.color(color.new(#4db6a0, 25), "up",   inline = "d1", group = "Markers")
+dDnCol   = input.color(color.new(#c96a6a, 25), "down", inline = "d1", group = "Markers")
+dConf    = input.bool(true, "confidence %", inline = "d2", group = "Markers")
+mkSize   = input.string("Tiny", "size", options = ["Tiny", "Small", "Normal"],
+     inline = "d2", group = "Markers")
 
-dShow   = input.bool(true, "Direction marker", inline = "d1", group = "Marker")
-dUpCol  = input.color(color.new(#4db6a0, 35), "up",   inline = "d1", group = "Marker")
-dDnCol  = input.color(color.new(#c96a6a, 35), "down", inline = "d1", group = "Marker")
-dSize   = input.string("Tiny", "size", inline = "d2", group = "Marker",
-     options = ["Tiny", "Small", "Normal"])
-dConf   = input.bool(true, "confidence %", inline = "d2", group = "Marker")
-dConfC  = input.color(color.new(#8899a6, 35), "", inline = "d2", group = "Marker")
-dOff    = input.float(0.25, "Offset (R)", step = 0.05, minval = 0.0, group = "Marker")
-
-acBal   = input.float(500.0, "Account balance ($)", minval = 1, group = "Risk")
-acRisk  = input.float(0.5, "Risk per trade (%)", minval = 0.01, step = 0.05, group = "Risk")
-acFrom  = input.time(timestamp("2026-01-01 00:00 -0500"), "Track from", group = "Risk")
-acShow  = input.bool(true, "Print results on the chart", group = "Risk")
-mkShow  = input.bool(true, "Entry and exit markers", group = "Risk",
-     tooltip = "Entry marks the bar the zone arms - price rejected back out of " +
-               "the band. Exit marks the bar the target or the stop trades.")
-mkSize  = input.string("Tiny", "marker size", options = ["Tiny", "Small", "Normal"],
+acBal    = input.float(100000.0, "Account balance ($)", minval = 1, group = "Risk")
+acRisk   = input.float(1.0, "Risk per trade (%)", minval = 0.01, step = 0.05,
      group = "Risk")
-acSize  = input.string("Tiny", "Result text", options = ["Tiny", "Small", "Normal"],
-     group = "Risk")
-acWinC  = input.color(#4db6a0, "win", inline = "ac", group = "Risk")
-acLosC  = input.color(#c96a6a, "loss", inline = "ac", group = "Risk")
+acFrom   = input.time(timestamp("2026-01-01 00:00 -0500"), "Track from", group = "Risk")
+acShow   = input.bool(true, "Print results", group = "Risk")
+acWinC   = input.color(#4db6a0, "win",  inline = "ac", group = "Risk")
+acLosC   = input.color(#c96a6a, "loss", inline = "ac", group = "Risk")
 
-pnShow  = input.bool(true, "Show panel", group = "Panel")
-pnPos   = input.string("Top right", "Position", group = "Panel",
-     options = ["Top right", "Top left", "Bottom right", "Bottom left", "Middle right"])
-pnSize  = input.string("Tiny", "Text", options = ["Tiny", "Small", "Normal"],
+pnShow   = input.bool(true, "Show panel", group = "Panel")
+pnPos    = input.string("Top right", "Position", group = "Panel",
+     options = ["Top right", "Top left", "Bottom right", "Bottom left"])
+pnSize   = input.string("Tiny", "Text", options = ["Tiny", "Small", "Normal"],
      group = "Panel")
 
 //=============================================================================
 // HELPERS
 //=============================================================================
 
-f_size(string s) =>
-    s == "Tiny" ? size.tiny : s == "Normal" ? size.normal : s == "Large" ? size.large :
-     s == "Huge" ? size.huge : size.small
-
-f_style(string s) =>
-    s == "Dashed" ? line.style_dashed : s == "Dotted" ? line.style_dotted : line.style_solid
-
-f_theme(color c) =>
-    fzTheme == "Dark" ? c :
-     color.new(fzTheme == "Light grey" ? #4a5a66 : #2b3740, color.t(c))
-
+f_size(string s) => s == "Tiny" ? size.tiny : s == "Normal" ? size.normal : size.small
 f_lv(float a_, float t_, float f) => a_ + (1.0 - f) / 1.27 * (t_ - a_)
-
-f_midnight(int t) =>
-    timestamp(TZ, year(t, TZ), month(t, TZ), dayofmonth(t, TZ), 0, 0, 0)
+f_mid(int t) => timestamp(TZ, year(t, TZ), month(t, TZ), dayofmonth(t, TZ), 0, 0, 0)
 
 float trEntF = str.tonumber(trEntry)
 float trStpF = str.tonumber(trStop)
-float trTgtM = str.tonumber(trTgt)
 
 //=============================================================================
-// SOURCE CANDLE, LANE, AND THE REFERENCES THE ANCHORS COME FROM
+// SOURCE CANDLE, LANE, ANCHORS
 //=============================================================================
 
 bool intraday = not timeframe.isdwm
@@ -178,7 +142,7 @@ var int   srcDay  = na
 if intraday and hour(time[1], TZ) == srcHour
     srcHigh := na(srcHigh) or hour(time[2], TZ) != srcHour ? high[1] : math.max(srcHigh, high[1])
     srcLow  := na(srcLow)  or hour(time[2], TZ) != srcHour ? low[1]  : math.min(srcLow,  low[1])
-    srcDay  := f_midnight(f_midnight(time[1]) + 26 * 3600000)
+    srcDay  := f_mid(f_mid(time[1]) + 26 * 3600000)
 
 var int   laneDay = na
 var float boxHi   = na
@@ -186,98 +150,64 @@ var float boxLo   = na
 var float R       = na
 var float z20u    = na
 var float z20d    = na
-var float pz20u   = na
-var float pz20d   = na
+var float z25u    = na
+var float z25d    = na
 var int   side    = 0
 var bool  called  = false
+var float cfRaw   = na
+var float cfHit   = na
 
-// running record, from the account start date
-var int   stW     = 0
-var int   stL     = 0
-var float stRw    = 0.0
-var float stRl    = 0.0
+var int   stW = 0
+var int   stL = 0
+var float stRw = 0.0
+var float stRl = 0.0
 var int   stCallW = 0
 var int   stCallN = 0
-var int   lastLoss = 0
 
 bool newSrc = intraday and not na(srcDay) and not na(srcHigh)
      and (na(laneDay) or srcDay != laneDay)
-
 if newSrc and (srcHigh - srcLow) > 0
-    // This block runs at 22:00, an hour before the lane opens, so yesterday's
-    // 2.0 pair is banked here before the new one overwrites it.
-    pz20u   := z20u
-    pz20d   := z20d
     laneDay := srcDay
     boxHi   := srcHigh
     boxLo   := srcLow
     R       := srcHigh - srcLow
     z20u    := srcHigh + 2.0 * R
     z20d    := srcLow  - 2.0 * R
+    z25u    := srcHigh + 2.5 * R
+    z25d    := srcLow  - 2.5 * R
     called  := false
     side    := 0
 
 bool laneOpen = intraday and not na(laneDay) and time >= laneDay and time[1] < laneDay
 bool inLane   = intraday and not na(laneDay) and time >= laneDay
      and time < laneDay + 86400000
-bool inBlock  = inLane and hour(time, TZ) < endHour
+bool inDay    = inLane and hour(time, TZ) < endHour
+bool inWin    = intraday and not na(time(timeframe.period, winFrom, TZ))
 
-var float laneHi  = na
-var float laneLo  = na
-var float pvHi    = na
-var float pvLo    = na
-var float dayPvHi = na
-var float dayPvLo = na
-var float asHi    = na
-var float asLo    = na
-var float asiaHi  = na
-var float asiaLo  = na
-
-// Asia accumulates while its window is open and freezes on the bar it closes,
-// which handles both the windows that end at midnight and those that run past.
-int asH = hour(time, TZ)
-bool inAsia = fzAsiaW == "18:00 - 00:00" ? (asH >= 18) :
-     fzAsiaW == "20:00 - 02:00"          ? (asH >= 20 or asH < 2) :
-     fzAsiaW == "19:00 - 02:00"          ? (asH >= 19 or asH < 2) : (asH >= 19)
-if intraday
-    if inAsia and not inAsia[1]
-        asHi := high
-        asLo := low
-    else if inAsia
-        asHi := math.max(nz(asHi, high), high)
-        asLo := math.min(nz(asLo, low),  low)
-    else if inAsia[1]
-        asiaHi := asHi
-        asiaLo := asLo
-
-// Pivots confirm fzPiv bars after the fact, so what is read is already settled.
+// the previous day's last confirmed pivot - a high or a low, never both
+var float pvHi = na
+var float pvLo = na
+var bool  pvLowLast = false
+var float dayPv = na
+var bool  dayPvIsLow = false
 float _ph = ta.pivothigh(high, fzPiv, fzPiv)
 float _pl = ta.pivotlow(low,  fzPiv, fzPiv)
 if not na(_ph)
     pvHi := _ph
+    pvLowLast := false
 if not na(_pl)
     pvLo := _pl
-
+    pvLowLast := true
 if laneOpen
-    dayPvHi := fzSwSrc == "Deepest swing of the previous day" ? laneHi : pvHi
-    dayPvLo := fzSwSrc == "Deepest swing of the previous day" ? laneLo : pvLo
-    laneHi  := high
-    laneLo  := low
-else if inLane
-    laneHi := na(laneHi) ? high : math.max(laneHi, high)
-    laneLo := na(laneLo) ? low  : math.min(laneLo, low)
+    dayPv      := pvLowLast ? pvLo : pvHi
+    dayPvIsLow := pvLowLast
+
+float ema90 = ta.ema(close, emaLen)
+plot(emaShow and useEma ? ema90 : na, "90 EMA", color = emaCol, linewidth = 1)
 
 //=============================================================================
-// THE CALL, AND THE CONFIDENCE THAT GOES WITH IT
-//
-// The score is how lopsided the call is - where the reading price sits between
-// the two 2.0 edges, as a distance from dead centre. Measured on 4,449 sessions,
-// 2004-2026: 57.7% at the midpoint rising to 94.9% at the extreme.
+// THE CALL
 //=============================================================================
-
-var float cfRaw  = na
-var float cfHit  = na
-var int   cfTier = 0
 
 f_cfHit(float raw) =>
     raw < 0.05 ? 57.7 : raw < 0.10 ? 64.0 : raw < 0.15 ? 68.2 :
@@ -286,14 +216,12 @@ f_cfHit(float raw) =>
 if inLane and not called and not na(R) and R > 0 and hour(time, TZ) >= readHour
     called := true
     float pz = (open - z20d) / (z20u - z20d)
-    cfRaw  := math.abs(pz - 0.5)
-    cfHit  := f_cfHit(cfRaw)
-    cfTier := cfRaw < 0.10 ? 1 : cfRaw < 0.20 ? 2 : cfRaw < 0.30 ? 3 : 4
-    side   := pz > 0.5 ? 1 : -1
+    cfRaw := math.abs(pz - 0.5)
+    cfHit := f_cfHit(cfRaw)
+    side  := pz > 0.5 ? 1 : -1
 
 bool justCalled = inLane and called and not called[1]
 
-// the call's own record, settled the moment either 2.0 edge trades
 var int  clSide = 0
 var bool clOpen = false
 if justCalled and side != 0 and time >= acFrom
@@ -308,328 +236,248 @@ if clOpen and not na(z20u)
         clOpen  := false
 
 if dShow and justCalled and side != 0 and not na(R)
-    label.new(bar_index, side > 0 ? low - dOff * R : high + dOff * R, "",
-         style = side > 0 ? label.style_triangleup : label.style_triangledown,
-         color = side > 0 ? dUpCol : dDnCol, size = f_size(dSize), yloc = yloc.price)
-    if dConf and not na(cfHit)
-        label.new(bar_index, side > 0 ? low - (dOff + 0.30) * R
-                                      : high + (dOff + 0.30) * R,
-             str.tostring(cfHit, "#") + "%", style = label.style_none,
-             color = color.new(color.black, 100), textcolor = dConfC,
-             size = f_size(dSize), yloc = yloc.price)
+    label.new(bar_index, side > 0 ? low - 0.25 * R : high + 0.25 * R,
+         dConf and not na(cfHit) ? str.tostring(cfHit, "#") + "%" : "",
+         style = side > 0 ? label.style_label_up : label.style_label_down,
+         color = color.new(side > 0 ? dUpCol : dDnCol, 55),
+         textcolor = side > 0 ? dUpCol : dDnCol,
+         size = f_size(mkSize), yloc = yloc.price)
 
 //=============================================================================
-// THE ZONES
+// THE DAY'S FRAME
+//=============================================================================
+
+var box pzB1 = na
+var box pzB2 = na
+if intraday and laneOpen and not na(z20u)
+    if pzShow
+        pzB1 := box.new(time, z25u, time, z20u, xloc = xloc.bar_time,
+             border_color = pzBord, bgcolor = pzUp)
+        pzB2 := box.new(time, z20d, time, z25d, xloc = xloc.bar_time,
+             border_color = pzBord, bgcolor = pzDn)
+    if dvShow
+        line.new(time, z25u, time, z25d, xloc = xloc.bar_time, extend = extend.both,
+             color = dvCol, style = line.style_dotted)
+if intraday and inDay and not na(pzB1)
+    box.set_right(pzB1, time)
+    box.set_right(pzB2, time)
+
+//=============================================================================
+// THE FIBS
 //
-// Each zone owns its own left and right edge, fixed to the day it belongs to.
-// Nothing a zone draws - lines, levels, results - ever leaves that day's block,
-// however long the trade itself takes to resolve.
+// Levels only, no boxes. State:
+//   0  waiting        price has not been in the band during the window
+//   1  in the band    waiting for a one-minute close back outside it
+//   2  entered        stop and target live
+//   3  won
+//   4  finished       stopped, or the day ended, or the call went the other way
 //=============================================================================
 
-type Zone
+type Fib
     float A
     float T
     int   side
-    int   st        // 0 dormant  1 live  2 armed  3 won  4 spent
-    box   bx
-    line  l1
-    line  l2
-    line  l3
-    line  ls
-    line  lt
+    bool  isSwing
+    int   st
+    float ent
+    line  l62
+    line  l70
+    line  l79
+    line  lst
+    line  ltg
     label tag
     label res
     int   lane
-    int   t1        // lane open, as a timestamp - see the note below
-    int   t2
-    bool  seenT     // price has traded on the target side of the box
+    int   t1
     bool  dead
 
-var array<Zone> ZS = array.new<Zone>()
+var array<Fib> FS = array.new<Fib>()
 
-f_zNew(float A_, float T_, int sd, int t1) =>
-    // Named arguments: positional was one na short of the sixteen fields, which
-    // silently shifted laneDay onto res. Everything unnamed defaults to na.
-    Zone z = Zone.new(A = A_, T = T_, side = sd, st = 0, lane = laneDay,
-         t1 = t1, t2 = t1, seenT = false, dead = false)
-    float u = f_lv(A_, T_, 0.62)
-    float d = f_lv(A_, T_, 0.79)
-    z.bx := box.new(t1, math.max(u, d), t1, math.min(u, d),
-         border_color = f_theme(fzDormB), bgcolor = f_theme(fzDorm),
-         xloc = xloc.bar_time)
-    // Target and stop exist from the moment the zone does, dim until it arms,
-    // so both sides of the day are readable before anything triggers.
-    z.lt := line.new(t1, T_, t1, T_, xloc = xloc.bar_time,
-         color = color.new(fzTgtC, 55), width = fzTgtW)
-    z.ls := line.new(t1, f_lv(A_, T_, trStpF), t1, f_lv(A_, T_, trStpF),
-         xloc = xloc.bar_time, color = color.new(fzStpC, 60), style = line.style_dotted)
-    array.push(ZS, z)
-    z
+f_fLine(int t1, float y, color c, int w, string sty) =>
+    line.new(t1, y, t1, y, xloc = xloc.bar_time, color = c, width = w,
+         style = sty == "dot" ? line.style_dotted : line.style_solid)
 
-f_zLevels(Zone z) =>
-    color c = f_theme(fzLine)
-    z.l1 := line.new(z.t1, f_lv(z.A, z.T, 0.62), z.t2, f_lv(z.A, z.T, 0.62),
-         xloc = xloc.bar_time, color = c, style = line.style_dotted)
-    z.l2 := line.new(z.t1, f_lv(z.A, z.T, 0.70), z.t2, f_lv(z.A, z.T, 0.70),
-         xloc = xloc.bar_time, color = c, style = line.style_dotted)
-    z.l3 := line.new(z.t1, f_lv(z.A, z.T, 0.79), z.t2, f_lv(z.A, z.T, 0.79),
-         xloc = xloc.bar_time, color = c, style = line.style_dotted)
-    if fzShowN
-        z.tag := label.new(z.t1, f_lv(z.A, z.T, 0.70), "0.62\n0.70\n0.79",
+f_fNew(float A_, float T_, int sd, bool sw, int t1) =>
+    Fib f = Fib.new(A = A_, T = T_, side = sd, isSwing = sw, st = 0,
+         ent = f_lv(A_, T_, trEntF), lane = laneDay, t1 = t1, dead = false)
+    color c = sw ? fzLnS : fzLnZ
+    f.l62 := f_fLine(t1, f_lv(A_, T_, 0.62), c, fzW, "dot")
+    f.l70 := f_fLine(t1, f_lv(A_, T_, 0.70), c, fzW, "dot")
+    f.l79 := f_fLine(t1, f_lv(A_, T_, 0.79), c, fzW, "dot")
+    f.lst := f_fLine(t1, f_lv(A_, T_, trStpF), fzStpC, fzW, "dot")
+    f.ltg := f_fLine(t1, T_, fzTgtC, fzW, "sol")
+    if fzNums
+        f.tag := label.new(t1, f_lv(A_, T_, 0.70),
+             (sw ? "swing" : "zone") + "\n0.62\n0.70\n0.79\n" + trStop + " stop",
              style = label.style_label_right, color = color.new(color.black, 100),
              textcolor = c, size = f_size(fzTxt), xloc = xloc.bar_time)
+    array.push(FS, f)
+    f
 
-f_zRecolour(Zone z) =>
-    if z.st == 0 or z.st == 4
-        box.set_bgcolor(z.bx, f_theme(fzDorm))
-        box.set_border_color(z.bx, f_theme(fzDormB))
-    else if z.st == 1
-        box.set_bgcolor(z.bx, f_theme(fzLive))
-        box.set_border_color(z.bx, f_theme(fzEdge))
-    else
-        // A won zone is a hue, not a highlight. The levels stay grey.
-        box.set_bgcolor(z.bx, f_theme(fzWonF))
-        box.set_border_color(z.bx, f_theme(fzWonB))
+f_fStretch(Fib f, int t2) =>
+    line.set_x2(f.l62, t2)
+    line.set_x2(f.l70, t2)
+    line.set_x2(f.l79, t2)
+    line.set_x2(f.lst, t2)
+    line.set_x2(f.ltg, t2)
 
-f_zStrip(Zone z) =>
-    if not na(z.l1)
-        line.delete(z.l1)
-        line.delete(z.l2)
-        line.delete(z.l3)
-        z.l1 := na
-    if not na(z.tag)
-        label.delete(z.tag)
-        z.tag := na
-    if not na(z.ls)
-        line.delete(z.ls)
-        z.ls := na
-    if not na(z.lt)
-        line.delete(z.lt)
-        z.lt := na
+f_fKill(Fib f) =>
+    line.delete(f.l62)
+    line.delete(f.l70)
+    line.delete(f.l79)
+    line.delete(f.lst)
+    if not na(f.tag)
+        label.delete(f.tag)
+        f.tag := na
 
-// Once the day's trade is settled, every other zone on that lane stops.
-f_zSole(int lane, int keep) =>
-    for jj = 0 to array.size(ZS) - 1
-        Zone o = array.get(ZS, jj)
-        if o.lane == lane and jj != keep and o.st != 3 and not o.dead
+// Build the day's fibs. Zone to zone runs both ways. The swing fib exists only
+// in the direction its pivot supports - a pivot low anchors a long, a pivot
+// high anchors a short - so on any given day it appears on one side only.
+if intraday and laneOpen and not na(z20u)
+    if fzZ2Z
+        f_fNew(z20d, z20u,  1, false, time)
+        f_fNew(z20u, z20d, -1, false, time)
+    if fzSw and not na(dayPv)
+        int sd = dayPvIsLow ? 1 : -1
+        float tg = sd > 0 ? z20u : z20d
+        if (sd > 0 and tg > dayPv) or (sd < 0 and tg < dayPv)
+            f_fNew(dayPv, tg, sd, true, time)
+
+// Yesterday's fibs go at the open. A fib that never entered is deleted; one
+// that traded stays as the day's record.
+if intraday and laneOpen and array.size(FS) > 0
+    for i = array.size(FS) - 1 to 0
+        Fib o = array.get(FS, i)
+        if o.lane != laneDay and o.st < 2
+            f_fKill(o)
+            line.delete(o.ltg)
+            array.remove(FS, i)
+        else if o.lane != laneDay and o.st == 2
             o.st   := 4
             o.dead := true
-            f_zStrip(o)
-            f_zRecolour(o)
-            if not na(o.res)
-                label.delete(o.res)
-                o.res := na
-
-f_zSpawn(float A_, int sd) =>
-    if not na(A_) and not na(R) and R > 0
-        float T_ = sd > 0 ? (boxHi + trTgtM * R) : (boxLo - trTgtM * R)
-        float z_ = sd > 0 ? z20u : z20d          // the fib is always built to 2.0
-        if (sd > 0 and z_ - A_ > 0) or (sd < 0 and z_ - A_ < 0)
-            f_zNew(A_, T_, sd, time)
-
-// End of a zone's day settles it. A zone price never touched is deleted
-// outright - box and all - and dropped from the array, so nothing untouched is
-// carried forward and the array cannot grow without bound. A zone that was
-// touched but never armed just stops; it stays muted as part of the day's map.
-// Iterating downwards so removing an element cannot disturb the indices still
-// to be visited.
-if intraday and laneOpen and array.size(ZS) > 0
-    for i = array.size(ZS) - 1 to 0
-        Zone o = array.get(ZS, i)
-        if o.lane != laneDay and o.st == 0
-            box.delete(o.bx)
-            f_zStrip(o)
-            array.remove(ZS, i)
-        else if not o.dead and o.lane != laneDay and o.st == 1
-            o.st   := 4
-            o.dead := true
-            f_zStrip(o)
-            f_zRecolour(o)
-
-if intraday and laneOpen and not na(z20u)
-    int only = 1
-    for k = 0 to (trBoth ? 1 : 0)
-        int sd = trBoth ? (k == 0 ? 1 : -1) : only
-        if fzA1
-            f_zSpawn(sd > 0 ? z20d : z20u, sd)
-        if fzA2
-            f_zSpawn(sd > 0 ? asiaLo : asiaHi, sd)
-        if fzA3
-            f_zSpawn(sd > 0 ? dayPvLo : dayPvHi, sd)
-        if fzA4
-            f_zSpawn(sd > 0 ? pz20d : pz20u, sd)
-
-// the midnight divider and the end-to-end frame, on the same bar the day starts
-var box  eeBx = na
-var line eeUp = na
-var line eeDn = na
-if intraday and laneOpen and not na(z20u)
-    if dvShow
-        line.new(time, z20u, time, z20d, xloc = xloc.bar_time,
-             extend = extend.both, color = dvCol, style = f_style(dvStyle),
-             width = dvW)
-    if eeShow
-        eeBx := box.new(time, z20u, time, z20d, border_color = eeBord,
-             bgcolor = eeFill, xloc = xloc.bar_time)
-        eeUp := line.new(time, z20u, time, z20u, xloc = xloc.bar_time,
-             color = eeEdge, width = eeEdgeW)
-        eeDn := line.new(time, z20d, time, z20d, xloc = xloc.bar_time,
-             color = eeEdge, width = eeEdgeW)
-
-if intraday and inBlock and not na(eeBx)
-    box.set_right(eeBx, time)
-    line.set_x2(eeUp, time)
-    line.set_x2(eeDn, time)
+            f_fKill(o)
 
 //=============================================================================
-// THE STATE MACHINE
+// THE ENTRY, AND WHAT HAPPENS AFTER IT
 //
-// A zone's drawings stop at the end of its own day block. The trade itself can
-// still resolve later - a target hit on the following morning still counts, and
-// its result still prints inside the day the setup came from.
+// The trigger is a ONE MINUTE close back outside the band, taken from the 1m
+// series rather than the chart's, so the rule means the same thing whatever
+// timeframe the chart is on.
 //=============================================================================
 
-if intraday and array.size(ZS) > 0
-    for i = 0 to array.size(ZS) - 1
-        Zone z = array.get(ZS, i)
-        // The frame is stretched BEFORE the dead check. Doing it after meant a
-        // zone that resolved at 06:00 stopped drawing there, which is why the
-        // boxes were cutting short whenever price reached them early.
-        if z.lane == laneDay and inBlock
-            z.t2 := time
-            box.set_right(z.bx, z.t2)
-            if not na(z.l1)
-                line.set_x2(z.l1, z.t2)
-                line.set_x2(z.l2, z.t2)
-                line.set_x2(z.l3, z.t2)
-            if not na(z.ls)
-                line.set_x2(z.ls, z.t2)
-            if not na(z.lt)
-                line.set_x2(z.lt, z.t2)
-        if z.dead
+array<float> m1c = request.security_lower_tf(syminfo.tickerid, "1", close)
+
+if intraday and array.size(FS) > 0
+    for i = 0 to array.size(FS) - 1
+        Fib f = array.get(FS, i)
+        if f.lane == laneDay and inDay
+            f_fStretch(f, time)
+        if f.dead
             continue
-        // Direction-engine mode: once the call is in, the other side stops. Both
-        // sides stay drawn so the map is complete; only the called side trades.
-        if trMode == "Direction engine" and z.lane == laneDay and called and side != 0
-             and z.side != side
-            z.st   := 4
-            z.dead := true
-            f_zStrip(z)
-            f_zRecolour(z)
+        // Direction mode: the other side never trades.
+        if trMode == "Direction" and called and side != 0 and f.side != side
+            f.st   := 4
+            f.dead := true
+            f_fKill(f)
+            line.delete(f.ltg)
             continue
-        float hi  = math.max(f_lv(z.A, z.T, 0.62), f_lv(z.A, z.T, 0.79))
-        float lo  = math.min(f_lv(z.A, z.T, 0.62), f_lv(z.A, z.T, 0.79))
-        float ent = f_lv(z.A, z.T, trEntF)
-        float stp = f_lv(z.A, z.T, trStpF)
-        float risk = math.abs(ent - stp)
-        float rr   = risk > 0 ? math.abs(z.T - ent) / risk : 0.0
-        bool touch = low <= hi and high >= lo
-        // A retracement is only a retracement if price arrived from the target
-        // side. Without this a zone price simply fell through counted as
-        // "left the way it came" and armed a trade in the wrong direction -
-        // which is how a winning day could print a loss.
-        if not z.seenT and (z.side > 0 ? high > hi : low < lo)
-            z.seenT := true
-        if z.st == 0 and touch and z.seenT
-            z.st := 1
-            f_zLevels(z)
-            f_zRecolour(z)
-        else if z.st == 1
-            bool through = z.side > 0 ? close < lo : close > hi
-            bool backOut = z.side > 0 ? low > hi : high < lo
-            if through
-                // Closed through: finished. Price returning later cannot re-arm
-                // it - only a zone that was respected can be entered.
-                z.st   := 4
-                z.dead := true
-                f_zStrip(z)
-                f_zRecolour(z)
-            else if backOut
-                z.st := 2
-                f_zRecolour(z)
-                // already drawn - they just come up to full strength
-                line.set_color(z.lt, fzTgtC)
-                line.set_width(z.lt, fzTgtW + 1)
-                line.set_color(z.ls, fzStpC)
-                line.set_style(z.ls, line.style_solid)
-                // this bar is the entry - price rejected back out of the band
-                if mkShow
-                    label.new(bar_index, ent,
-                         z.side > 0 ? "▲" : "▼", style = label.style_none,
-                         color = color.new(color.black, 100),
-                         textcolor = z.side > 0 ? acWinC : acLosC,
-                         size = f_size(mkSize), yloc = yloc.price)
-        else if z.st == 2
-            bool hitT  = z.side > 0 ? high >= z.T : low <= z.T
-            bool hitS  = z.side > 0 ? low <= stp : high >= stp
+        float hi62 = math.max(f_lv(f.A, f.T, 0.62), f_lv(f.A, f.T, 0.79))
+        float lo79 = math.min(f_lv(f.A, f.T, 0.62), f_lv(f.A, f.T, 0.79))
+        float stp  = f_lv(f.A, f.T, trStpF)
+        float risk = math.abs(f.ent - stp)
+        float rr   = risk > 0 ? math.abs(f.T - f.ent) / risk : 0.0
+
+        if f.st == 0 and inWin and low <= hi62 and high >= lo79
+            f.st := 1
+        else if f.st == 1
+            // a one-minute close back outside the band, on the target side
+            bool closedOut = false
+            if inWin and array.size(m1c) > 0
+                for k = 0 to array.size(m1c) - 1
+                    float c1 = array.get(m1c, k)
+                    if f.side > 0 ? c1 > hi62 : c1 < lo79
+                        closedOut := true
+                        break
+            bool emaOk = not useEma or (f.side > 0 ? close > ema90 : close < ema90)
+            if closedOut and emaOk
+                f.st := 2
+                line.set_color(f.lst, fzStpC)
+                line.set_style(f.lst, line.style_solid)
+                label.new(bar_index, f.ent, f.side > 0 ? "▲" : "▼",
+                     style = label.style_none, color = color.new(color.black, 100),
+                     textcolor = f.side > 0 ? acWinC : acLosC,
+                     size = f_size(mkSize), yloc = yloc.price)
+            else if not inWin and hour(time, TZ) >= 10
+                // the window closed without a confirming close - this fib is done
+                f.st   := 4
+                f.dead := true
+                f_fKill(f)
+                line.delete(f.ltg)
+        else if f.st == 2
+            bool hitT = f.side > 0 ? high >= f.T : low <= f.T
+            bool hitS = f.side > 0 ? low <= stp  : high >= stp
             bool count = time >= acFrom
+            // the target line runs on until one of them lands
+            line.set_x2(f.ltg, time)
             if hitS
-                // Both sides are taken by design, so one stopping is the side you
-                // would not have chosen. A lane books a loss only once every zone
-                // on it is gone with no target reached.
-                z.st   := 4
-                z.dead := true
-                if mkShow
-                    label.new(bar_index, stp, "✕", style = label.style_none,
+                f.st   := 4
+                f.dead := true
+                stL  += count ? 1 : 0
+                stRl += count ? 1.0 : 0.0
+                label.new(bar_index, stp, "✕", style = label.style_none,
+                     color = color.new(color.black, 100), textcolor = acLosC,
+                     size = f_size(mkSize), yloc = yloc.price)
+                if acShow
+                    f.res := label.new(f.t1, stp, "-1.00R  -$"
+                         + str.tostring(acBal * acRisk / 100.0, "#"),
+                         style = f.side > 0 ? label.style_label_upper_right
+                                            : label.style_label_lower_right,
                          color = color.new(color.black, 100), textcolor = acLosC,
-                         size = f_size(mkSize), yloc = yloc.price)
-                f_zStrip(z)
-                f_zRecolour(z)
-                bool anyAlive = false
-                bool anyWon   = false
-                for jj = 0 to array.size(ZS) - 1
-                    Zone o = array.get(ZS, jj)
-                    if o.lane == z.lane
-                        anyWon   := anyWon or o.st == 3
-                        anyAlive := anyAlive or not o.dead
-                if not anyAlive and not anyWon and count and lastLoss != z.lane
-                    lastLoss := z.lane
-                    stL  += 1
-                    stRl += 1.0
-                    if acShow
-                        z.res := label.new(z.t1, stp, "-1.00R  -$"
-                             + str.tostring(acBal * acRisk / 100.0, "#.##"),
-                             style = z.side > 0 ? label.style_label_upper_right
-                                                : label.style_label_lower_right,
-                             color = color.new(color.black, 100), textcolor = acLosC,
-                             size = f_size(acSize), xloc = xloc.bar_time)
+                         size = f_size(mkSize), xloc = xloc.bar_time)
+                f_fKill(f)
             else if hitT
+                f.st   := 3
+                f.dead := true
                 stW  += count ? 1 : 0
                 stRw += count ? rr : 0.0
-                z.st   := 3
-                z.dead := true
-                if mkShow
-                    label.new(bar_index, z.T, "●", style = label.style_none,
-                         color = color.new(color.black, 100), textcolor = acWinC,
-                         size = f_size(mkSize), yloc = yloc.price)
-                f_zRecolour(z)
-                f_zSole(z.lane, i)
+                label.new(bar_index, f.T, "●", style = label.style_none,
+                     color = color.new(color.black, 100), textcolor = acWinC,
+                     size = f_size(mkSize), yloc = yloc.price)
                 if acShow
-                    z.res := label.new(z.t1, z.T, "+" + str.tostring(rr, "#.##")
-                         + "R  +$" + str.tostring(acBal * acRisk / 100.0 * rr, "#.##"),
-                         style = z.side > 0 ? label.style_label_lower_right
+                    f.res := label.new(f.t1, f.T, "+" + str.tostring(rr, "#.##")
+                         + "R  +$" + str.tostring(acBal * acRisk / 100.0 * rr, "#"),
+                         style = f.side > 0 ? label.style_label_lower_right
                                             : label.style_label_upper_right,
                          color = color.new(color.black, 100), textcolor = acWinC,
-                         size = f_size(acSize), xloc = xloc.bar_time)
+                         size = f_size(mkSize), xloc = xloc.bar_time)
+                // Optimal keeps only the fib that won
+                if trMode == "Optimal"
+                    for jj = 0 to array.size(FS) - 1
+                        Fib o = array.get(FS, jj)
+                        if o.lane == f.lane and jj != i and o.st != 3
+                            o.st   := 4
+                            o.dead := true
+                            f_fKill(o)
+                            line.delete(o.ltg)
+                            if not na(o.res)
+                                label.delete(o.res)
+                                o.res := na
 
 //=============================================================================
 // PANEL
 //=============================================================================
 
-var table T = na
-
-// Pine wants functions at top level, so the cell helper takes the table and the
-// size rather than closing over them.
 f_cell(table t, int c, int r, string txt, color col, string sz) =>
     table.cell(t, c, r, txt, bgcolor = color.new(color.black, 100),
          text_color = col, text_size = sz,
          text_halign = c == 0 ? text.align_left : text.align_right)
 
+var table T = na
+
 if barstate.islast and pnShow and intraday
     string pos = pnPos == "Top left" ? position.top_left :
          pnPos == "Bottom right" ? position.bottom_right :
-         pnPos == "Bottom left" ? position.bottom_left :
-         pnPos == "Middle right" ? position.middle_right : position.top_right
+         pnPos == "Bottom left" ? position.bottom_left : position.top_right
     if not na(T)
         table.delete(T)
     T := table.new(pos, 2, 7, border_width = 0, frame_width = 0,
@@ -640,7 +488,6 @@ if barstate.islast and pnShow and intraday
     float pnl  = acBal * acRisk / 100.0 * totR
     color fg   = color.new(#c8d4de, 12)
     color dim  = color.new(#c8d4de, 52)
-
     f_cell(T, 0, 0, "W / L", dim, sz)
     f_cell(T, 1, 0, str.tostring(stW) + " / " + str.tostring(stL), fg, sz)
     f_cell(T, 0, 1, "win rate", dim, sz)
@@ -649,7 +496,7 @@ if barstate.islast and pnShow and intraday
     f_cell(T, 1, 2, (totR >= 0 ? "+" : "") + str.tostring(totR, "#.#"),
          totR >= 0 ? acWinC : acLosC, sz)
     f_cell(T, 0, 3, "P&L", dim, sz)
-    f_cell(T, 1, 3, (pnl >= 0 ? "+$" : "-$") + str.tostring(math.abs(pnl), "#.##"),
+    f_cell(T, 1, 3, (pnl >= 0 ? "+$" : "-$") + str.tostring(math.abs(pnl), "#"),
          pnl >= 0 ? acWinC : acLosC, sz)
     f_cell(T, 0, 4, "avg R", dim, sz)
     f_cell(T, 1, 4, n == 0 ? "-" : (totR / n >= 0 ? "+" : "")
@@ -666,7 +513,3 @@ if barstate.islast and pnShow and intraday
 
 alertcondition(justCalled and side ==  1, "Direction: UP",   "Direction call: UP")
 alertcondition(justCalled and side == -1, "Direction: DOWN", "Direction call: DOWN")
-alertcondition(justCalled and cfTier >= 3, "Confidence: strong",
-     "A strong call - the reading is in the top two tiers")
-alertcondition(justCalled and cfTier <= 1, "Confidence: weak",
-     "A weak call - close to a coin flip")
