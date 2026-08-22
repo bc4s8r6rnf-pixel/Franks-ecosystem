@@ -544,10 +544,10 @@ fzDorm  = input.color(color.new(#8899a6, 92), "Dormant fill",  inline = "p1", gr
 fzLive  = input.color(color.new(#b8c6d1, 82), "Live fill",     inline = "p1", group = "Fib look")
 fzEdge  = input.color(color.new(#b8c6d1, 55), "Live border",   inline = "p2", group = "Fib look")
 fzLine  = input.color(color.new(#c8d4de, 45), "Level lines",   inline = "p2", group = "Fib look")
-fzWin   = input.color(color.new(#4db6a0, 45), "Won border",    inline = "p3", group = "Fib look")
+fzWin   = input.color(color.new(#4db6a0, 72), "Won border",    inline = "p3", group = "Fib look")
 fzDormB = input.color(color.new(#8899a6, 78), "Dormant border", inline = "p3", group = "Fib look")
-fzWonF  = input.color(color.new(#4db6a0, 90), "Won fill",      inline = "p4", group = "Fib look")
-fzWonL  = input.color(color.new(#c8d4de, 40), "Won levels",    inline = "p4", group = "Fib look")
+fzWonF  = input.color(color.new(#4db6a0, 94), "Won fill",      inline = "p4", group = "Fib look")
+fzWonL  = input.color(color.new(#c8d4de, 45), "Won levels",    inline = "p4", group = "Fib look")
 fzTgtC  = input.color(color.new(#8fb3a8, 45), "Target line",   inline = "p5", group = "Fib look")
 fzStpC  = input.color(color.new(#c08a8a, 45), "Stop line",     inline = "p5", group = "Fib look")
 fzLnW   = input.int(1, "their width", minval = 1, maxval = 3, inline = "p5", group = "Fib look")
@@ -720,6 +720,7 @@ var float  stRw     = 0.0
 var float  stRl     = 0.0
 var int    stCallW  = 0
 var int    stCallN  = 0
+var int    lastLoss = 0          // the lane a loss was last booked against
 var float  pz20u    = na         // and yesterday's pair
 var float  pz20d    = na
 var float  lastR    = na         // the R won or lost
@@ -1339,9 +1340,13 @@ if intraday and inBlock
 if fzOn and intraday and array.size(ZS) > 0
     for i = 0 to array.size(ZS) - 1
         Zone z = array.get(ZS, i)
-        if z.dead or z.lane != laneDay
+        if z.dead
             continue
-        int x2 = na(fzX2) ? bar_index + 1 : fzX2
+        // A dormant zone stays inside its own day block so the blocks line up.
+        // Once it is live it follows price, and it keeps following past midnight
+        // - a trade runs until it resolves, however many days that takes.
+        int x2 = z.st == 0 and z.lane == laneDay and not na(fzX2) ? fzX2 :
+             z.st == 0 ? box.get_right(z.bx) : bar_index + 1
         box.set_right(z.bx, x2)
         if not na(z.l1)
             line.set_x2(z.l1, x2)
@@ -1383,22 +1388,32 @@ if fzOn and intraday and array.size(ZS) > 0
             float risk = math.abs(ent - stp)
             float rr   = risk > 0 ? math.abs(z.T - ent) / risk : 0.0
             if hitS
-                stL  += count ? 1 : 0
-                stRl += count ? 1.0 : 0.0
-                // The zone sinks back, but the result still prints. It is deleted
-                // again if a zone on the same lane later wins, so the day ends
-                // showing only the trade worth having taken.
+                // Both sides get taken, so one of them stopping is not a losing
+                // trade - it is the side you would not have chosen. The day only
+                // books a loss once EVERY zone on that lane is gone with no
+                // target reached.
                 z.st := 4
                 z.dead := true
                 f_zStrip(z)
                 f_zRecolour(z)
-                if acShow
-                    z.res := label.new(fzX1, stp, "-1.00R   -$"
-                         + str.tostring(acBal * acRisk / 100.0, "#.##"),
-                         style = z.side > 0 ? label.style_label_upper_right
-                                            : label.style_label_lower_right,
-                         color = color.new(color.black, 100), textcolor = acLosC,
-                         size = f_size(acSize), xloc = xloc.bar_index)
+                bool anyAlive = false
+                bool anyWon   = false
+                for jj = 0 to array.size(ZS) - 1
+                    Zone o = array.get(ZS, jj)
+                    if o.lane == z.lane
+                        anyWon   := anyWon or o.st == 3
+                        anyAlive := anyAlive or not o.dead
+                if not anyAlive and not anyWon and count and lastLoss != z.lane
+                    lastLoss := z.lane
+                    stL  += 1
+                    stRl += 1.0
+                    if acShow
+                        z.res := label.new(fzX1, stp, "-1.00R   -$"
+                             + str.tostring(acBal * acRisk / 100.0, "#.##"),
+                             style = z.side > 0 ? label.style_label_upper_right
+                                                : label.style_label_lower_right,
+                             color = color.new(color.black, 100), textcolor = acLosC,
+                             size = f_size(acSize), xloc = xloc.bar_index)
             else if hitT
                 stW  += count ? 1 : 0
                 stRw += count ? rr : 0.0
