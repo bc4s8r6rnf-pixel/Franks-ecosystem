@@ -2,7 +2,7 @@
 
 //@version=6
 // ============================================================================
-// XAU //PRO 79 JECT  v5.0
+// XAU //PRO 79 JECT  v5.1
 //
 // THE RULES, in the order they happen.
 //
@@ -16,9 +16,12 @@
 //  3  Fibs, drawn as levels only - no boxes:
 //        zone to zone      1 on one 2.0 edge, -0.27 on the opposing 2.0 edge.
 //                          Both directions, always.
-//        previous swing    1 on yesterday's last confirmed pivot. That pivot is
-//                          either a high or a low, so this fib exists in ONE
-//                          direction only. It is not drawn for the other.
+//        previous swing    1 on yesterday's last swing. A pivot high anchors a
+//                          short, a pivot low anchors a long, so each swing fib
+//                          exists in ONE direction only. With Swing anchor set
+//                          to "Both sides" yesterday's last pivot high and last
+//                          pivot low are both carried and the mode decides which
+//                          of the two is allowed to trade.
 //     The -0.27 is always the opposing 2.0 edge, so the target is the same
 //     price for every fib on a side.
 //
@@ -35,7 +38,8 @@
 //     its turn.
 //
 //  7  The target line runs on until the target is met, then freezes there.
-//     A stop ends it instead.
+//     A stop ends it instead. An open trade is never cancelled by the next
+//     midnight - only untouched fibs are deleted at the open.
 //
 // Measured over 3,482-3,673 trades, 2004-2026, anchored to yesterday's swing:
 // entry 0.62 PF 1.15, 0.70 PF 1.14, 0.79 PF 1.14; stop 0.88 PF 1.16, 0.95 PF
@@ -81,6 +85,13 @@ emaShow  = input.bool(true, "plot it", inline = "em", group = "Trade")
 fzZ2Z    = input.bool(true, "Zone to zone fib",    inline = "fa", group = "Fibs")
 fzSw     = input.bool(true, "Previous swing fib",  inline = "fa", group = "Fibs")
 fzPiv    = input.int(5, "Swing strength", minval = 1, maxval = 30, group = "Fibs")
+fzSwPick = input.string("Both sides", "Swing anchor",
+     options = ["Both sides", "Last pivot only"], group = "Fibs",
+     tooltip = "Both sides: yesterday's last pivot high anchors a short and its " +
+               "last pivot low anchors a long, and the mode decides which trades. " +
+               "Last pivot only: just whichever of the two confirmed last, which " +
+               "is the literal reading of the rule but lets a late wiggle erase " +
+               "the swing you actually drew.")
 fzNums   = input.bool(true, "Retracement numbers", inline = "fn", group = "Fibs")
 fzTxt    = input.string("Tiny", "", options = ["Tiny", "Small", "Normal"],
      inline = "fn", group = "Fibs")
@@ -184,12 +195,17 @@ bool inLane   = intraday and not na(laneDay) and time >= laneDay
 bool inDay    = inLane and hour(time, TZ) < endHour
 bool inWin    = intraday and not na(time(timeframe.period, winFrom, TZ))
 
-// the previous day's last confirmed pivot - a high or a low, never both
+// Yesterday's last swing. The old code kept ONE number - whichever pivot type
+// happened to confirm last - so a five-bar wiggle at 23:00 overwrote the real
+// swing high at 18:30 and the short fib that swing anchors was never built at
+// all. Both of yesterday's last pivots are now carried, and "Both sides" builds
+// the fib each one supports: a pivot high anchors a short, a pivot low a long.
 var float pvHi = na
 var float pvLo = na
 var bool  pvLowLast = false
-var float dayPv = na
-var bool  dayPvIsLow = false
+var float dayPvH = na
+var float dayPvL = na
+var bool  dayPvLast = false
 float _ph = ta.pivothigh(high, fzPiv, fzPiv)
 float _pl = ta.pivotlow(low,  fzPiv, fzPiv)
 if not na(_ph)
@@ -199,8 +215,9 @@ if not na(_pl)
     pvLo := _pl
     pvLowLast := true
 if laneOpen
-    dayPv      := pvLowLast ? pvLo : pvHi
-    dayPvIsLow := pvLowLast
+    dayPvH    := pvHi
+    dayPvL    := pvLo
+    dayPvLast := pvLowLast
 
 float ema90 = ta.ema(close, emaLen)
 plot(emaShow and useEma ? ema90 : na, "90 EMA", color = emaCol, linewidth = 1)
@@ -293,19 +310,23 @@ type Fib
 
 var array<Fib> FS = array.new<Fib>()
 
-f_fLine(int t1, float y, color c, int w, string sty) =>
-    line.new(t1, y, t1, y, xloc = xloc.bar_time, color = c, width = w,
+// Lines get the whole day at creation. Building them zero-length and relying on
+// the per-bar stretch meant that if anything interrupted that loop they stayed
+// invisible - which is what happened.
+f_fLine(int t1, int t2, float y, color c, int w, string sty) =>
+    line.new(t1, y, t2, y, xloc = xloc.bar_time, color = c, width = w,
          style = sty == "dot" ? line.style_dotted : line.style_solid)
 
 f_fNew(float A_, float T_, int sd, bool sw, int t1) =>
     Fib f = Fib.new(A = A_, T = T_, side = sd, isSwing = sw, st = 0,
          ent = f_lv(A_, T_, trEntF), lane = laneDay, t1 = t1, dead = false)
     color c = sw ? fzLnS : fzLnZ
-    f.l62 := f_fLine(t1, f_lv(A_, T_, 0.62), c, fzW, "dot")
-    f.l70 := f_fLine(t1, f_lv(A_, T_, 0.70), c, fzW, "dot")
-    f.l79 := f_fLine(t1, f_lv(A_, T_, 0.79), c, fzW, "dot")
-    f.lst := f_fLine(t1, f_lv(A_, T_, trStpF), fzStpC, fzW, "dot")
-    f.ltg := f_fLine(t1, T_, fzTgtC, fzW, "sol")
+    int t2 = t1 + endHour * 3600000
+    f.l62 := f_fLine(t1, t2, f_lv(A_, T_, 0.62), c, fzW, "dot")
+    f.l70 := f_fLine(t1, t2, f_lv(A_, T_, 0.70), c, fzW, "dot")
+    f.l79 := f_fLine(t1, t2, f_lv(A_, T_, 0.79), c, fzW, "dot")
+    f.lst := f_fLine(t1, t2, f_lv(A_, T_, trStpF), fzStpC, fzW, "dot")
+    f.ltg := f_fLine(t1, t2, T_, fzTgtC, fzW, "sol")
     if fzNums
         f.tag := label.new(t1, f_lv(A_, T_, 0.70),
              (sw ? "swing" : "zone") + "\n0.62\n0.70\n0.79\n" + trStop + " stop",
@@ -313,13 +334,6 @@ f_fNew(float A_, float T_, int sd, bool sw, int t1) =>
              textcolor = c, size = f_size(fzTxt), xloc = xloc.bar_time)
     array.push(FS, f)
     f
-
-f_fStretch(Fib f, int t2) =>
-    line.set_x2(f.l62, t2)
-    line.set_x2(f.l70, t2)
-    line.set_x2(f.l79, t2)
-    line.set_x2(f.lst, t2)
-    line.set_x2(f.ltg, t2)
 
 f_fKill(Fib f) =>
     line.delete(f.l62)
@@ -337,11 +351,12 @@ if intraday and laneOpen and not na(z20u)
     if fzZ2Z
         f_fNew(z20d, z20u,  1, false, time)
         f_fNew(z20u, z20d, -1, false, time)
-    if fzSw and not na(dayPv)
-        int sd = dayPvIsLow ? 1 : -1
-        float tg = sd > 0 ? z20u : z20d
-        if (sd > 0 and tg > dayPv) or (sd < 0 and tg < dayPv)
-            f_fNew(dayPv, tg, sd, true, time)
+    if fzSw
+        bool bothSw = fzSwPick == "Both sides"
+        if not na(dayPvH) and (bothSw or not dayPvLast) and z20d < dayPvH
+            f_fNew(dayPvH, z20d, -1, true, time)
+        if not na(dayPvL) and (bothSw or dayPvLast) and z20u > dayPvL
+            f_fNew(dayPvL, z20u,  1, true, time)
 
 // Yesterday's fibs go at the open. A fib that never entered is deleted; one
 // that traded stays as the day's record.
@@ -352,10 +367,6 @@ if intraday and laneOpen and array.size(FS) > 0
             f_fKill(o)
             line.delete(o.ltg)
             array.remove(FS, i)
-        else if o.lane != laneDay and o.st == 2
-            o.st   := 4
-            o.dead := true
-            f_fKill(o)
 
 //=============================================================================
 // THE ENTRY, AND WHAT HAPPENS AFTER IT
@@ -370,8 +381,6 @@ array<float> m1c = request.security_lower_tf(syminfo.tickerid, "1", close)
 if intraday and array.size(FS) > 0
     for i = 0 to array.size(FS) - 1
         Fib f = array.get(FS, i)
-        if f.lane == laneDay and inDay
-            f_fStretch(f, time)
         if f.dead
             continue
         // Direction mode: the other side never trades.
@@ -391,13 +400,21 @@ if intraday and array.size(FS) > 0
             f.st := 1
         else if f.st == 1
             // a one-minute close back outside the band, on the target side
+            // TradingView only serves intrabar data for a limited recent window,
+            // so on history the 1m array comes back empty. Requiring it meant no
+            // entry could ever confirm on an older bar - no markers, no targets,
+            // no trades. Where 1m exists it decides; where it does not, this
+            // bar's own close stands in.
             bool closedOut = false
-            if inWin and array.size(m1c) > 0
-                for k = 0 to array.size(m1c) - 1
-                    float c1 = array.get(m1c, k)
-                    if f.side > 0 ? c1 > hi62 : c1 < lo79
-                        closedOut := true
-                        break
+            if inWin
+                if array.size(m1c) > 0
+                    for k = 0 to array.size(m1c) - 1
+                        float c1 = array.get(m1c, k)
+                        if f.side > 0 ? c1 > hi62 : c1 < lo79
+                            closedOut := true
+                            break
+                else
+                    closedOut := f.side > 0 ? close > hi62 : close < lo79
             bool emaOk = not useEma or (f.side > 0 ? close > ema90 : close < ema90)
             if closedOut and emaOk
                 f.st := 2
