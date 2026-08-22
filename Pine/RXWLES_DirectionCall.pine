@@ -336,44 +336,44 @@ type Zone
     label tag
     label res
     int   lane
-    int   x1
-    int   x2
+    int   t1        // lane open, as a timestamp - see the note below
+    int   t2
     bool  seenT     // price has traded on the target side of the box
     bool  dead
 
 var array<Zone> ZS = array.new<Zone>()
 
-f_zNew(float A_, float T_, int sd, int x1) =>
+f_zNew(float A_, float T_, int sd, int t1) =>
     // Named arguments: positional was one na short of the sixteen fields, which
     // silently shifted laneDay onto res. Everything unnamed defaults to na.
     Zone z = Zone.new(A = A_, T = T_, side = sd, st = 0, lane = laneDay,
-         x1 = x1, x2 = x1, seenT = false, dead = false)
+         t1 = t1, t2 = t1, seenT = false, dead = false)
     float u = f_lv(A_, T_, 0.62)
     float d = f_lv(A_, T_, 0.79)
-    z.bx := box.new(x1, math.max(u, d), x1, math.min(u, d),
+    z.bx := box.new(t1, math.max(u, d), t1, math.min(u, d),
          border_color = f_theme(fzDormB), bgcolor = f_theme(fzDorm),
-         xloc = xloc.bar_index)
+         xloc = xloc.bar_time)
     // Target and stop exist from the moment the zone does, dim until it arms,
     // so both sides of the day are readable before anything triggers.
-    z.lt := line.new(x1, T_, x1, T_, xloc = xloc.bar_index,
+    z.lt := line.new(t1, T_, t1, T_, xloc = xloc.bar_time,
          color = color.new(fzTgtC, 55), width = fzTgtW)
-    z.ls := line.new(x1, f_lv(A_, T_, trStpF), x1, f_lv(A_, T_, trStpF),
-         xloc = xloc.bar_index, color = color.new(fzStpC, 60), style = line.style_dotted)
+    z.ls := line.new(t1, f_lv(A_, T_, trStpF), t1, f_lv(A_, T_, trStpF),
+         xloc = xloc.bar_time, color = color.new(fzStpC, 60), style = line.style_dotted)
     array.push(ZS, z)
     z
 
 f_zLevels(Zone z) =>
     color c = f_theme(fzLine)
-    z.l1 := line.new(z.x1, f_lv(z.A, z.T, 0.62), z.x2, f_lv(z.A, z.T, 0.62),
-         xloc = xloc.bar_index, color = c, style = line.style_dotted)
-    z.l2 := line.new(z.x1, f_lv(z.A, z.T, 0.70), z.x2, f_lv(z.A, z.T, 0.70),
-         xloc = xloc.bar_index, color = c, style = line.style_dotted)
-    z.l3 := line.new(z.x1, f_lv(z.A, z.T, 0.79), z.x2, f_lv(z.A, z.T, 0.79),
-         xloc = xloc.bar_index, color = c, style = line.style_dotted)
+    z.l1 := line.new(z.t1, f_lv(z.A, z.T, 0.62), z.t2, f_lv(z.A, z.T, 0.62),
+         xloc = xloc.bar_time, color = c, style = line.style_dotted)
+    z.l2 := line.new(z.t1, f_lv(z.A, z.T, 0.70), z.t2, f_lv(z.A, z.T, 0.70),
+         xloc = xloc.bar_time, color = c, style = line.style_dotted)
+    z.l3 := line.new(z.t1, f_lv(z.A, z.T, 0.79), z.t2, f_lv(z.A, z.T, 0.79),
+         xloc = xloc.bar_time, color = c, style = line.style_dotted)
     if fzShowN
-        z.tag := label.new(z.x1, f_lv(z.A, z.T, 0.70), "0.62\n0.70\n0.79",
+        z.tag := label.new(z.t1, f_lv(z.A, z.T, 0.70), "0.62\n0.70\n0.79",
              style = label.style_label_right, color = color.new(color.black, 100),
-             textcolor = c, size = f_size(fzTxt), xloc = xloc.bar_index)
+             textcolor = c, size = f_size(fzTxt), xloc = xloc.bar_time)
 
 f_zRecolour(Zone z) =>
     if z.st == 0 or z.st == 4
@@ -421,7 +421,20 @@ f_zSpawn(float A_, int sd) =>
         float T_ = sd > 0 ? (boxHi + trTgtM * R) : (boxLo - trTgtM * R)
         float z_ = sd > 0 ? z20u : z20d          // the fib is always built to 2.0
         if (sd > 0 and z_ - A_ > 0) or (sd < 0 and z_ - A_ < 0)
-            f_zNew(A_, T_, sd, bar_index)
+            f_zNew(A_, T_, sd, time)
+
+// A zone that never armed during its own day is finished. Leaving them alive
+// meant a dormant zone from months ago could still be touched today and try to
+// draw its levels back at its original bar - which is the RE10026 the runtime
+// threw, and it would also have grown the array without limit.
+if intraday and laneOpen and array.size(ZS) > 0
+    for i = 0 to array.size(ZS) - 1
+        Zone o = array.get(ZS, i)
+        if not o.dead and o.lane != laneDay and o.st < 2
+            o.st   := 4
+            o.dead := true
+            f_zStrip(o)
+            f_zRecolour(o)
 
 if intraday and laneOpen and not na(z20u)
     int only = 1
@@ -442,21 +455,21 @@ var line eeUp = na
 var line eeDn = na
 if intraday and laneOpen and not na(z20u)
     if dvShow
-        line.new(bar_index, z20u, bar_index, z20d, xloc = xloc.bar_index,
+        line.new(time, z20u, time, z20d, xloc = xloc.bar_time,
              extend = extend.both, color = dvCol, style = f_style(dvStyle),
              width = dvW)
     if eeShow
-        eeBx := box.new(bar_index, z20u, bar_index, z20d, border_color = eeBord,
-             bgcolor = eeFill, xloc = xloc.bar_index)
-        eeUp := line.new(bar_index, z20u, bar_index, z20u, xloc = xloc.bar_index,
+        eeBx := box.new(time, z20u, time, z20d, border_color = eeBord,
+             bgcolor = eeFill, xloc = xloc.bar_time)
+        eeUp := line.new(time, z20u, time, z20u, xloc = xloc.bar_time,
              color = eeEdge, width = eeEdgeW)
-        eeDn := line.new(bar_index, z20d, bar_index, z20d, xloc = xloc.bar_index,
+        eeDn := line.new(time, z20d, time, z20d, xloc = xloc.bar_time,
              color = eeEdge, width = eeEdgeW)
 
 if intraday and inBlock and not na(eeBx)
-    box.set_right(eeBx, bar_index)
-    line.set_x2(eeUp, bar_index)
-    line.set_x2(eeDn, bar_index)
+    box.set_right(eeBx, time)
+    line.set_x2(eeUp, time)
+    line.set_x2(eeDn, time)
 
 //=============================================================================
 // THE STATE MACHINE
@@ -473,16 +486,16 @@ if intraday and array.size(ZS) > 0
         // zone that resolved at 06:00 stopped drawing there, which is why the
         // boxes were cutting short whenever price reached them early.
         if z.lane == laneDay and inBlock
-            z.x2 := bar_index
-            box.set_right(z.bx, z.x2)
+            z.t2 := time
+            box.set_right(z.bx, z.t2)
             if not na(z.l1)
-                line.set_x2(z.l1, z.x2)
-                line.set_x2(z.l2, z.x2)
-                line.set_x2(z.l3, z.x2)
+                line.set_x2(z.l1, z.t2)
+                line.set_x2(z.l2, z.t2)
+                line.set_x2(z.l3, z.t2)
             if not na(z.ls)
-                line.set_x2(z.ls, z.x2)
+                line.set_x2(z.ls, z.t2)
             if not na(z.lt)
-                line.set_x2(z.lt, z.x2)
+                line.set_x2(z.lt, z.t2)
         if z.dead
             continue
         // Direction-engine mode: once the call is in, the other side stops. Both
@@ -564,12 +577,12 @@ if intraday and array.size(ZS) > 0
                     stL  += 1
                     stRl += 1.0
                     if acShow
-                        z.res := label.new(z.x1, stp, "-1.00R  -$"
+                        z.res := label.new(z.t1, stp, "-1.00R  -$"
                              + str.tostring(acBal * acRisk / 100.0, "#.##"),
                              style = z.side > 0 ? label.style_label_upper_right
                                                 : label.style_label_lower_right,
                              color = color.new(color.black, 100), textcolor = acLosC,
-                             size = f_size(acSize), xloc = xloc.bar_index)
+                             size = f_size(acSize), xloc = xloc.bar_time)
             else if hitT
                 stW  += count ? 1 : 0
                 stRw += count ? rr : 0.0
@@ -582,12 +595,12 @@ if intraday and array.size(ZS) > 0
                 f_zRecolour(z)
                 f_zSole(z.lane, i)
                 if acShow
-                    z.res := label.new(z.x1, z.T, "+" + str.tostring(rr, "#.##")
+                    z.res := label.new(z.t1, z.T, "+" + str.tostring(rr, "#.##")
                          + "R  +$" + str.tostring(acBal * acRisk / 100.0 * rr, "#.##"),
                          style = z.side > 0 ? label.style_label_lower_right
                                             : label.style_label_upper_right,
                          color = color.new(color.black, 100), textcolor = acWinC,
-                         size = f_size(acSize), xloc = xloc.bar_index)
+                         size = f_size(acSize), xloc = xloc.bar_time)
 
 //=============================================================================
 // PANEL
