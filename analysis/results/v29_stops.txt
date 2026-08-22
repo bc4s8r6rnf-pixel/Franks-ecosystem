@@ -1,0 +1,46 @@
+========================================================================================================
+A. DIRECTION CALL - is it the same on OANDA-matched data as on the long history?
+========================================================================================================
+  OANDA-matched, May-Aug 2026      undecided-at-04:00 lanes    31   accuracy 87.10%   (+3 already resolved, excluded)
+  MT5, 2004-2026                   undecided-at-04:00 lanes  2597   accuracy 72.51%   (+2059 already resolved, excluded)
+
+  For reference, from the 22-year study on 4,449 undecided sessions:
+    all              71.5%        |pos-0.5| >= 0.15   80.5%
+    2018-2026        72.6%        |pos-0.5| >= 0.25   85.0%
+    2023-2026        73.4%        |pos-0.5| >= 0.30   88.5%
+
+====================================================================================================================
+B. THE BEST STOP FOR THE FIB ENTRY  (anchor P, target the 2.0 zone)
+====================================================================================================================
+
+  --- OANDA window 2026, entry at the 0.62, anchor P ---
+  stop                          n    win%       PF        RR       need       z         risk      avgR      totR      DD
+    stop 0.88 level            33   36.4% PF  1.96 RR   3.42 need  22.6% z +1.89 risk $  18.58 avgR +0.608 totR    +20.1 DD   6.0
+    stop 0.95 level            33   45.5% PF  2.25 RR   2.70 need  27.0% z +2.38 risk $  23.58 avgR +0.680 totR    +22.5 DD   4.0
+    stop the 1 anchor          33   45.5% PF  1.95 RR   2.34 need  29.9% z +1.95 risk $  27.15 avgR +0.519 totR    +17.1 DD   4.0
+    stop 5% past the 1         33   45.5% PF  1.95 RR   2.34 need  29.9% z +1.95 risk $  27.15 avgR +0.519 totR    +17.1 DD   4.0
+    stop 15% past the 1        33   45.5% PF  1.95 RR   2.34 need  29.9% z +1.95 risk $  27.15 avgR +0.519 totR    +17.1 DD   4.0
+
+  --- OANDA window 2026, entry at the 0.79, anchor P ---
+  stop                          n    win%       PF        RR       need       z         risk      avgR      totR      DD
+    stop 0.88 level            25   20.0% PF  2.94 RR  11.78 need   7.8% z +2.27 risk $   6.16 avgR +1.556 totR    +38.9 DD   7.0
+    stop 0.95 level            25   36.0% PF  3.73 RR   6.62 need  13.1% z +3.39 risk $  10.95 avgR +1.745 totR    +43.6 DD   4.0
+    stop the 1 anchor          25   36.0% PF  2.84 RR   5.05 need  16.5% z +2.62 risk $  14.38 avgR +1.177 totR    +29.4 DD   4.0
+    stop 5% past the 1         25   36.0% PF  2.84 RR   5.05 need  16.5% z +2.62 risk $  14.38 avgR +1.177 totR    +29.4 DD   4.0
+    stop 15% past the 1        25   36.0% PF  2.84 RR   5.05 need  16.5% z +2.62 risk $  14.38 avgR +1.177 totR    +29.4 DD   4.0
+
+  --- MT5 2004-2026, entry at the 0.62, anchor P ---
+  stop                          n    win%       PF        RR       need       z         risk      avgR      totR      DD
+    stop 0.88 level          3294   25.1% PF  1.14 RR   3.42 need  22.6% z +3.43 risk $   2.34 avgR +0.104 totR   +341.6 DD  65.6
+    stop 0.95 level          3294   29.7% PF  1.13 RR   2.70 need  27.0% z +3.41 risk $   2.97 avgR +0.091 totR   +301.2 DD  41.1
+    stop the 1 anchor        3294   31.8% PF  1.08 RR   2.34 need  29.9% z +2.30 risk $   3.42 avgR +0.055 totR   +181.1 DD  46.9
+    stop 5% past the 1       3294   31.8% PF  1.08 RR   2.34 need  29.9% z +2.30 risk $   3.42 avgR +0.055 totR   +181.1 DD  46.9
+    stop 15% past the 1      3294   31.8% PF  1.08 RR   2.34 need  29.9% z +2.30 risk $   3.42 avgR +0.055 totR   +181.1 DD  46.9
+
+  --- MT5 2004-2026, entry at the 0.79, anchor P ---
+  stop                          n    win%       PF        RR       need       z         risk      avgR      totR      DD
+    stop 0.88 level          3455    9.1% PF  1.17 RR  11.78 need   7.8% z +2.70 risk $   0.81 avgR +0.151 totR   +523.3 DD  84.0
+    stop 0.95 level          3455   14.8% PF  1.14 RR   6.62 need  13.1% z +2.92 risk $   1.44 avgR +0.121 totR   +418.5 DD  59.6
+    stop the 1 anchor        3455   17.5% PF  1.06 RR   5.05 need  16.5% z +1.50 risk $   1.89 avgR +0.048 totR   +164.7 DD 111.2
+    stop 5% past the 1       3455   17.5% PF  1.06 RR   5.05 need  16.5% z +1.50 risk $   1.89 avgR +0.048 totR   +164.7 DD 111.2
+    stop 15% past the 1      3455   17.5% PF  1.06 RR   5.05 need  16.5% z +1.50 risk $   1.89 avgR +0.048 totR   +164.7 DD 111.2
