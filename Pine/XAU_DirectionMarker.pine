@@ -1,0 +1,144 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+
+//@version=6
+// ============================================================================
+// XAU //DIRECTION  v1.0
+//
+// The direction call on its own. Lifted out of XAU //PRO 79 JECT unchanged -
+// same source candle, same read hour, same arithmetic, same confidence tiers,
+// same two labels - with every zone, fib, trade and panel stripped out. One
+// marker per day and its confidence score. Nothing else is drawn.
+//
+// How the call is made:
+//   The 21:00 NY candle sets R = its high minus its low. The projection edges
+//   are srcHigh + 2R above and srcLow - 2R below. At the read hour the open is
+//   measured as a fraction of the distance between those two edges:
+//
+//       pz = (open - lower 2.0 edge) / (upper 2.0 edge - lower 2.0 edge)
+//
+//   Above the midpoint the call is UP, below it DOWN. Nothing else feeds it.
+//
+// The confidence score is how lopsided that reading is - |pz - 0.5|, the
+// distance from dead centre. Measured on 4,449 sessions, 2004-2026, it runs
+// 57.7% at the midpoint to 94.9% at the extreme. The call itself is 72.5% on
+// 2,597 sessions that were still undecided at the read hour.
+// ============================================================================
+
+indicator("XAU //DIRECTION", "XAUDIR", overlay = true, max_labels_count = 500)
+
+const string TZ = "America/New_York"
+
+//=============================================================================
+// INPUTS
+//=============================================================================
+
+srcHour  = input.int(21, "Source candle hour (NY)", minval = 0, maxval = 23,
+     group = "Method", tooltip = "Must match RXWLES PRO's Enigma Source Hour.")
+readHour = input.int(4, "Direction read hour (NY)", minval = 0, maxval = 23,
+     group = "Method")
+
+dShow   = input.bool(true, "Direction marker", inline = "d1", group = "Marker")
+dUpCol  = input.color(color.new(#4db6a0, 35), "up",   inline = "d1", group = "Marker")
+dDnCol  = input.color(color.new(#c96a6a, 35), "down", inline = "d1", group = "Marker")
+dSize   = input.string("Tiny", "size", inline = "d2", group = "Marker",
+     options = ["Tiny", "Small", "Normal"])
+dConf   = input.bool(true, "confidence %", inline = "d2", group = "Marker")
+dConfC  = input.color(color.new(#8899a6, 35), "", inline = "d2", group = "Marker")
+dOff    = input.float(0.25, "Offset (R)", step = 0.05, minval = 0.0, group = "Marker")
+
+//=============================================================================
+// HELPERS
+//=============================================================================
+
+f_size(string s) => s == "Tiny" ? size.tiny : s == "Normal" ? size.normal : size.small
+
+f_midnight(int t) =>
+    timestamp(TZ, year(t, TZ), month(t, TZ), dayofmonth(t, TZ), 0, 0, 0)
+
+//=============================================================================
+// SOURCE CANDLE AND LANE
+//
+// The source candle is read one bar late so it is complete before it is used.
+// srcDay is the midnight that follows it: adding 26 hours to that candle's own
+// midnight and taking the midnight of the result lands on the next day whatever
+// the hour, which keeps the lane correct across a DST shift.
+//=============================================================================
+
+bool intraday = not timeframe.isdwm
+
+var float srcHigh = na
+var float srcLow  = na
+var int   srcDay  = na
+if intraday and hour(time[1], TZ) == srcHour
+    srcHigh := na(srcHigh) or hour(time[2], TZ) != srcHour ? high[1] : math.max(srcHigh, high[1])
+    srcLow  := na(srcLow)  or hour(time[2], TZ) != srcHour ? low[1]  : math.min(srcLow,  low[1])
+    srcDay  := f_midnight(f_midnight(time[1]) + 26 * 3600000)
+
+var int   laneDay = na
+var float R       = na
+var float z20u    = na
+var float z20d    = na
+var int   side    = 0
+var bool  called  = false
+
+bool newSrc = intraday and not na(srcDay) and not na(srcHigh)
+     and (na(laneDay) or srcDay != laneDay)
+
+if newSrc and (srcHigh - srcLow) > 0
+    laneDay := srcDay
+    R       := srcHigh - srcLow
+    z20u    := srcHigh + 2.0 * R
+    z20d    := srcLow  - 2.0 * R
+    called  := false
+    side    := 0
+
+bool inLane = intraday and not na(laneDay) and time >= laneDay
+     and time < laneDay + 86400000
+
+//=============================================================================
+// THE CALL, AND THE CONFIDENCE THAT GOES WITH IT
+//=============================================================================
+
+var float cfRaw  = na
+var float cfHit  = na
+var int   cfTier = 0
+
+f_cfHit(float raw) =>
+    raw < 0.05 ? 57.7 : raw < 0.10 ? 64.0 : raw < 0.15 ? 68.2 :
+     raw < 0.20 ? 74.8 : raw < 0.25 ? 78.4 : raw < 0.35 ? 81.3 : 94.9
+
+if inLane and not called and not na(R) and R > 0 and hour(time, TZ) >= readHour
+    called := true
+    float pz = (open - z20d) / (z20u - z20d)
+    cfRaw  := math.abs(pz - 0.5)
+    cfHit  := f_cfHit(cfRaw)
+    cfTier := cfRaw < 0.10 ? 1 : cfRaw < 0.20 ? 2 : cfRaw < 0.30 ? 3 : 4
+    side   := pz > 0.5 ? 1 : -1
+
+bool justCalled = inLane and called and not called[1]
+
+//=============================================================================
+// THE MARKER
+//=============================================================================
+
+if dShow and justCalled and side != 0 and not na(R)
+    label.new(bar_index, side > 0 ? low - dOff * R : high + dOff * R, "",
+         style = side > 0 ? label.style_triangleup : label.style_triangledown,
+         color = side > 0 ? dUpCol : dDnCol, size = f_size(dSize), yloc = yloc.price)
+    if dConf and not na(cfHit)
+        label.new(bar_index, side > 0 ? low - (dOff + 0.30) * R
+                                      : high + (dOff + 0.30) * R,
+             str.tostring(cfHit, "#") + "%", style = label.style_none,
+             color = color.new(color.black, 100), textcolor = dConfC,
+             size = f_size(dSize), yloc = yloc.price)
+
+//=============================================================================
+// ALERTS
+//=============================================================================
+
+alertcondition(justCalled and side ==  1, "Direction: UP",   "Direction call: UP")
+alertcondition(justCalled and side == -1, "Direction: DOWN", "Direction call: DOWN")
+alertcondition(justCalled and cfTier >= 3, "Confidence: strong",
+     "A strong call - the reading is in the top two tiers")
+alertcondition(justCalled and cfTier <= 1, "Confidence: weak",
+     "A weak call - close to a coin flip")
