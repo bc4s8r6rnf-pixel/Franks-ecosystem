@@ -3,14 +3,27 @@
 
 //@version=6
 // ============================================================================
-// XAU //DIRECTION  v1.0
+// XAU //DIRECTION  v1.1
 //
-// The direction call on its own. Lifted out of XAU //PRO 79 JECT unchanged -
-// same source candle, same read hour, same arithmetic, same confidence tiers,
-// same two labels - with every zone, fib, trade and panel stripped out. One
-// marker per day and its confidence score. Nothing else is drawn.
+// A direction indicator and nothing else. No fibs, no trades, no state machine,
+// no panel.
 //
-// How the call is made:
+// WHAT IT DRAWS, per day:
+//
+//   1  The two 21:00 projection zones as boxes - 2.0 to 2.5 above the source
+//      candle's high, 2.0 to 2.5 below its low. Drawn every day whether or not
+//      a call is made.
+//
+//   2  A midnight divider, vertical, on the bar the day opens.
+//
+//   3  At the read hour the call names one of those two boxes as the target.
+//      The target word is written INSIDE that box. The other box is left
+//      alone - which box carries the text IS the direction call.
+//
+//   4  The confidence score, printed just outside the target box's 2.5 edge on
+//      the left: above it for an up call, below it for a down call.
+//
+// HOW THE CALL IS MADE:
 //   The 21:00 NY candle sets R = its high minus its low. The projection edges
 //   are srcHigh + 2R above and srcLow - 2R below. At the read hour the open is
 //   measured as a fraction of the distance between those two edges:
@@ -23,9 +36,13 @@
 // distance from dead centre. Measured on 4,449 sessions, 2004-2026, it runs
 // 57.7% at the midpoint to 94.9% at the extreme. The call itself is 72.5% on
 // 2,597 sessions that were still undecided at the read hour.
+//
+// Everything drawn is placed with xloc.bar_time rather than bar_index, so a
+// drawing never sits further from the current bar than Pine will allow.
 // ============================================================================
 
-indicator("XAU //DIRECTION", "XAUDIR", overlay = true, max_labels_count = 500)
+indicator("XAU //DIRECTION", "XAUDIR", overlay = true,
+     max_labels_count = 500, max_lines_count = 500, max_boxes_count = 500)
 
 const string TZ = "America/New_York"
 
@@ -38,20 +55,83 @@ srcHour  = input.int(21, "Source candle hour (NY)", minval = 0, maxval = 23,
 readHour = input.int(4, "Direction read hour (NY)", minval = 0, maxval = 23,
      group = "Method")
 
-dShow   = input.bool(true, "Direction marker", inline = "d1", group = "Marker")
-dUpCol  = input.color(color.new(#4db6a0, 35), "up",   inline = "d1", group = "Marker")
-dDnCol  = input.color(color.new(#c96a6a, 35), "down", inline = "d1", group = "Marker")
-dSize   = input.string("Tiny", "size", inline = "d2", group = "Marker",
-     options = ["Tiny", "Small", "Normal"])
-dConf   = input.bool(true, "confidence %", inline = "d2", group = "Marker")
-dConfC  = input.color(color.new(#8899a6, 35), "", inline = "d2", group = "Marker")
-dOff    = input.float(0.25, "Offset (R)", step = 0.05, minval = 0.0, group = "Marker")
+// --- projection zones -------------------------------------------------------
+pzShow  = input.bool(true, "Show projection zones", group = "Projection zones")
+pzUpF   = input.color(color.new(#4db6a0, 88), "Upper  fill", inline = "pu",
+     group = "Projection zones")
+pzUpB   = input.color(color.new(#4db6a0, 55), "border",      inline = "pu",
+     group = "Projection zones")
+pzDnF   = input.color(color.new(#c96a6a, 88), "Lower  fill", inline = "pd",
+     group = "Projection zones")
+pzDnB   = input.color(color.new(#c96a6a, 55), "border",      inline = "pd",
+     group = "Projection zones")
+pzBW    = input.int(1, "Border width", minval = 0, maxval = 4, inline = "pb",
+     group = "Projection zones")
+pzBS    = input.string("Solid", "", options = ["Solid", "Dashed", "Dotted"],
+     inline = "pb", group = "Projection zones")
+pzEnd   = input.string("Full day", "Right edge", group = "Projection zones",
+     options = ["Full day", "Follow price"],
+     tooltip = "Full day: each box spans its whole day the moment it is drawn. " +
+               "Follow price: the box grows with the bars and stops where price is.")
+pzHiTgt = input.bool(true, "Lift the target zone", group = "Projection zones",
+     tooltip = "Once the call is in, the target box takes the stronger fill " +
+               "below and the other one is left as it was.")
+pzTgtF  = input.color(color.new(#c8d4de, 80), "Target fill", inline = "pt",
+     group = "Projection zones")
+pzTgtB  = input.color(color.new(#c8d4de, 30), "border",      inline = "pt",
+     group = "Projection zones")
+
+// --- the call written inside the target box ---------------------------------
+tgShow  = input.bool(true, "Write the call in the target zone", group = "Target")
+tgText  = input.string("TARGET", "Wording", group = "Target",
+     tooltip = "Whatever you type here is what appears inside the box the call " +
+               "names. Which box it lands in is the direction.")
+tgCol   = input.color(color.new(#e8eef3, 15), "Colour", inline = "tg", group = "Target")
+tgSize  = input.string("Tiny", "size", options = ["Tiny", "Small", "Normal", "Large"],
+     inline = "tg", group = "Target")
+tgX     = input.float(0.5, "Hours from midnight", minval = 0.0, maxval = 23.0,
+     step = 0.25, group = "Target",
+     tooltip = "How far in from the left edge of the day the wording sits.")
+tgAlign = input.string("Left", "Align", options = ["Left", "Centre", "Right"],
+     group = "Target")
+
+// --- the confidence score, outside the target box ---------------------------
+cfShow  = input.bool(true, "Show confidence score", group = "Confidence")
+cfCol   = input.color(color.new(#8899a6, 20), "Colour", inline = "cf",
+     group = "Confidence")
+cfSize  = input.string("Tiny", "size", options = ["Tiny", "Small", "Normal", "Large"],
+     inline = "cf", group = "Confidence")
+cfGap   = input.float(0.15, "Gap from the 2.5 edge (R)", minval = 0.0, step = 0.05,
+     group = "Confidence",
+     tooltip = "Measured in multiples of the 21:00 candle's own range, so the " +
+               "text sits the same distance off the edge on a quiet night as " +
+               "on a wild one.")
+cfX     = input.float(0.5, "Hours from midnight", minval = 0.0, maxval = 23.0,
+     step = 0.25, group = "Confidence")
+cfPct   = input.bool(true, "Show the % sign", group = "Confidence")
+
+// --- midnight divider -------------------------------------------------------
+dvShow  = input.bool(true, "Show midnight divider", group = "Divider")
+dvCol   = input.color(color.new(#8899a6, 55), "Colour", inline = "dv", group = "Divider")
+dvStyle = input.string("Dotted", "", options = ["Solid", "Dashed", "Dotted"],
+     inline = "dv", group = "Divider")
+dvW     = input.int(1, "width", minval = 1, maxval = 4, inline = "dv", group = "Divider")
 
 //=============================================================================
 // HELPERS
 //=============================================================================
 
-f_size(string s) => s == "Tiny" ? size.tiny : s == "Normal" ? size.normal : size.small
+f_size(string s) =>
+    s == "Tiny" ? size.tiny : s == "Normal" ? size.normal :
+     s == "Large" ? size.large : size.small
+
+f_style(string s) =>
+    s == "Dashed" ? line.style_dashed : s == "Dotted" ? line.style_dotted :
+     line.style_solid
+
+f_align(string s) =>
+    s == "Centre" ? text.align_center : s == "Right" ? text.align_right :
+     text.align_left
 
 f_midnight(int t) =>
     timestamp(TZ, year(t, TZ), month(t, TZ), dayofmonth(t, TZ), 0, 0, 0)
@@ -79,6 +159,8 @@ var int   laneDay = na
 var float R       = na
 var float z20u    = na
 var float z20d    = na
+var float z25u    = na
+var float z25d    = na
 var int   side    = 0
 var bool  called  = false
 
@@ -90,11 +172,42 @@ if newSrc and (srcHigh - srcLow) > 0
     R       := srcHigh - srcLow
     z20u    := srcHigh + 2.0 * R
     z20d    := srcLow  - 2.0 * R
+    z25u    := srcHigh + 2.5 * R
+    z25d    := srcLow  - 2.5 * R
     called  := false
     side    := 0
 
-bool inLane = intraday and not na(laneDay) and time >= laneDay
+bool laneOpen = intraday and not na(laneDay) and time >= laneDay and time[1] < laneDay
+bool inLane   = intraday and not na(laneDay) and time >= laneDay
      and time < laneDay + 86400000
+
+//=============================================================================
+// THE ZONES AND THE DIVIDER
+//
+// Both boxes are drawn the moment the day opens, before anything is known about
+// direction, so the map is complete on every single day.
+//=============================================================================
+
+var box pzBu = na
+var box pzBd = na
+
+if intraday and laneOpen and not na(z25u)
+    if pzShow
+        int xR = pzEnd == "Full day" ? laneDay + 86400000 : time
+        pzBu := box.new(time, z25u, xR, z20u, xloc = xloc.bar_time,
+             border_color = pzUpB, border_width = pzBW,
+             border_style = f_style(pzBS), bgcolor = pzUpF)
+        pzBd := box.new(time, z20d, xR, z25d, xloc = xloc.bar_time,
+             border_color = pzDnB, border_width = pzBW,
+             border_style = f_style(pzBS), bgcolor = pzDnF)
+    if dvShow
+        line.new(time, z25u, time, z25d, xloc = xloc.bar_time,
+             extend = extend.both, color = dvCol, style = f_style(dvStyle),
+             width = dvW)
+
+if intraday and inLane and pzEnd == "Follow price" and not na(pzBu)
+    box.set_right(pzBu, time)
+    box.set_right(pzBd, time)
 
 //=============================================================================
 // THE CALL, AND THE CONFIDENCE THAT GOES WITH IT
@@ -119,19 +232,34 @@ if inLane and not called and not na(R) and R > 0 and hour(time, TZ) >= readHour
 bool justCalled = inLane and called and not called[1]
 
 //=============================================================================
-// THE MARKER
+// THE CALL, DRAWN
+//
+// The wording goes inside the box the call names and the score goes just
+// outside that same box's 2.5 edge. Both are placed against the day's own left
+// edge rather than the bar the call fired on, so they line up down the chart.
 //=============================================================================
 
-if dShow and justCalled and side != 0 and not na(R)
-    label.new(bar_index, side > 0 ? low - dOff * R : high + dOff * R, "",
-         style = side > 0 ? label.style_triangleup : label.style_triangledown,
-         color = side > 0 ? dUpCol : dDnCol, size = f_size(dSize), yloc = yloc.price)
-    if dConf and not na(cfHit)
-        label.new(bar_index, side > 0 ? low - (dOff + 0.30) * R
-                                      : high + (dOff + 0.30) * R,
-             str.tostring(cfHit, "#") + "%", style = label.style_none,
-             color = color.new(color.black, 100), textcolor = dConfC,
-             size = f_size(dSize), yloc = yloc.price)
+if justCalled and side != 0 and not na(R) and not na(laneDay)
+    // the target box lifts out of the pair
+    if pzHiTgt and pzShow and not na(pzBu)
+        box tb = side > 0 ? pzBu : pzBd
+        box.set_bgcolor(tb, pzTgtF)
+        box.set_border_color(tb, pzTgtB)
+    if tgShow
+        label.new(laneDay + int(tgX * 3600000),
+             side > 0 ? (z20u + z25u) / 2.0 : (z20d + z25d) / 2.0,
+             tgText, xloc = xloc.bar_time, style = label.style_none,
+             color = color.new(color.black, 100), textcolor = tgCol,
+             size = f_size(tgSize), textalign = f_align(tgAlign),
+             yloc = yloc.price)
+    if cfShow and not na(cfHit)
+        label.new(laneDay + int(cfX * 3600000),
+             side > 0 ? z25u + cfGap * R : z25d - cfGap * R,
+             str.tostring(cfHit, "#") + (cfPct ? "%" : ""),
+             xloc = xloc.bar_time, style = label.style_none,
+             color = color.new(color.black, 100), textcolor = cfCol,
+             size = f_size(cfSize), textalign = text.align_left,
+             yloc = yloc.price)
 
 //=============================================================================
 // ALERTS
